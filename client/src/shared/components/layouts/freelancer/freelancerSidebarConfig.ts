@@ -7,13 +7,14 @@ import type { LucideIcon } from "lucide-react";
 import {
   LayoutGrid,
   Inbox,
+  Search,
   Briefcase,
+  FolderOpen,
   User,
   Video,
   Scale,
   ShieldCheck,
   FileSignature,
-  FolderOpen,
   WalletCards,
   CreditCard,
 } from "lucide-react";
@@ -39,6 +40,14 @@ export const freelancerSidebarMenuItems: FreelancerSidebarMenuItem[] = [
     path: ROUTES.FREELANCER_DASHBOARD,
     description: "Your overview",
     section: "main",
+  },
+  {
+    id: "find-work",
+    label: "Marketplace",
+    icon: Search,
+    path: ROUTES.FREELANCER_MARKETPLACE,
+    description: "Browse phase-3 freelancer hiring requests",
+    section: "workspace",
   },
   {
     id: "invitations",

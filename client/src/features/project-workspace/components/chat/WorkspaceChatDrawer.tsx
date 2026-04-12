@@ -37,7 +37,7 @@ import {
 } from "lucide-react";
 import type { Socket } from "socket.io-client";
 import { toast } from "sonner";
-import * as XLSX from "xlsx";
+import { Workbook, type Fill } from "exceljs";
 import { STORAGE_KEYS } from "@/constants";
 import { Sheet, SheetContent, SheetTitle } from "@/shared/components/ui/sheet";
 import { Button } from "@/shared/components/ui/button";
@@ -905,24 +905,80 @@ const formatMessageTime = (isoTimestamp: string): string => {
   }).format(new Date(isoTimestamp));
 };
 
-const formatLegalTimestamp = (isoTimestamp: string): string => {
-  return new Intl.DateTimeFormat(undefined, {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  }).format(new Date(isoTimestamp));
+const formatAuditTimestamp = (isoTimestamp: string): string => {
+  const date = new Date(isoTimestamp);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const hour = String(date.getHours()).padStart(2, "0");
+  const minute = String(date.getMinutes()).padStart(2, "0");
+  const second = String(date.getSeconds()).padStart(2, "0");
+  const offsetMinutes = -date.getTimezoneOffset();
+  const offsetSign = offsetMinutes >= 0 ? "+" : "-";
+  const offsetHour = String(Math.floor(Math.abs(offsetMinutes) / 60)).padStart(2, "0");
+  const offsetMinute = String(Math.abs(offsetMinutes) % 60).padStart(2, "0");
+
+  return `${year}-${month}-${day} ${hour}:${minute}:${second} UTC${offsetSign}${offsetHour}:${offsetMinute}`;
 };
 
-const sanitizeExcelContent = (value: string): string => {
+const decodeHtmlEntities = (value: string): string => {
+  if (!value || !value.includes("&")) {
+    return value;
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.innerHTML = value;
+  return textarea.value;
+};
+
+const normalizeExportText = (value: string): string => {
   return value
-    .replace(/\r\n|\r|\n/g, " | ")
+    .replace(/\u00a0/g, " ")
+    .replace(/\r\n|\r/g, "\n")
     .replace(/\t/g, " ")
-    .replace(/\s+\|\s+/g, " | ")
-    .replace(/\s{2,}/g, " ")
     .trim();
+};
+
+const formatExportFileTimestamp = (date: Date): string => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const hour = String(date.getHours()).padStart(2, "0");
+  const minute = String(date.getMinutes()).padStart(2, "0");
+  return `${year}-${month}-${day}_${hour}-${minute}`;
+};
+
+const getSystemEventCategory = (message: WorkspaceChatMessage): string => {
+  const normalizedContent = normalizeForRiskScan(message.content || "");
+
+  if (
+    message.taskId ||
+    /\btask\b|\bsubtask\b|\/task\b/.test(normalizedContent)
+  ) {
+    return "Task";
+  }
+
+  if (/\bsubmission\b|\breview\b|\bapprove\b|\breject\b/.test(normalizedContent)) {
+    return "Submission";
+  }
+
+  if (/\bmilestone\b/.test(normalizedContent)) {
+    return "Milestone";
+  }
+
+  if (/\bfund\b|\bescrow\b|\bpayout\b|\bpayment\b/.test(normalizedContent)) {
+    return "Funding";
+  }
+
+  if (/\bworkspace\b|\bchat\b|\bjoined\b|\bleft\b|\bvideo\b/.test(normalizedContent)) {
+    return "Workspace";
+  }
+
+  return "General";
 };
 
 const extractSocketError = (payload: unknown): string | null => {
@@ -2444,80 +2500,570 @@ export function WorkspaceChatDrawer({
     ],
   );
 
-  const handleExportChat = useCallback(() => {
+  const handleExportChat = useCallback(async () => {
     if (!projectId) {
       toast.error("Missing project context. Unable to export chat.");
       return;
     }
 
-    if (messages.length === 0) {
+    if (visibleMessages.length === 0) {
       toast.error("There are no chat records to export yet.");
       return;
     }
 
     const exportedAt = new Date();
-    const dataRows = messages.map((message) => {
-      const messageType = isSystemMessage(message) ? "System" : "User";
-      const senderLabel = isSystemMessage(message)
+    const exporterRole = resolvedCurrentUserRole || "UNKNOWN";
+    const exporterMember = resolvedCurrentUserId
+      ? projectMembers.find((member) => member.id === resolvedCurrentUserId)
+      : undefined;
+    const exportedBy = exporterMember
+      ? `${exporterMember.fullName} (${exporterMember.role})`
+      : resolvedCurrentUserId
+        ? `${resolvedCurrentUserId} (${exporterRole})`
+        : "Unknown user";
+
+    const exportMessages = visibleMessages;
+    const totalMessages = exportMessages.length;
+    const systemMessages = exportMessages.filter((message) => isSystemMessage(message)).length;
+    const userMessages = totalMessages - systemMessages;
+    const userConversationMessages = exportMessages.filter((message) => !isSystemMessage(message));
+    const systemEventMessages = exportMessages.filter((message) => isSystemMessage(message));
+    const totalAttachments = exportMessages.reduce(
+      (total, message) => total + message.attachments.length,
+      0,
+    );
+    const timezoneName = Intl.DateTimeFormat().resolvedOptions().timeZone || "Local timezone";
+    const timezoneLabel = `${timezoneName} (${formatAuditTimestamp(exportedAt.toISOString()).split(" ").at(-1) || "UTC"})`;
+
+    const timestampRange = exportMessages.reduce(
+      (range, message) => {
+        const timestamp = new Date(message.createdAt).getTime();
+        if (Number.isNaN(timestamp)) {
+          return range;
+        }
+
+        return {
+          earliest: range.earliest == null ? timestamp : Math.min(range.earliest, timestamp),
+          latest: range.latest == null ? timestamp : Math.max(range.latest, timestamp),
+        };
+      },
+      { earliest: null as number | null, latest: null as number | null },
+    );
+
+    const participantsById = new Map<
+      string,
+      { id: string; fullName: string; role: string | null }
+    >();
+    for (const member of projectMembers) {
+      participantsById.set(member.id, {
+        id: member.id,
+        fullName: member.fullName,
+        role: member.role,
+      });
+    }
+    for (const message of exportMessages) {
+      if (!message.senderId) {
+        continue;
+      }
+      if (participantsById.has(message.senderId)) {
+        continue;
+      }
+      participantsById.set(message.senderId, {
+        id: message.senderId,
+        fullName:
+          message.sender?.fullName?.trim() || `User ${message.senderId.slice(0, 8)}`,
+        role: message.sender?.role || null,
+      });
+    }
+
+    const participants = Array.from(participantsById.values());
+    const participantCount = participants.length;
+    const participantNames =
+      participants.length === 0
+        ? "N/A"
+        : participants
+            .map((participant) => participant.fullName)
+            .sort((left, right) => left.localeCompare(right))
+            .join(", ");
+
+    const userRoleCountMap = participants.reduce<Record<string, number>>((counts, participant) => {
+      const normalizedRole = String(participant.role || "OTHER").toUpperCase();
+      counts[normalizedRole] = (counts[normalizedRole] ?? 0) + 1;
+      return counts;
+    }, {});
+    const participantsByRoleSummary = Object.entries(userRoleCountMap)
+      .sort(([leftRole], [rightRole]) => leftRole.localeCompare(rightRole))
+      .map(([role, count]) => `${role}: ${count}`)
+      .join(" | ");
+
+    const styleHeaderRow = (sheet: ReturnType<Workbook["addWorksheet"]>, rowNumber: number, color: string) => {
+      const row = sheet.getRow(rowNumber);
+      row.font = { name: "Arial", size: 11, bold: true, color: { argb: "FFFFFFFF" } };
+      row.fill = { type: "pattern", pattern: "solid", fgColor: { argb: color } };
+      row.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
+      row.height = 24;
+    };
+
+    const styleDataRow = (
+      row: ReturnType<ReturnType<Workbook["addWorksheet"]>["addRow"]>,
+      options?: {
+        wrapColumns?: number[];
+        centerColumns?: number[];
+        rowFill?: Fill | null;
+      },
+    ) => {
+      const wrapColumns = options?.wrapColumns ?? [];
+      const centerColumns = options?.centerColumns ?? [];
+
+      row.eachCell((cell, columnNumber) => {
+        cell.font = { name: "Arial", size: 10, color: { argb: "FF111827" } };
+        cell.alignment = {
+          vertical: "top",
+          horizontal: centerColumns.includes(columnNumber) ? "center" : "left",
+          wrapText: wrapColumns.includes(columnNumber),
+        };
+        cell.border = {
+          top: { style: "thin", color: { argb: "FFE5E7EB" } },
+          left: { style: "thin", color: { argb: "FFE5E7EB" } },
+          bottom: { style: "thin", color: { argb: "FFE5E7EB" } },
+          right: { style: "thin", color: { argb: "FFE5E7EB" } },
+        };
+        if (options?.rowFill) {
+          cell.fill = options.rowFill;
+        }
+      });
+    };
+
+    const workbook = new Workbook();
+    workbook.creator = "InterDev Workspace Chat";
+    workbook.created = exportedAt;
+    workbook.modified = exportedAt;
+
+    const summarySheet = workbook.addWorksheet("Summary");
+    summarySheet.columns = [
+      { width: 30 },
+      { width: 88 },
+    ];
+
+    summarySheet.addRow(["Workspace Chat Export Summary", ""]);
+    summarySheet.mergeCells("A1:B1");
+    const summaryTitleCell = summarySheet.getCell("A1");
+    summaryTitleCell.font = { name: "Arial", size: 14, bold: true, color: { argb: "FFFFFFFF" } };
+    summaryTitleCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1F4E78" } };
+    summaryTitleCell.alignment = { vertical: "middle", horizontal: "left" };
+    summarySheet.getRow(1).height = 24;
+
+    const summaryRows: Array<[string, string | number]> = [
+      ["Project title", projectTitle || "Project Workspace Chat"],
+      ["Project ID", projectId],
+      ["Exported at", formatAuditTimestamp(exportedAt.toISOString())],
+      ["Exported by", exportedBy],
+      ["Timezone", timezoneLabel],
+      [
+        "Export scope",
+        isSearchActive
+          ? "Filtered/search export (current filtered messages)"
+          : "Full loaded chat (current loaded messages)",
+      ],
+      [
+        "Message range",
+        timestampRange.earliest != null && timestampRange.latest != null
+          ? `${formatAuditTimestamp(new Date(timestampRange.earliest).toISOString())} -> ${formatAuditTimestamp(
+              new Date(timestampRange.latest).toISOString(),
+            )}`
+          : "N/A",
+      ],
+      ["Participant count", participantCount],
+      ["Participant names", participantNames],
+      ["Participants by role", participantsByRoleSummary || "N/A"],
+      ["System event count", systemMessages],
+      ["Total messages", totalMessages],
+      ["User messages", userMessages],
+      ["Total attachments", totalAttachments],
+      [
+        "Search/filter context",
+        isSearchActive
+          ? `Search query: "${normalizedSearchQuery}". Export source: current filtered messages.`
+          : "No search filter. Export source: current loaded messages.",
+      ],
+    ];
+
+    for (const [label, value] of summaryRows) {
+      const row = summarySheet.addRow([label, value]);
+      row.getCell(1).font = { name: "Arial", size: 11, bold: true, color: { argb: "FF1F2937" } };
+      row.getCell(2).font = { name: "Arial", size: 11, color: { argb: "FF111827" } };
+      row.getCell(1).fill = {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: "FFEFF3F8" },
+      };
+      row.getCell(1).alignment = { vertical: "top" };
+      row.getCell(2).alignment = { vertical: "top", wrapText: true };
+    }
+
+    const summaryDividerRow = summarySheet.addRow(["", ""]);
+    summaryDividerRow.height = 10;
+    const legalTitleRow = summarySheet.addRow(["Export / Legal note", LEGAL_EXPORT_FOOTER]);
+    legalTitleRow.getCell(1).font = { name: "Arial", size: 11, bold: true, color: { argb: "FF7C2D12" } };
+    legalTitleRow.getCell(1).fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FFFFF7ED" },
+    };
+    legalTitleRow.getCell(2).font = { name: "Arial", size: 10, color: { argb: "FF7C2D12" } };
+    legalTitleRow.getCell(2).alignment = { vertical: "top", wrapText: true };
+
+    const messagesSheet = workbook.addWorksheet("Messages", {
+      views: [{ state: "frozen", ySplit: 1 }],
+    });
+    messagesSheet.columns = [
+      { header: "Timestamp", key: "timestamp", width: 22 },
+      { header: "Sender", key: "sender", width: 24 },
+      { header: "Sender Role", key: "senderRole", width: 16 },
+      { header: "Message Type", key: "messageType", width: 14 },
+      { header: "Message Text", key: "messageText", width: 58 },
+      { header: "Reply To Sender", key: "replyToSender", width: 22 },
+      { header: "Reply To Snippet", key: "replyToSnippet", width: 34 },
+      { header: "Attachment Count", key: "attachmentCount", width: 16 },
+      { header: "Attachment Summary", key: "attachmentSummary", width: 34 },
+      { header: "Flags", key: "flags", width: 20 },
+      { header: "Risk Flags", key: "riskFlags", width: 26 },
+      { header: "Task Title", key: "taskTitle", width: 28 },
+    ];
+
+    styleHeaderRow(messagesSheet, 1, "FF0F766E");
+    messagesSheet.autoFilter = {
+      from: { row: 1, column: 1 },
+      to: { row: 1, column: messagesSheet.columnCount },
+    };
+
+    const systemFill: Fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FFEFF6FF" },
+    };
+    const deletedFill: Fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FFF3F4F6" },
+    };
+    const pinnedFill: Fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FFFFFBEB" },
+    };
+    const riskFill: Fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FFFEF2F2" },
+    };
+
+    for (const message of userConversationMessages) {
+      const isSystem = isSystemMessage(message);
+      const senderLabel = isSystem
         ? "System"
         : message.sender?.fullName?.trim() ||
           (message.senderId ? `User ${message.senderId.slice(0, 8)}` : "Unknown User");
-      const riskFlags = getMessageRiskFlags(message);
+      const senderRole = message.sender?.role || (isSystem ? "SYSTEM" : "UNKNOWN");
+      const visibleContent = normalizeExportText(
+        decodeHtmlEntities(getVisibleMessageContent(message)),
+      );
+      const replyToSender = message.replyTo?.sender?.fullName || "";
+      const replyToSnippet = message.replyTo
+        ? normalizeExportText(getReplyPreviewText(message.replyTo))
+        : "";
+      const riskFlags = message.isDeleted ? [] : getMessageRiskFlags(message);
       const attachmentSummary =
-        message.attachments.length > 0
-          ? ` | Attachments: ${message.attachments
-              .map((attachment) => attachment.name)
-              .join("; ")}`
-          : "";
-      const contentBase = getVisibleMessageContent(message);
-      const content =
-        riskFlags.length === 0 || message.isDeleted
-          ? `${contentBase}${attachmentSummary}`
-          : `${contentBase}${attachmentSummary} | Warning: ${POLICY_WARNING_MESSAGE} Matched flags: ${riskFlags.join(", ")}.`;
+        message.attachments.length === 0
+          ? ""
+          : message.attachments.length === 1
+            ? message.attachments[0].name
+            : `${message.attachments.length} files: ${message.attachments
+                .map((attachment) => attachment.name)
+                .join("; ")}`;
+      const flags = [
+        message.isEdited ? "EDITED" : null,
+        message.isDeleted ? "DELETED" : null,
+        message.isPinned ? "PINNED" : null,
+      ]
+        .filter((flag): flag is string => Boolean(flag))
+        .join(" | ");
+      const task = message.taskId ? workspaceTaskLookup.get(message.taskId) : undefined;
 
-      return [
-        formatLegalTimestamp(message.createdAt),
-        senderLabel,
-        messageType,
-        sanitizeExcelContent(content),
+      const row = messagesSheet.addRow({
+        timestamp: formatAuditTimestamp(message.createdAt),
+        sender: senderLabel,
+        senderRole,
+        messageType: isSystem ? "System" : "User",
+        messageText: visibleContent,
+        replyToSender,
+        replyToSnippet,
+        attachmentCount: message.attachments.length,
+        attachmentSummary,
+        flags,
+        riskFlags: riskFlags.join(", "),
+        taskTitle: task?.title || "",
+      });
+
+      const rowFill = message.isDeleted
+        ? deletedFill
+        : riskFlags.length > 0
+          ? riskFill
+          : message.isPinned
+            ? pinnedFill
+            : isSystem
+              ? systemFill
+              : null;
+
+      styleDataRow(row, {
+        centerColumns: [8],
+        wrapColumns: [5, 7, 9, 10, 11, 12],
+        rowFill,
+      });
+    }
+
+    if (systemEventMessages.length > 0) {
+      const systemSheet = workbook.addWorksheet("System Events", {
+        views: [{ state: "frozen", ySplit: 1 }],
+      });
+
+      systemSheet.columns = [
+        { header: "Timestamp", key: "timestamp", width: 22 },
+        { header: "Category", key: "category", width: 16 },
+        { header: "Event Type", key: "messageType", width: 14 },
+        { header: "Event Text", key: "messageText", width: 56 },
+        { header: "Reply To Sender", key: "replyToSender", width: 22 },
+        { header: "Reply To Snippet", key: "replyToSnippet", width: 34 },
+        { header: "Attachment Summary", key: "attachmentSummary", width: 34 },
+        { header: "Risk Flags", key: "riskFlags", width: 24 },
       ];
+
+      styleHeaderRow(systemSheet, 1, "FF1D4ED8");
+      systemSheet.autoFilter = {
+        from: { row: 1, column: 1 },
+        to: { row: 1, column: systemSheet.columnCount },
+      };
+
+      for (const message of systemEventMessages) {
+        const riskFlags = message.isDeleted ? [] : getMessageRiskFlags(message);
+        const row = systemSheet.addRow({
+          timestamp: formatAuditTimestamp(message.createdAt),
+          category: getSystemEventCategory(message),
+          messageType: "System",
+          messageText: normalizeExportText(decodeHtmlEntities(getVisibleMessageContent(message))),
+          replyToSender: message.replyTo?.sender?.fullName || "",
+          replyToSnippet: message.replyTo
+            ? normalizeExportText(getReplyPreviewText(message.replyTo))
+            : "",
+          attachmentSummary:
+            message.attachments.length === 0
+              ? ""
+              : message.attachments.map((attachment) => attachment.name).join("; "),
+          riskFlags: riskFlags.join(", "),
+        });
+
+        styleDataRow(row, {
+          wrapColumns: [4, 6, 7, 8],
+          rowFill: systemFill,
+        });
+      }
+    }
+
+    const attachmentRows = exportMessages.flatMap((message) => {
+      const isSystem = isSystemMessage(message);
+      const senderLabel = isSystem
+        ? "System"
+        : message.sender?.fullName?.trim() ||
+          (message.senderId ? `User ${message.senderId.slice(0, 8)}` : "Unknown User");
+      const senderRole = message.sender?.role || (isSystem ? "SYSTEM" : "UNKNOWN");
+
+      return message.attachments.map((attachment) => ({
+        timestamp: formatAuditTimestamp(message.createdAt),
+        sender: senderLabel,
+        senderRole,
+        fileName: normalizeExportText(decodeHtmlEntities(attachment.name)),
+        fileType: attachment.type,
+        fileUrl: attachment.url,
+        messageId: message.id,
+        projectId: message.projectId,
+      }));
     });
 
-    const worksheetRows = [
-      ["Metadata", "Value", "", ""],
-      ["Project", projectTitle, "", ""],
-      ["Project ID", projectId, "", ""],
-      ["Exported At", formatLegalTimestamp(exportedAt.toISOString()), "", ""],
-      ["", "", "", ""],
-      ["Timestamp", "Sender", "Type", "Content"],
-      ...dataRows,
-      ["", "", "", ""],
-      ["Legal Footer", LEGAL_EXPORT_FOOTER, "", ""],
+    if (attachmentRows.length > 0) {
+      const attachmentsSheet = workbook.addWorksheet("Attachments", {
+        views: [{ state: "frozen", ySplit: 1 }],
+      });
+
+      attachmentsSheet.columns = [
+        { header: "Message Timestamp", key: "timestamp", width: 22 },
+        { header: "Sender", key: "sender", width: 24 },
+        { header: "Sender Role", key: "senderRole", width: 16 },
+        { header: "File Name", key: "fileName", width: 36 },
+        { header: "File Type", key: "fileType", width: 20 },
+        { header: "File URL", key: "fileUrl", width: 56 },
+        { header: "Message ID", key: "messageId", width: 18 },
+        { header: "Project ID", key: "projectId", width: 18 },
+      ];
+
+      styleHeaderRow(attachmentsSheet, 1, "FF334155");
+      attachmentsSheet.autoFilter = {
+        from: { row: 1, column: 1 },
+        to: { row: 1, column: attachmentsSheet.columnCount },
+      };
+
+      for (const rowData of attachmentRows) {
+        const row = attachmentsSheet.addRow(rowData);
+        styleDataRow(row, {
+          wrapColumns: [4, 6],
+        });
+      }
+    }
+
+    const auditSheet = workbook.addWorksheet("Audit", {
+      views: [{ state: "frozen", ySplit: 1 }],
+    });
+    auditSheet.columns = [
+      { width: 24 },
+      { width: 22 },
+      { width: 20 },
+      { width: 18 },
+      { width: 14 },
+      { width: 18 },
+      { width: 18 },
+      { width: 18 },
+      { width: 14 },
+      { width: 14 },
     ];
 
-    const safeProjectLabel = (projectTitle || projectId)
-      .replace(/[^a-z0-9]+/gi, "_")
-      .replace(/^_+|_+$/g, "")
-      .slice(0, 48) || "Project";
-    const safeTimestamp = exportedAt.toISOString().replace(/[:.]/g, "-");
-    const worksheet = XLSX.utils.aoa_to_sheet(worksheetRows);
-    worksheet["!cols"] = [
-      { wch: 20 },
-      { wch: 24 },
-      { wch: 14 },
-      { wch: 100 },
+    auditSheet.addRow(["Audit Metadata", ""]);
+    auditSheet.mergeCells("A1:J1");
+    const auditTitleCell = auditSheet.getCell("A1");
+    auditTitleCell.font = { name: "Arial", size: 13, bold: true, color: { argb: "FFFFFFFF" } };
+    auditTitleCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF111827" } };
+    auditTitleCell.alignment = { vertical: "middle", horizontal: "left" };
+    auditSheet.getRow(1).height = 24;
+
+    const auditMetaRows: Array<[string, string | number]> = [
+      ["Project ID", projectId],
+      ["Generated at", formatAuditTimestamp(exportedAt.toISOString())],
+      ["Exported by", exportedBy],
+      ["Message count", totalMessages],
+      ["Attachment count", totalAttachments],
+      [
+        "Search/filter context",
+        isSearchActive ? `Search query: "${normalizedSearchQuery}"` : "No search query",
+      ],
+      ["Legal / export note", LEGAL_EXPORT_FOOTER],
     ];
-    worksheet["!autofilter"] = {
-      ref: "A6:D6",
+
+    for (const [label, value] of auditMetaRows) {
+      const row = auditSheet.addRow([label, value]);
+      row.getCell(1).font = { name: "Arial", size: 11, bold: true, color: { argb: "FF1F2937" } };
+      row.getCell(2).font = { name: "Arial", size: 10, color: { argb: "FF111827" } };
+      row.getCell(1).fill = {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: "FFF3F4F6" },
+      };
+      row.getCell(2).alignment = { vertical: "top", wrapText: true };
+      auditSheet.mergeCells(`B${row.number}:J${row.number}`);
+      for (let column = 1; column <= 10; column += 1) {
+        row.getCell(column).border = {
+          top: { style: "thin", color: { argb: "FFE5E7EB" } },
+          left: { style: "thin", color: { argb: "FFE5E7EB" } },
+          bottom: { style: "thin", color: { argb: "FFE5E7EB" } },
+          right: { style: "thin", color: { argb: "FFE5E7EB" } },
+        };
+      }
+    }
+
+    const auditTableStartRow = auditSheet.rowCount + 3;
+    auditSheet.getCell(`A${auditTableStartRow}`).value = "Technical Message Mapping";
+    auditSheet.getCell(`A${auditTableStartRow}`).font = {
+      name: "Arial",
+      size: 11,
+      bold: true,
+      color: { argb: "FF111827" },
     };
 
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Chat Record");
-    XLSX.writeFile(workbook, `Project_${safeProjectLabel}_${safeTimestamp}_ChatRecord.xlsx`, {
-      compression: true,
+    const auditTableHeaderRowNumber = auditTableStartRow + 1;
+    const auditHeaders = [
+      "Timestamp",
+      "Message ID",
+      "Project ID",
+      "Sender ID",
+      "Sender Role",
+      "Task ID",
+      "Milestone ID",
+      "Reply To ID",
+      "Message Type",
+      "Attachment Count",
+    ];
+    const auditHeaderRow = auditSheet.getRow(auditTableHeaderRowNumber);
+    auditHeaders.forEach((header, index) => {
+      auditHeaderRow.getCell(index + 1).value = header;
     });
-    toast.success("Chat record exported as Excel.");
-  }, [messages, projectId, projectTitle]);
+    styleHeaderRow(auditSheet, auditTableHeaderRowNumber, "FF374151");
+    auditSheet.autoFilter = {
+      from: { row: auditTableHeaderRowNumber, column: 1 },
+      to: { row: auditTableHeaderRowNumber, column: auditHeaders.length },
+    };
+
+    for (const message of exportMessages) {
+      const relatedTask = message.taskId ? workspaceTaskLookup.get(message.taskId) : undefined;
+      const row = auditSheet.addRow([
+        formatAuditTimestamp(message.createdAt),
+        message.id,
+        message.projectId,
+        message.senderId || "",
+        message.sender?.role || (isSystemMessage(message) ? "SYSTEM" : ""),
+        message.taskId || "",
+        relatedTask?.milestoneId || "",
+        message.replyToId || "",
+        message.messageType,
+        message.attachments.length,
+      ]);
+
+      styleDataRow(row, {
+        centerColumns: [10],
+      });
+    }
+
+    const safeProjectLabel = (projectTitle || projectId)
+      .replace(/[^a-z0-9]+/gi, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 48) || "project";
+    const fileName = `WorkspaceChat_${safeProjectLabel}_${formatExportFileTimestamp(
+      exportedAt,
+    )}_record.xlsx`;
+
+    const workbookBuffer = await workbook.xlsx.writeBuffer();
+    const workbookBlob = new Blob([workbookBuffer], {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    });
+    const downloadUrl = URL.createObjectURL(workbookBlob);
+    const downloadLink = document.createElement("a");
+    downloadLink.href = downloadUrl;
+    downloadLink.download = fileName;
+    document.body.appendChild(downloadLink);
+    downloadLink.click();
+    document.body.removeChild(downloadLink);
+    URL.revokeObjectURL(downloadUrl);
+
+    toast.success(
+      `Exported ${totalMessages} message${totalMessages === 1 ? "" : "s"} to ${fileName}.`,
+    );
+  }, [
+    isSearchActive,
+    normalizedSearchQuery,
+    projectId,
+    projectMembers,
+    projectTitle,
+    resolvedCurrentUserId,
+    resolvedCurrentUserRole,
+    visibleMessages,
+    workspaceTaskLookup,
+  ]);
 
   const loadOlderMessages = useCallback(async () => {
     if (

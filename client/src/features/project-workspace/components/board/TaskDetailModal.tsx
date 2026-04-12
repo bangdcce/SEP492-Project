@@ -623,6 +623,14 @@ export function TaskDetailModal({
         submission.status === "PENDING" ||
         submission.status === "PENDING_CLIENT_REVIEW"
     ) ?? null;
+  const isSubtaskStatusLockedByBrokerApproval = submissionFeed.some(
+    (submission) =>
+      submission.status === "PENDING_CLIENT_REVIEW" ||
+      submission.status === "APPROVED" ||
+      submission.status === "AUTO_APPROVED"
+  );
+  const subtaskStatusLockMessage =
+    "Subtask status is locked because a submission was already approved by broker.";
   const isBrokerApprovalBlockedBySubtasks = Boolean(
     openReviewSubmission?.status === "PENDING" &&
       unfinishedSubtaskCount > 0
@@ -945,6 +953,13 @@ export function TaskDetailModal({
     newStatus: KanbanColumnKey
   ) => {
     if (updatingSubtaskId || !task) return;
+
+    if (isSubtaskStatusLockedByBrokerApproval) {
+      setSubtaskError(subtaskStatusLockMessage);
+      toast.warning(subtaskStatusLockMessage);
+      return;
+    }
+
     if (!ensureTaskMutationsAllowed()) return;
 
     const current = subtasks.find((subtask) => subtask.id === subtaskId);
@@ -1360,7 +1375,16 @@ export function TaskDetailModal({
                       <PopoverTrigger asChild>
                         <button
                           type="button"
-                          disabled={!canManageSubtasks}
+                          onClick={(event) => {
+                            if (canManageSubtasks) {
+                              return;
+                            }
+
+                            event.preventDefault();
+                            event.stopPropagation();
+                            setSubtaskError(subtaskPermissionMessage);
+                            toast.warning(subtaskPermissionMessage);
+                          }}
                           className="inline-flex items-center gap-1 rounded-md border border-gray-200 bg-white px-2 py-1 text-xs font-semibold text-gray-600 hover:bg-gray-50"
                           aria-label="Add subtask"
                           title={!canManageSubtasks ? subtaskPermissionMessage : undefined}
@@ -1497,6 +1521,12 @@ export function TaskDetailModal({
                   <Progress value={subtaskProgress} className="h-2 mt-2" />
                 </div>
 
+                {isSubtaskStatusLockedByBrokerApproval ? (
+                  <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-3 text-xs text-slate-700">
+                    {subtaskStatusLockMessage}
+                  </div>
+                ) : null}
+
                 {unfinishedSubtaskCount > 0 ? (
                   <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-800">
                     <p className="font-medium text-amber-900">
@@ -1589,7 +1619,16 @@ export function TaskDetailModal({
                                       e.target.value as KanbanColumnKey
                                     )
                                   }
-                                  disabled={updatingSubtaskId === subtask.id || isInteractionLocked}
+                                  disabled={
+                                    updatingSubtaskId === subtask.id ||
+                                    isInteractionLocked ||
+                                    isSubtaskStatusLockedByBrokerApproval
+                                  }
+                                  title={
+                                    isSubtaskStatusLockedByBrokerApproval
+                                      ? subtaskStatusLockMessage
+                                      : undefined
+                                  }
                                   className={cn(
                                     "appearance-none rounded-full px-2 py-0.5 pr-5 text-[10px] font-semibold ring-1 ring-inset ring-gray-200 focus:ring-2 focus:ring-blue-500 cursor-pointer",
                                     subtaskStatusOption?.color,

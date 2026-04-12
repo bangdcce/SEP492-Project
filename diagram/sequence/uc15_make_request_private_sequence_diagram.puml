@@ -1,0 +1,225 @@
+@startuml UC15_Make_Request_Private_Sequence_Diagram
+
+skinparam monochrome true
+
+skinparam defaultFontColor Black
+
+skinparam shadowing false
+
+skinparam sequence {
+
+    ArrowColor Black
+
+    LifeLineBorderColor Black
+
+    LifeLineBackgroundColor White
+
+    ParticipantBorderColor Black
+
+    ParticipantBackgroundColor #DDDDDD
+
+    ParticipantFontColor Black
+
+    ActorBorderColor Black
+
+    ActorBackgroundColor White
+
+    ActorFontColor Black
+
+    GroupHeaderFontColor Black
+
+    GroupHeaderBackgroundColor White
+
+    GroupBodyBackgroundColor White
+
+    GroupBorderColor Black
+
+}
+
+title UC-15 Make Request Private Sequence Diagram
+
+actor Client
+
+boundary "RequestDetailPage" as Page
+
+boundary "RequestBrokerMarketPanel" as MarketPanel
+
+participant "wizardService" as WizardAPI
+
+participant "apiClient" as ApiClient
+
+participant "ProjectRequestsController" as Controller
+
+participant "JwtAuthGuard" as JWTGuard
+
+participant "RolesGuard" as RolesGuard
+
+participant "ProjectRequestsService" as Service
+
+participant "AuditLogsService" as AuditService
+
+database "Database" as DB
+
+Client -> Page : 1. Open a public request in the request detail page
+
+activate Client
+
+activate Page
+
+Page -> WizardAPI : 2. Load request detail
+
+activate WizardAPI
+
+WizardAPI -> ApiClient : 3. Forward HTTP request
+
+activate ApiClient
+
+ApiClient -> Controller : 4. Send GET "/project-requests/{requestId}"
+
+activate Controller
+
+Controller -> JWTGuard : 5. Confirm the client is signed in
+
+activate JWTGuard
+
+JWTGuard --> Controller : 6. Return authenticated client identity
+
+Controller -> Service : 7. Load request detail
+
+activate Service
+
+Service -> DB : 8. Query request and proposal state
+
+activate DB
+
+DB --> Service : 9. Return request detail
+
+deactivate DB
+
+Service --> Controller : 10. Return request detail
+
+Controller --> ApiClient : 11. Return server response
+
+ApiClient --> WizardAPI : 12. Return request detail response
+
+WizardAPI --> Page : 13. Render current visibility and broker panel
+
+Client -> MarketPanel : 14. Click "Make Project Private"
+
+activate MarketPanel
+
+MarketPanel -> Page : 15. Request visibility change to "PRIVATE_DRAFT"
+
+Page -> WizardAPI : 16. Call updateRequest(requestId, { status: "PRIVATE_DRAFT" })
+
+WizardAPI -> ApiClient : 17. Forward HTTP request
+
+ApiClient -> Controller : 18. Send PATCH "/project-requests/{requestId}"
+
+Controller -> JWTGuard : 19. Confirm the client is signed in
+
+JWTGuard --> Controller : 20. Return authenticated client identity
+
+deactivate JWTGuard
+
+Controller -> RolesGuard : 21. Confirm the caller has role "CLIENT"
+
+activate RolesGuard
+
+RolesGuard --> Controller : 22. Role check passed
+
+deactivate RolesGuard
+
+Controller -> Service : 23. Update request visibility
+
+Service -> DB : 24. Load stored request
+
+activate DB
+
+DB --> Service : 25. Return stored request
+
+deactivate DB
+
+Service -> Service : 26. Validate owner and editable state
+
+alt [Request is currently public]
+
+    Service -> DB : 27. Load pending broker applications
+
+    activate DB
+
+    DB --> Service : 28. Return pending proposals
+
+    deactivate DB
+
+    Service -> DB : 29. Mark each pending broker proposal as rejected
+
+    activate DB
+
+    DB --> Service : 30. Confirm rejected proposal updates
+
+    deactivate DB
+
+    Service -> DB : 31. Save request with status "PRIVATE_DRAFT"
+
+    activate DB
+
+    DB --> Service : 32. Persist updated request
+
+    deactivate DB
+
+    Service -> AuditService : 33. Write visibility-change audit log
+
+    activate AuditService
+
+    AuditService --> Service : 34. Audit log saved
+
+    deactivate AuditService
+
+    Service -> DB : 35. Reload updated request
+
+    activate DB
+
+    DB --> Service : 36. Return updated detail
+
+    deactivate DB
+
+    Service --> Controller : 37. Return updated request
+
+    deactivate Service
+
+    Controller --> ApiClient : 38. Return server response
+
+    deactivate Controller
+
+    ApiClient --> WizardAPI : 39. Return update success response
+
+    deactivate ApiClient
+
+    WizardAPI --> Page : 40. Return updated request detail
+
+    deactivate WizardAPI
+
+    Page --> Client : 41. Show success message and explain the request is now invite-only
+
+else [Caller is not allowed or request is not editable]
+
+    Service --> Controller : 42. Throw forbidden or validation error
+
+    Controller --> ApiClient : 43. Return server response
+
+    ApiClient --> WizardAPI : 44. Return error response
+
+    WizardAPI --> Page : 45. Return error payload
+
+    Page --> Client : 46. Show why the request cannot be made private
+
+end
+
+deactivate MarketPanel
+
+deactivate Page
+
+deactivate Client
+
+@enduml

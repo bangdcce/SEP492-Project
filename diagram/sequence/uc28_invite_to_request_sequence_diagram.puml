@@ -1,0 +1,175 @@
+@startuml UC28_Invite_To_Request_Sequence_Diagram
+
+skinparam monochrome true
+
+skinparam defaultFontColor Black
+
+skinparam shadowing false
+
+skinparam sequence {
+
+    ArrowColor Black
+
+    LifeLineBorderColor Black
+
+    LifeLineBackgroundColor White
+
+    ParticipantBorderColor Black
+
+    ParticipantBackgroundColor #DDDDDD
+
+    ParticipantFontColor Black
+
+    ActorBorderColor Black
+
+    ActorBackgroundColor White
+
+    ActorFontColor Black
+
+    GroupHeaderFontColor Black
+
+    GroupHeaderBackgroundColor White
+
+    GroupBodyBackgroundColor White
+
+    GroupBorderColor Black
+
+}
+
+title UC-28 Invite To Request Sequence Diagram
+
+actor user
+
+boundary "PartnerProfilePage" as ProfilePage
+
+boundary "InviteModal" as InviteModal
+
+participant "discoveryApi" as DiscoveryAPI
+
+participant "apiClient" as ApiClient
+
+participant "ProjectRequestsController" as Controller
+
+participant "JwtAuthGuard" as JWTGuard
+
+participant "RolesGuard" as RolesGuard
+
+participant "ProjectRequestsService" as Service
+
+participant "QuotaService" as QuotaService
+
+database "Database" as DB
+
+user -> ProfilePage : 1. Open a partner profile from discovery or request detail
+
+activate user
+
+activate ProfilePage
+
+user -> ProfilePage : 2. Click "Invite to Project"
+
+ProfilePage -> InviteModal : 3. Open the invitation modal
+
+activate InviteModal
+
+InviteModal -> Controller : 4. Request the current user's eligible requests with GET "/project-requests"
+
+activate Controller
+
+Controller -> JWTGuard : 5. Confirm the user is signed in
+
+activate JWTGuard
+
+JWTGuard --> Controller : 6. Return authenticated user identity and role
+
+Controller -> Service : 7. Load requests the inviter can use for invitations
+
+activate Service
+
+Service -> DB : 8. Query eligible requests and current assignment state
+
+activate DB
+
+DB --> Service : 9. Return eligible requests
+
+deactivate DB
+
+Service --> Controller : 10. Return eligible request list
+
+Controller --> InviteModal : 11. Populate the request dropdown
+
+user -> InviteModal : 12. Select a request and click "Send Invitation"
+
+InviteModal -> DiscoveryAPI : 13. Call the role-appropriate invitation action for the selected partner
+
+activate DiscoveryAPI
+
+DiscoveryAPI -> ApiClient : 14. Forward HTTP request
+
+activate ApiClient
+
+ApiClient -> Controller : 15. Send POST "/project-requests/{requestId}/invite/broker" or POST "/project-requests/{requestId}/invite/freelancer"
+
+Controller -> JWTGuard : 16. Confirm the user is signed in
+
+JWTGuard --> Controller : 17. Return authenticated user identity and role
+
+Controller -> RolesGuard : 18. Confirm the caller can invite this partner type
+
+activate RolesGuard
+
+RolesGuard --> Controller : 19. Role check passed
+
+deactivate RolesGuard
+
+Controller -> Service : 20. Create the invitation or recommendation record
+
+Service -> QuotaService : 21. Check the applicable invitation quota
+
+activate QuotaService
+
+QuotaService --> Service : 22. Quota is available
+
+deactivate QuotaService
+
+Service -> DB : 23. Load request, assignment state, and existing proposal state
+
+activate DB
+
+DB --> Service : 24. Return request and current proposal data
+
+deactivate DB
+
+Service -> DB : 25. Save the new partner proposal with the correct workflow status
+
+activate DB
+
+DB --> Service : 26. Persist the invitation or recommendation
+
+deactivate DB
+
+Service --> Controller : 27. Return saved invitation data
+
+deactivate Service
+
+Controller --> ApiClient : 28. Return server response
+
+deactivate Controller
+
+ApiClient --> DiscoveryAPI : 29. Return invite success response
+
+deactivate ApiClient
+
+DiscoveryAPI --> InviteModal : 30. Show invitation success
+
+deactivate DiscoveryAPI
+
+InviteModal --> user : 31. Close the modal and show that the invitation has been sent
+
+deactivate InviteModal
+
+deactivate ProfilePage
+
+deactivate user
+
+@enduml

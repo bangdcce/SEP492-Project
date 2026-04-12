@@ -1,0 +1,175 @@
+@startuml UC57_Accept_Deny_Invitation_Sequence_Diagram
+
+skinparam monochrome true
+
+skinparam defaultFontColor Black
+
+skinparam shadowing false
+
+skinparam sequence {
+
+    ArrowColor Black
+
+    LifeLineBorderColor Black
+
+    LifeLineBackgroundColor White
+
+    ParticipantBorderColor Black
+
+    ParticipantBackgroundColor #DDDDDD
+
+    ParticipantFontColor Black
+
+    ActorBorderColor Black
+
+    ActorBackgroundColor White
+
+    ActorFontColor Black
+
+    GroupHeaderFontColor Black
+
+    GroupHeaderBackgroundColor White
+
+    GroupBodyBackgroundColor White
+
+    GroupBorderColor Black
+
+}
+
+title UC-57 Accept Deny Invitation Sequence Diagram
+
+actor user
+
+boundary "InvitationDetailsPage" as DetailPage
+
+participant "discoveryApi" as DiscoveryAPI
+
+participant "apiClient" as ApiClient
+
+participant "ProjectRequestsController" as Controller
+
+participant "JwtAuthGuard" as JWTGuard
+
+participant "ProjectRequestsService" as Service
+
+database "Database" as DB
+
+user -> DetailPage : 1. Open an invitation that is still "INVITED"
+
+activate user
+
+activate DetailPage
+
+alt [User accepts the invitation]
+
+    user -> DetailPage : 2. Click "Accept Invitation"
+
+    DetailPage -> DetailPage : 3. Confirm KYC is approved before allowing acceptance
+
+    DetailPage -> DiscoveryAPI : 4. Call respondToInvitation(invitationId, "ACCEPTED")
+
+    activate DiscoveryAPI
+
+    DiscoveryAPI -> ApiClient : 5. Forward HTTP request
+
+    activate ApiClient
+
+    ApiClient -> Controller : 6. Send PATCH "/project-requests/invitations/{id}/respond"
+
+    activate Controller
+
+    Controller -> JWTGuard : 7. Confirm the user is signed in
+
+    activate JWTGuard
+
+    JWTGuard --> Controller : 8. Return authenticated user identity and role
+
+    Controller -> Service : 9. Accept the invitation for the current actor
+
+    activate Service
+
+    Service -> DB : 10. Load the target invitation and current request state
+
+    activate DB
+
+    DB --> Service : 11. Return invitation, request, and assignment context
+
+    deactivate DB
+
+    Service -> DB : 12. Update the invitation to "ACCEPTED" and apply any role-specific workflow changes
+
+    activate DB
+
+    DB --> Service : 13. Persist the accepted invitation state
+
+    deactivate DB
+
+    Service --> Controller : 14. Return updated invitation state
+
+    Controller --> ApiClient : 15. Return server response
+
+    ApiClient --> DiscoveryAPI : 16. Return success response
+
+    DiscoveryAPI --> DetailPage : 17. Return accepted invitation
+
+    DetailPage --> user : 18. Show acceptance success and navigate to the next allowed screen
+
+else [User denies the invitation]
+
+    user -> DetailPage : 19. Click "Deny"
+
+    DetailPage -> DiscoveryAPI : 20. Call respondToInvitation(invitationId, "REJECTED")
+
+    DiscoveryAPI -> ApiClient : 21. Forward HTTP request
+
+    ApiClient -> Controller : 22. Send PATCH "/project-requests/invitations/{id}/respond"
+
+    Controller -> JWTGuard : 23. Confirm the user is signed in
+
+    JWTGuard --> Controller : 24. Return authenticated user identity and role
+
+    deactivate JWTGuard
+
+    Controller -> Service : 25. Reject the invitation for the current actor
+
+    Service -> DB : 26. Load the invitation and validate that it is still pending
+
+    activate DB
+
+    DB --> Service : 27. Return invitation state
+
+    deactivate DB
+
+    Service -> DB : 28. Update invitation status to "REJECTED"
+
+    activate DB
+
+    DB --> Service : 29. Persist rejection
+
+    deactivate DB
+
+    Service --> Controller : 30. Return updated invitation state
+
+    deactivate Service
+
+    Controller --> ApiClient : 31. Return server response
+
+    deactivate Controller
+
+    ApiClient --> DiscoveryAPI : 32. Return success response
+
+    deactivate ApiClient
+
+    DiscoveryAPI --> DetailPage : 33. Return rejected invitation
+
+    deactivate DiscoveryAPI
+
+    DetailPage --> user : 34. Navigate back to the invitations list with a denial message
+
+end
+
+deactivate DetailPage
+
+deactivate user
+
+@enduml

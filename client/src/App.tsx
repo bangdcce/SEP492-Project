@@ -79,6 +79,9 @@ const ProjectRequestsPage = lazy(() =>
     default: module.ProjectRequestsPage,
   })),
 );
+const FreelancerMarketplacePage = lazy(
+  () => import("@/features/project-requests/FreelancerMarketplacePage"),
+);
 const ProjectRequestDetailsPage = lazy(
   () => import("@/features/project-requests/ProjectRequestDetailsPage"),
 );
@@ -465,6 +468,16 @@ function App() {
           }
         />
 
+        <Route
+          path={ROUTES.FREELANCER_MARKETPLACE}
+          element={
+            <RoleGuard allowedRoles={["FREELANCER"]}>
+              <FreelancerDashboardLayout>
+                <FreelancerMarketplacePage />
+              </FreelancerDashboardLayout>
+            </RoleGuard>
+          }
+        />
         <Route
           path="/freelancer/invitations"
           element={

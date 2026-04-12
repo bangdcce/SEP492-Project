@@ -27,6 +27,13 @@ export function MilestoneTabs({
       {milestones.map((ms) => {
         const gate = interactionGates[ms.id];
         const progress = calculateProgress(tasksMap[ms.id] || []);
+        const normalizedStatus = (ms.status || "").toUpperCase();
+        const isPaidAndReleased =
+          normalizedStatus.includes("PAID") ||
+          normalizedStatus.includes("RELEASE");
+        const fallbackStatusLabel = isPaidAndReleased
+          ? "PAID AND RELEASED"
+          : "IN PROGRESS";
         return (
           <button
             key={ms.id}
@@ -65,7 +72,18 @@ export function MilestoneTabs({
                   >
                     <span className="truncate">{gate.shortLabel}</span>
                   </span>
-                ) : null}
+                ) : (
+                  <span
+                    className={cn(
+                      "inline-flex max-w-full items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold",
+                      isPaidAndReleased
+                        ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                        : "border-sky-200 bg-sky-50 text-sky-700"
+                    )}
+                  >
+                    <span className="truncate">{fallbackStatusLabel}</span>
+                  </span>
+                )}
               </span>
             </span>
           </button>

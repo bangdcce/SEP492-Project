@@ -18,6 +18,10 @@ export const projectRequestsApi = {
     return apiClient.get<FreelancerRequestAccessItem[]>('/project-requests/freelancer/requests/my');
   },
 
+  getFreelancerMarketplace: () => {
+    return apiClient.get<ProjectRequest[]>('/project-requests/freelancer/marketplace');
+  },
+
   applyToRequest: (id: string, coverLetter: string) => {
     return apiClient.post(
       `/project-requests/${id}/apply`,

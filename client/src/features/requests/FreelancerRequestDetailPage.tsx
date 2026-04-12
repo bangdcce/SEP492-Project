@@ -169,15 +169,18 @@ export default function FreelancerRequestDetailPage() {
   const fullSpec = pickLatestSpecByPhase(specs, SpecPhase.FULL_SPEC);
   const flowSnapshot = resolveRequestFlowSnapshot(request, { clientSpec, fullSpec }, linkedContract);
 
+  const viewerPermissions = request.viewerPermissions;
   const proposalList = request.freelancerProposals || request.proposals || [];
   const myProposal = proposalList.find((proposal) => proposal.freelancerId === currentUser?.id) || null;
   const normalizedProposalStatus = String(myProposal?.status || "").toUpperCase();
+  const canViewSpecs = Boolean(viewerPermissions?.canViewSpecs);
+  const isMarketplacePreview = !myProposal && !canViewSpecs;
   const canUseRequestChat = ["ACCEPTED", "PENDING"].includes(normalizedProposalStatus);
-  const canOpenFinalSpec = Boolean(fullSpec);
+  const canOpenFinalSpec = canViewSpecs && Boolean(fullSpec);
   const shouldHighlightFinalSign =
     fullSpec?.specPhase === SpecPhase.FULL_SPEC &&
     fullSpec.status === ProjectSpecStatus.FINAL_REVIEW;
-  const canOpenContract = Boolean(linkedContract?.id);
+  const canOpenContract = canViewSpecs && Boolean(linkedContract?.id);
   const contractActivated = isContractActivated(linkedContract);
   const canOpenWorkspace = Boolean(contractActivated && linkedContract?.projectId);
   const clientTrustProfilePath = request.client?.id
@@ -186,6 +189,16 @@ export default function FreelancerRequestDetailPage() {
       })
     : null;
   const freelancerNextAction = (() => {
+    if (isMarketplacePreview) {
+      return {
+        title: "Marketplace preview only",
+        description:
+          "This request is currently in freelancer hiring. Review the brief here, then wait for a broker invitation before specs, chat, and contract actions unlock.",
+        ctaLabel: "Back to Marketplace",
+        onClick: () => navigate("/freelancer/marketplace"),
+      };
+    }
+
     if (!myProposal || normalizedProposalStatus === "INVITED") {
       return {
         title: "Accept invitation first",
@@ -267,14 +280,22 @@ export default function FreelancerRequestDetailPage() {
   return (
     <div className="container mx-auto max-w-6xl space-y-6 py-8">
       <div className="flex items-center gap-3">
-        <Button variant="outline" size="sm" onClick={() => navigate("/freelancer/invitations")}>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() =>
+            navigate(isMarketplacePreview ? "/freelancer/marketplace" : "/freelancer/invitations")
+          }
+        >
           <ArrowLeft className="mr-2 h-4 w-4" />
           Back
         </Button>
         <div>
           <h1 className="text-2xl font-bold">Request Detail</h1>
               <p className="text-sm text-muted-foreground">
-                Freelancer view for phase {flowSnapshot.phaseNumber}/5 in the request workflow
+                {isMarketplacePreview
+                  ? "Freelancer marketplace preview for a phase-3 request"
+                  : `Freelancer view for phase ${flowSnapshot.phaseNumber}/5 in the request workflow`}
               </p>
         </div>
       </div>
@@ -376,7 +397,9 @@ export default function FreelancerRequestDetailPage() {
             </div>
             <div className="rounded-md border p-3">
               <p className="text-xs text-muted-foreground">Your invitation status</p>
-              <p className="font-medium">{formatStatus(myProposal?.status || "INVITED")}</p>
+              <p className="font-medium">
+                {formatStatus(myProposal?.status || (isMarketplacePreview ? "NOT_INVITED" : "INVITED"))}
+              </p>
             </div>
           </CardContent>
         </Card>
@@ -389,138 +412,155 @@ export default function FreelancerRequestDetailPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3 text-sm text-muted-foreground">
-            <p>
-              You can review specs and sign the Final Spec when the broker submits it for
-              final review.
-            </p>
-            <p>
-              Contract signing becomes available after all 3 parties sign the Final Spec and
-              the broker initializes the contract.
-            </p>
+            {isMarketplacePreview ? (
+              <>
+                <p>
+                  You can review the request brief here while the broker is still deciding who to invite into the workflow.
+                </p>
+                <p>
+                  Spec review, request chat, and contract steps unlock only after you are invited and accept the request.
+                </p>
+              </>
+            ) : (
+              <>
+                <p>
+                  You can review specs and sign the Final Spec when the broker submits it for
+                  final review.
+                </p>
+                <p>
+                  Contract signing becomes available after all 3 parties sign the Final Spec and
+                  the broker initializes the contract.
+                </p>
+              </>
+            )}
           </CardContent>
         </Card>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <FileText className="h-4 w-4" />
-            Spec Workflow
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="rounded-lg border p-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <p className="font-medium">1. Client Spec (client-readable spec)</p>
-                <p className="text-sm text-muted-foreground">
-                  Client approves this first before freelancer invitation/selection.
-                </p>
-              </div>
-              <div className="flex items-center gap-2">
-                <Badge variant="outline" className={getSpecBadgeClass(clientSpec?.status)}>
-                  {formatStatus(clientSpec?.status || "NOT_CREATED")}
-                </Badge>
-                {clientSpec && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => navigate(`/freelancer/spec-review/${clientSpec.id}`)}
-                  >
-                    View
-                  </Button>
-                )}
-              </div>
-            </div>
-          </div>
-
-          <div className="rounded-lg border p-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <p className="font-medium">2. Final Spec (technical spec)</p>
-                <p className="text-sm text-muted-foreground">
-                  You sign this in final review together with client and broker.
-                </p>
-              </div>
-              <div className="flex items-center gap-2">
-                <Badge variant="outline" className={getSpecBadgeClass(fullSpec?.status)}>
-                  {formatStatus(fullSpec?.status || "NOT_CREATED")}
-                </Badge>
-                {canOpenFinalSpec && (
-                  <Button
-                    size="sm"
-                    variant={shouldHighlightFinalSign ? "default" : "outline"}
-                    onClick={() => navigate(`/freelancer/spec-review/${fullSpec!.id}`)}
-                  >
-                    {shouldHighlightFinalSign ? "Review & Sign Final Spec" : "View Final Spec"}
-                  </Button>
-                )}
-              </div>
-            </div>
-
-            {!fullSpec && (
-              <p className="mt-3 text-sm text-muted-foreground">
-                Broker has not submitted a Final Spec yet.
-              </p>
-            )}
-          </div>
-        </CardContent>
-      </Card>
-
-      {canUseRequestChat ? (
-        <RequestChatPanel requestId={request.id} />
-      ) : null}
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <FileText className="h-4 w-4" />
-            Contract Workflow
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {canOpenContract ? (
-            <div className="rounded-lg border bg-muted/20 p-4">
+      {canViewSpecs ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <FileText className="h-4 w-4" />
+              Spec Workflow
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="rounded-lg border p-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <p className="font-medium">{linkedContract?.title}</p>
+                  <p className="font-medium">1. Client Spec (client-readable spec)</p>
                   <p className="text-sm text-muted-foreground">
-                    Status: {formatStatus(linkedContract?.status || "DRAFT")}
+                    Client approves this first before freelancer invitation/selection.
                   </p>
-                  {contractActivated && (
-                    <p className="text-xs text-muted-foreground">
-                      Project activated. Continue in workspace.
-                    </p>
-                  )}
                 </div>
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    size="sm"
-                    onClick={() => navigate(`/freelancer/contracts/${linkedContract!.id}`)}
-                  >
-                    Open Contract
-                  </Button>
-                  {canOpenWorkspace && (
+                <div className="flex items-center gap-2">
+                  <Badge variant="outline" className={getSpecBadgeClass(clientSpec?.status)}>
+                    {formatStatus(clientSpec?.status || "NOT_CREATED")}
+                  </Badge>
+                  {clientSpec && (
                     <Button
-                      size="sm"
                       variant="outline"
-                      onClick={() => navigate(`/freelancer/workspace/${linkedContract!.projectId}`)}
+                      size="sm"
+                      onClick={() => navigate(`/freelancer/spec-review/${clientSpec.id}`)}
                     >
-                      Open Workspace
+                      View
                     </Button>
                   )}
                 </div>
               </div>
             </div>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              {fullSpec?.status === ProjectSpecStatus.ALL_SIGNED
-                ? "Waiting for broker to initialize contract from Final Spec."
-                : "Contract becomes available after Final Spec is signed by all 3 parties."}
-            </p>
-          )}
-        </CardContent>
-      </Card>
+
+            <div className="rounded-lg border p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="font-medium">2. Final Spec (technical spec)</p>
+                  <p className="text-sm text-muted-foreground">
+                    You sign this in final review together with client and broker.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Badge variant="outline" className={getSpecBadgeClass(fullSpec?.status)}>
+                    {formatStatus(fullSpec?.status || "NOT_CREATED")}
+                  </Badge>
+                  {canOpenFinalSpec && (
+                    <Button
+                      size="sm"
+                      variant={shouldHighlightFinalSign ? "default" : "outline"}
+                      onClick={() => navigate(`/freelancer/spec-review/${fullSpec!.id}`)}
+                    >
+                      {shouldHighlightFinalSign ? "Review & Sign Final Spec" : "View Final Spec"}
+                    </Button>
+                  )}
+                </div>
+              </div>
+
+              {!fullSpec && (
+                <p className="mt-3 text-sm text-muted-foreground">
+                  Broker has not submitted a Final Spec yet.
+                </p>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {canUseRequestChat ? (
+        <RequestChatPanel requestId={request.id} />
+      ) : null}
+
+      {canViewSpecs ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <FileText className="h-4 w-4" />
+              Contract Workflow
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {canOpenContract ? (
+              <div className="rounded-lg border bg-muted/20 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="font-medium">{linkedContract?.title}</p>
+                    <p className="text-sm text-muted-foreground">
+                      Status: {formatStatus(linkedContract?.status || "DRAFT")}
+                    </p>
+                    {contractActivated && (
+                      <p className="text-xs text-muted-foreground">
+                        Project activated. Continue in workspace.
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      size="sm"
+                      onClick={() => navigate(`/freelancer/contracts/${linkedContract!.id}`)}
+                    >
+                      Open Contract
+                    </Button>
+                    {canOpenWorkspace && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => navigate(`/freelancer/workspace/${linkedContract!.projectId}`)}
+                      >
+                        Open Workspace
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                {fullSpec?.status === ProjectSpecStatus.ALL_SIGNED
+                  ? "Waiting for broker to initialize contract from Final Spec."
+                  : "Contract becomes available after Final Spec is signed by all 3 parties."}
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      ) : null}
     </div>
   );
 }
