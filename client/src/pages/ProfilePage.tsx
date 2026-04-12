@@ -159,6 +159,9 @@ export default function ProfilePage() {
   const [avatarPreview, setAvatarPreview] = useState<string>("");
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
 
+  const canSelfDeleteAccount =
+    profile?.role !== "ADMIN" && profile?.role !== "STAFF";
+
   const normalizeCertifications = (
     certifications: unknown,
   ): Certification[] => {
@@ -774,7 +777,7 @@ export default function ProfilePage() {
             )}
 
             {/* Delete Account Button */}
-            {!isEditing && (
+            {!isEditing && canSelfDeleteAccount && (
               <button
                 onClick={() => setShowDeleteModal(true)}
                 className="w-full mt-3 bg-white hover:bg-red-50 text-red-600 border border-red-300 font-medium py-3 rounded-lg flex items-center justify-center gap-2 transition-colors"
@@ -1529,11 +1532,13 @@ export default function ProfilePage() {
       </div>
 
       {/* Delete Account Modal */}
-      <DeleteAccountModal
-        isOpen={showDeleteModal}
-        onClose={() => setShowDeleteModal(false)}
-        userEmail={profile?.email || ""}
-      />
+      {canSelfDeleteAccount && (
+        <DeleteAccountModal
+          isOpen={showDeleteModal}
+          onClose={() => setShowDeleteModal(false)}
+          userEmail={profile?.email || ""}
+        />
+      )}
 
       <Dialog
         open={showInitializeSigningDialog}
