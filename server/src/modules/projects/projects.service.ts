@@ -827,7 +827,9 @@ export class ProjectsService {
     milestone.submittedAt = new Date();
     this.clearStaffReviewDecision(milestone);
 
-    return this.milestoneRepository.save(milestone);
+    const updatedMilestone = await this.milestoneRepository.save(milestone);
+    this.emitProjectUpdated(project);
+    return updatedMilestone;
   }
 
   async reviewMilestoneAsBroker(
@@ -868,7 +870,9 @@ export class ProjectsService {
       milestone.submittedAt = null;
     }
 
-    return this.milestoneRepository.save(milestone);
+    const updatedMilestone = await this.milestoneRepository.save(milestone);
+    this.emitProjectUpdated(project);
+    return updatedMilestone;
   }
 
   async reviewMilestoneAsStaff(

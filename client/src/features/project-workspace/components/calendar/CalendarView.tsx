@@ -36,8 +36,11 @@ type CalendarViewProps = {
   tasks: Task[];
   selectedMilestoneLabel?: string | null;
   canRescheduleTasks?: boolean;
+  canCreateTasks?: boolean;
+  calendarInteractionMessage?: string | null;
   onViewTaskDetails?: (taskId: string) => void;
   onTaskUpdated?: (task: Task) => void;
+  onCreateTaskFromDate?: (start: Date, end: Date) => void;
 };
 
 const DragAndDropCalendar = withDragAndDrop<CalendarEvent, object>(BigCalendar);
@@ -148,8 +151,11 @@ export function CalendarView({
   tasks,
   selectedMilestoneLabel,
   canRescheduleTasks = false,
+  canCreateTasks = false,
+  calendarInteractionMessage,
   onViewTaskDetails,
   onTaskUpdated,
+  onCreateTaskFromDate,
 }: CalendarViewProps) {
   const [date, setDate] = useState(new Date());
   const [view, setView] = useState<CalendarViewType>("month");
@@ -159,12 +165,57 @@ export function CalendarView({
     () => sortCalendarEvents(tasksToCalendarEvents(tasks)),
     [tasks],
   );
+  const planningStats = useMemo(() => {
+    const now = startOfDay(new Date());
+    let overdueCount = 0;
+    let highPriorityCount = 0;
+
+    for (const task of tasks) {
+      const dueDate = task.dueDate ? startOfDay(new Date(task.dueDate)) : null;
+      const isOverdue =
+        dueDate !== null &&
+        dueDate.getTime() < now.getTime() &&
+        task.status?.toUpperCase() !== "DONE";
+
+      if (isOverdue) {
+        overdueCount += 1;
+      }
+
+      if (HIGH_PRIORITY_LEVELS.has(task.priority ?? "MEDIUM")) {
+        highPriorityCount += 1;
+      }
+    }
+
+    return {
+      scheduledCount: visibleEvents.length,
+      overdueCount,
+      highPriorityCount,
+    };
+  }, [tasks, visibleEvents.length]);
 
   const handleSelectEvent = useCallback(
     (event: CalendarEvent) => {
       onViewTaskDetails?.(event.resource.id);
     },
     [onViewTaskDetails],
+  );
+
+  const handleSelectSlot = useCallback(
+    ({ start, end }: { start: Date; end: Date }) => {
+      if (!onCreateTaskFromDate) {
+        return;
+      }
+
+      if (!canCreateTasks) {
+        if (calendarInteractionMessage) {
+          toast.warning(calendarInteractionMessage);
+        }
+        return;
+      }
+
+      onCreateTaskFromDate(start, end);
+    },
+    [calendarInteractionMessage, canCreateTasks, onCreateTaskFromDate],
   );
 
   const handleEventDrop = useCallback(
@@ -287,12 +338,37 @@ export function CalendarView({
               Drag any task to reschedule it instantly
             </span>
           ) : null}
+          {onCreateTaskFromDate ? (
+            <span
+              className={`rounded-full border px-2.5 py-1 ${
+                canCreateTasks
+                  ? "border-teal-200 bg-teal-50 text-teal-700"
+                  : "border-slate-200 bg-slate-100 text-slate-600"
+              }`}
+            >
+              {canCreateTasks
+                ? "Click or drag on an empty date range to create a task"
+                : "Task creation is currently locked"}
+            </span>
+          ) : null}
           {reschedulingTaskId ? (
             <span className="rounded-full border border-slate-200 bg-slate-100 px-2.5 py-1 text-slate-600">
               Updating schedule...
             </span>
           ) : null}
           <span>Hover for quick preview, click to open full detail.</span>
+        </div>
+
+        <div className="mt-3 grid gap-2 text-xs text-slate-600 sm:grid-cols-3">
+          <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
+            Scheduled tasks: <span className="font-semibold text-slate-900">{planningStats.scheduledCount}</span>
+          </div>
+          <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-red-700">
+            Overdue tasks: <span className="font-semibold">{planningStats.overdueCount}</span>
+          </div>
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-amber-700">
+            High priority: <span className="font-semibold">{planningStats.highPriorityCount}</span>
+          </div>
         </div>
       </div>
 
@@ -312,11 +388,12 @@ export function CalendarView({
               startAccessor="start"
               endAccessor="end"
               allDayAccessor="allDay"
-              selectable
+              selectable={Boolean(onCreateTaskFromDate)}
               resizable={false}
               style={{ height: "100%" }}
               eventPropGetter={getEventInlineStyles}
               onSelectEvent={handleSelectEvent}
+              onSelectSlot={handleSelectSlot}
               onEventDrop={handleEventDrop}
               draggableAccessor={canDragEvent}
               components={{ event: CalendarEventChip }}
