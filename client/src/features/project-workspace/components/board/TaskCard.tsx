@@ -1,10 +1,12 @@
+import { memo } from "react";
 import { Draggable } from "@hello-pangea/dnd";
 import { GripVertical, Clock, Flag, Layout } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { Task, TaskAttachment } from "../../types";
-
-const TASK_ATTACHMENTS_BUCKET = "task-attachments";
-const IMAGE_EXTENSION_PATTERN = /\.(png|jpe?g|gif|webp)(?:$|[?#])/i;
+import type { Task } from "../../types";
+import {
+  isTaskImageAttachment,
+  resolveTaskAttachmentUrl,
+} from "../../utils/task-attachments";
 
 const getAssigneeVisuals = (task: Task) => {
   const name = task.assignee?.fullName || task.assignee?.email || "Unassigned";
@@ -38,44 +40,6 @@ const PRIORITY_STYLES: Record<string, { color: string; bg: string }> = {
   URGENT: { color: "text-red-600", bg: "bg-red-50" },
 };
 
-const isImageAttachment = (attachment: TaskAttachment) => {
-  const fileType = `${attachment.fileType || ""}`.toLowerCase();
-  const fileName = `${attachment.fileName || ""}`.toLowerCase();
-  const url = `${attachment.url || ""}`.toLowerCase();
-
-  return (
-    fileType.includes("image/") ||
-    fileType === "image" ||
-    IMAGE_EXTENSION_PATTERN.test(fileName) ||
-    IMAGE_EXTENSION_PATTERN.test(url)
-  );
-};
-
-const resolveAttachmentUrl = (rawUrl?: string | null) => {
-  const trimmed = `${rawUrl || ""}`.trim();
-  if (!trimmed) return null;
-
-  if (/^(https?:)?\/\//i.test(trimmed) || trimmed.startsWith("data:")) {
-    return trimmed;
-  }
-
-  const supabaseBaseUrl = import.meta.env.VITE_SUPABASE_URL?.trim().replace(/\/+$/, "");
-  if (!supabaseBaseUrl) {
-    return trimmed;
-  }
-
-  const normalizedPath = trimmed.replace(/^\/+/, "");
-  if (normalizedPath.startsWith("storage/v1/object/public/")) {
-    return `${supabaseBaseUrl}/${normalizedPath}`;
-  }
-
-  if (normalizedPath.startsWith(`${TASK_ATTACHMENTS_BUCKET}/`)) {
-    return `${supabaseBaseUrl}/storage/v1/object/public/${normalizedPath}`;
-  }
-
-  return `${supabaseBaseUrl}/storage/v1/object/public/${TASK_ATTACHMENTS_BUCKET}/${normalizedPath}`;
-};
-
 type TaskCardProps = {
   task: Task;
   index: number;
@@ -83,9 +47,15 @@ type TaskCardProps = {
   isReadOnly?: boolean;
 };
 
-export function TaskCard({ task, index, onClick, isReadOnly = false }: TaskCardProps) {
-  const coverAttachment = task.attachments?.find(isImageAttachment);
-  const coverImageUrl = resolveAttachmentUrl(coverAttachment?.url);
+function TaskCardInner({
+  task,
+  index,
+  onClick,
+  isReadOnly = false,
+}: TaskCardProps) {
+  const coverAttachment = task.attachments?.find(isTaskImageAttachment);
+  const coverImageUrl = resolveTaskAttachmentUrl(coverAttachment?.url);
+  const hasCoverImage = Boolean(coverImageUrl);
 
   return (
     <Draggable draggableId={task.id} index={index} isDragDisabled={isReadOnly}>
@@ -96,11 +66,12 @@ export function TaskCard({ task, index, onClick, isReadOnly = false }: TaskCardP
           {...dragProvided.dragHandleProps}
           onClick={() => onClick(task.id)}
           className={cn(
-            "group relative overflow-hidden rounded-[3px] border border-gray-300 bg-white shadow-sm transition-colors hover:bg-gray-50",
+            "group relative shrink-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm transition-colors hover:bg-slate-50",
+            hasCoverImage ? "min-h-[7.75rem]" : "min-h-[5.75rem]",
             isReadOnly ? "cursor-default" : "cursor-pointer",
             snapshot.isDragging
               ? "shadow-lg border-teal-500 ring-1 ring-teal-400/50 z-50 rotate-2"
-              : "hover:border-gray-400"
+              : "hover:border-slate-300"
           )}
         >
           {!isReadOnly && (
@@ -110,11 +81,11 @@ export function TaskCard({ task, index, onClick, isReadOnly = false }: TaskCardP
           )}
 
           {coverImageUrl ? (
-            <div className="w-full border-b border-gray-200">
+            <div className="relative h-12 w-full overflow-hidden border-b border-slate-200 bg-slate-100">
               <img
                 src={coverImageUrl}
                 alt={coverAttachment?.fileName || `${task.title} cover`}
-                className="pointer-events-none h-32 w-full rounded-t-md object-cover select-none"
+                className="pointer-events-none absolute inset-0 h-full w-full select-none object-cover"
                 loading="lazy"
                 decoding="async"
                 draggable={false}
@@ -122,15 +93,15 @@ export function TaskCard({ task, index, onClick, isReadOnly = false }: TaskCardP
             </div>
           ) : null}
 
-          <div className="p-3">
+          <div className="p-2.5">
             <div className="flex items-start gap-3">
               <div className="flex-1 space-y-1.5">
                 <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <p className="text-sm font-semibold text-slate-900 transition-colors group-hover:text-blue-600">
+                  <div className="min-w-0">
+                    <p className="line-clamp-2 text-sm font-semibold leading-5 text-slate-900 transition-colors group-hover:text-blue-600">
                       {task.title}
                     </p>
-                    {task.description && (
+                    {task.description && !coverImageUrl && (
                       <p className="mt-1 line-clamp-2 text-xs text-gray-600">
                         {task.description}
                       </p>
@@ -138,8 +109,8 @@ export function TaskCard({ task, index, onClick, isReadOnly = false }: TaskCardP
                   </div>
                 </div>
 
-                <div className="mt-2 flex items-center justify-between border-t border-gray-100 pt-2">
-                  <div className="flex items-center gap-2">
+                <div className="mt-1 flex items-center justify-between gap-2 border-t border-slate-100 pt-1.5">
+                  <div className="flex min-w-0 flex-wrap items-center gap-2">
                     {(() => {
                       const { name, initials, colorClass } = getAssigneeVisuals(task);
                       return (
@@ -208,3 +179,5 @@ export function TaskCard({ task, index, onClick, isReadOnly = false }: TaskCardP
     </Draggable>
   );
 }
+
+export const TaskCard = memo(TaskCardInner);

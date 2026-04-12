@@ -20,6 +20,8 @@ import {
 } from '../../database/entities/staff-application.entity';
 import { ProjectEntity, ProjectStatus } from '../../database/entities/project.entity';
 import { WalletEntity } from '../../database/entities/wallet.entity';
+import { SkillDomainEntity } from '../../database/entities/skill-domain.entity';
+import { SkillEntity, SkillCategory } from '../../database/entities/skill.entity';
 import { EmailService } from './email.service';
 import { EmailVerificationService } from './email-verification.service';
 import {
@@ -47,6 +49,8 @@ import { normalizeAuthEmail } from './utils/email.utils';
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
   private readonly refreshTokenLegacyScanLimit = 5000;
+  private readonly customDomainPrefix = '__other_domain__:';
+  private readonly customSkillPrefix = '__other_skill__:';
 
   constructor(
     @InjectRepository(UserEntity)
@@ -123,6 +127,7 @@ export class AuthService {
     } as DeepPartial<UserEntity>);
 
     const savedUser = await this.userRepository.save(newUser);
+
     if (role === UserRole.STAFF) {
       const staffApplicationRepository =
         this.userRepository.manager.getRepository(StaffApplicationEntity);
@@ -150,18 +155,88 @@ export class AuthService {
         .catch(() => {});
     }
 
-    // N蘯ｿu lﾃ BROKER ho蘯ｷc FREELANCER 竊・Lﾆｰu domains vﾃ skills
+    const parsedDomains = this.parseTaggedSelections(domainIds, this.customDomainPrefix);
+    const parsedSkills = this.parseTaggedSelections(skillIds, this.customSkillPrefix);
+    let selectedDomainCount = parsedDomains.ids.length;
+    let selectedSkillCount = parsedSkills.ids.length;
+
+    // Save role-specific domains/skills, including free-text "Other" values.
     if (
       (role === UserRole.BROKER || role === UserRole.FREELANCER || role === UserRole.STAFF) &&
-      (domainIds || skillIds)
+      (parsedDomains.ids.length > 0 || parsedSkills.ids.length > 0 || parsedDomains.custom.length > 0 || parsedSkills.custom.length > 0)
     ) {
       const userSkillDomainRepo =
         this.userRepository.manager.getRepository('UserSkillDomainEntity');
       const userSkillRepo = this.userRepository.manager.getRepository('UserSkillEntity');
+      const skillDomainRepo = this.userRepository.manager.getRepository(SkillDomainEntity);
+      const skillRepo = this.userRepository.manager.getRepository(SkillEntity);
+
+      const selectedDomainIds = new Set(parsedDomains.ids);
+      const selectedSkillIds = new Set(parsedSkills.ids);
+      const normalizedCustomDomains = this.normalizeCustomEntries(parsedDomains.custom);
+      const normalizedCustomSkills = this.normalizeCustomEntries(parsedSkills.custom);
+
+      for (const domainName of normalizedCustomDomains) {
+        let domain = await skillDomainRepo
+          .createQueryBuilder('domain')
+          .where('LOWER(domain.name) = LOWER(:name)', { name: domainName })
+          .getOne();
+
+        if (!domain) {
+          domain = await skillDomainRepo.save(
+            skillDomainRepo.create({
+              name: domainName,
+              slug: this.toSafeSlug(domainName, 'custom-domain'),
+              description: 'User-added during registration',
+              isActive: true,
+              sortOrder: 9999,
+            }),
+          );
+        }
+
+        selectedDomainIds.add(domain.id);
+      }
+
+      for (const skillName of normalizedCustomSkills) {
+        let skill = await skillRepo
+          .createQueryBuilder('skill')
+          .where('LOWER(skill.name) = LOWER(:name)', { name: skillName })
+          .getOne();
+
+        if (!skill) {
+          skill = await skillRepo.save(
+            skillRepo.create({
+              name: skillName,
+              slug: this.toSafeSlug(skillName, 'custom-skill'),
+              category: SkillCategory.OTHER,
+              description: 'User-added during registration',
+              isActive: true,
+              sortOrder: 9999,
+              forFreelancer: role === UserRole.FREELANCER,
+              forBroker: role === UserRole.BROKER,
+              forStaff: role === UserRole.STAFF,
+            }),
+          );
+        } else {
+          const needsRoleFlagUpdate =
+            (role === UserRole.FREELANCER && !skill.forFreelancer) ||
+            (role === UserRole.BROKER && !skill.forBroker) ||
+            (role === UserRole.STAFF && !skill.forStaff);
+
+          if (needsRoleFlagUpdate) {
+            if (role === UserRole.FREELANCER) skill.forFreelancer = true;
+            if (role === UserRole.BROKER) skill.forBroker = true;
+            if (role === UserRole.STAFF) skill.forStaff = true;
+            await skillRepo.save(skill);
+          }
+        }
+
+        selectedSkillIds.add(skill.id);
+      }
 
       // Save domains.
-      if (domainIds && domainIds.length > 0) {
-        const domainRecords = domainIds.map((domainId) => ({
+      if (selectedDomainIds.size > 0) {
+        const domainRecords = [...selectedDomainIds].map((domainId) => ({
           userId: savedUser.id,
           domainId,
         }));
@@ -169,8 +244,8 @@ export class AuthService {
       }
 
       // Save skills.
-      if (skillIds && skillIds.length > 0) {
-        const skillRecords = skillIds.map((skillId) => ({
+      if (selectedSkillIds.size > 0) {
+        const skillRecords = [...selectedSkillIds].map((skillId) => ({
           userId: savedUser.id,
           skillId,
           priority: 'SECONDARY', // Default to SECONDARY, user can upgrade later
@@ -178,6 +253,9 @@ export class AuthService {
         }));
         await userSkillRepo.save(skillRecords);
       }
+
+      selectedDomainCount = selectedDomainIds.size;
+      selectedSkillCount = selectedSkillIds.size;
     }
 
     // Send email verification
@@ -194,13 +272,77 @@ export class AuthService {
         email: savedUser.email,
         ipAddress,
         userAgent,
-        domainCount: domainIds?.length || 0,
-        skillCount: skillIds?.length || 0,
+        domainCount: selectedDomainCount,
+        skillCount: selectedSkillCount,
       })
       .catch(() => {});
 
     // Return public user data without any password fields.
     return this.mapToAuthResponse(savedUser);
+  }
+
+  private normalizeCustomEntries(values?: string[]): string[] {
+    if (!values || values.length === 0) {
+      return [];
+    }
+
+    const unique = new Map<string, string>();
+    for (const rawValue of values) {
+      const trimmed = String(rawValue || '')
+        .replace(/\s+/g, ' ')
+        .trim();
+      if (!trimmed) {
+        continue;
+      }
+
+      const normalizedKey = trimmed.toLowerCase();
+      if (!unique.has(normalizedKey)) {
+        unique.set(normalizedKey, trimmed.slice(0, 100));
+      }
+    }
+
+    return [...unique.values()];
+  }
+
+  private parseTaggedSelections(values: string[] | undefined, prefix: string): {
+    ids: string[];
+    custom: string[];
+  } {
+    if (!values || values.length === 0) {
+      return { ids: [], custom: [] };
+    }
+
+    const ids: string[] = [];
+    const custom: string[] = [];
+
+    for (const rawValue of values) {
+      const value = String(rawValue || '').trim();
+      if (!value) {
+        continue;
+      }
+
+      if (value.startsWith(prefix)) {
+        const label = value.slice(prefix.length).trim();
+        if (label) {
+          custom.push(label);
+        }
+        continue;
+      }
+
+      ids.push(value);
+    }
+
+    return { ids, custom };
+  }
+
+  private toSafeSlug(value: string, fallbackPrefix: string): string {
+    const normalized = String(value || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 60);
+    const suffix = randomUUID().slice(0, 8);
+    return `${normalized || fallbackPrefix}-${suffix}`;
   }
 
   async login(
@@ -562,7 +704,8 @@ export class AuthService {
     try {
       await this.emailService.sendOTP(user.email, otp);
     } catch (error) {
-      this.logger.error(`ForgotPassword: Failed to send OTP to ${user.email}: ${error.message}`);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(`ForgotPassword: Failed to send OTP to ${user.email}: ${errorMessage}`);
       // Continue execution even if email fails - user can resend or check logs
     }
 

@@ -1,0 +1,171 @@
+@startuml Register_New_Subscription_Class_Diagram
+title Register New Subscription - Class Diagram
+skinparam backgroundColor white
+skinparam monochrome true
+skinparam defaultFontColor black
+skinparam ArrowColor black
+skinparam classBorderColor black
+skinparam classFontColor black
+skinparam classBackgroundColor white
+skinparam stereotypeFontColor black
+skinparam linetype polyline
+skinparam classAttributeIconSize 0
+hide circle
+
+skinparam classHeaderBackgroundColor white
+skinparam classHeaderFontColor black
+
+class SubscriptionCheckoutPage {
+    - loading: boolean
+    - error: string | null
+    - plans: SubscriptionPlan[]
+    - selectedCycle: BillingCycle
+    - paymentMethods: PaymentMethodView[]
+    --
+    + SubscriptionCheckoutPage(): JSX.Element
+    + fetchData(): Promise<void>
+    + ensurePayPalCheckoutMethod(): Promise<PaymentMethodView | null>
+}
+
+class PayPalSubscriptionCheckout {
+    - quote: SubscriptionPayPalCheckoutConfig | null
+    - renderError: string | null
+    - isCapturing: boolean
+    --
+    + PayPalSubscriptionCheckout(props: PayPalSubscriptionCheckoutProps): JSX.Element
+}
+
+class getSubscriptionPlans {
+    --
+    + getSubscriptionPlans(): Promise<SubscriptionPlan[]>
+}
+
+class createPayPalSubscriptionOrder {
+    --
+    + createPayPalSubscriptionOrder(request: CreatePayPalSubscriptionOrderRequest): Promise<PayPalSubscriptionOrder>
+}
+
+class getSubscriptionPayPalConfig {
+    --
+    + getSubscriptionPayPalConfig(request: SubscriptionPayPalConfigRequest): Promise<SubscriptionPayPalCheckoutConfig>
+}
+
+class subscribeToPlan {
+    --
+    + subscribeToPlan(request: SubscribeRequest): Promise<SubscribeResponse>
+}
+
+class createPaymentMethod {
+    --
+    + createPaymentMethod(payload: CreatePaymentMethodInput): Promise<PaymentMethodView>
+}
+
+class ApiClient {
+    - client: AxiosInstance
+    - refreshPromise: Promise<void> | null
+    - sessionReconcilePromise: Promise<void> | null
+    - isRedirectingToLogin: boolean
+    - lastLoginTime: number
+    --
+    + constructor()
+    + get<T>(url: string, config?: AxiosRequestConfig): Promise<T>
+    + post<T>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<T>
+    + refreshAccessTokenSingleFlight(): Promise<void>
+    ...
+}
+
+class JwtAuthGuard {
+    --
+    + canActivate(context: any): boolean | Promise<boolean> | any
+}
+
+class SubscriptionsController {
+    - subscriptionsService: SubscriptionsService
+    --
+    + getPlans(req: any): Promise<any>
+    + getPayPalConfig(req: any, dto: SubscriptionPayPalConfigQueryDto): Promise<any>
+    + createPayPalOrder(req: any, dto: CreatePayPalSubscriptionOrderDto): Promise<any>
+    + subscribe(req: any, dto: SubscribeDto): Promise<any>
+}
+
+class SubscriptionsService {
+    - subscriptionRepo: Repository<UserSubscriptionEntity>
+    - planRepo: Repository<SubscriptionPlanEntity>
+    - userRepo: Repository<UserEntity>
+    - paymentMethodRepo: Repository<PaymentMethodEntity>
+    - payPalCheckoutService: PayPalCheckoutService
+    --
+    + getPlansForRole(role: UserRole): Promise<SubscriptionPlanEntity[]>
+    + getPayPalCheckoutConfig(userId: string, dto: SubscriptionPayPalConfigQueryDto): Promise<PayPalSubscriptionCheckoutConfigView>
+    + createPayPalSubscriptionOrder(userId: string, dto: CreatePayPalSubscriptionOrderDto): Promise<PayPalSubscriptionOrderView>
+    + subscribe(userId: string, dto: SubscribeDto): Promise<UserSubscriptionEntity>
+    ...
+}
+
+class PayPalCheckoutService {
+    --
+    + getSdkConfigForUser(userId: string, paymentMethodId?: string): Promise<any>
+    + createSubscriptionOrder(input: any): Promise<any>
+    + captureOrder(orderId: string): Promise<any>
+    ...
+}
+
+class SubscriptionPlanEntity {
+    + id: string
+    + displayName: string
+    + role: UserRole
+    + priceMonthly: number
+    + priceQuarterly: number
+    + priceYearly: number
+    + perks: Record<string, number | boolean>
+    --
+}
+
+class UserSubscriptionEntity {
+    + id: string
+    + userId: string
+    + planId: string
+    + status: SubscriptionStatus
+    + billingCycle: BillingCycle
+    + paymentProvider: string
+    + paymentReference: string | null
+    --
+}
+
+class PaymentMethodEntity {
+    + id: string
+    + userId: string
+    + type: PaymentMethodType
+    + paypalEmail: string | null
+    + isDefault: boolean
+    + fastCheckoutReady: boolean
+    --
+}
+
+SubscriptionCheckoutPage ..> getSubscriptionPlans
+SubscriptionCheckoutPage ..> createPaymentMethod
+SubscriptionCheckoutPage ..> PayPalSubscriptionCheckout
+
+PayPalSubscriptionCheckout ..> getSubscriptionPayPalConfig
+PayPalSubscriptionCheckout ..> createPayPalSubscriptionOrder
+PayPalSubscriptionCheckout ..> subscribeToPlan
+
+getSubscriptionPlans ..> ApiClient
+createPaymentMethod ..> ApiClient
+getSubscriptionPayPalConfig ..> ApiClient
+createPayPalSubscriptionOrder ..> ApiClient
+subscribeToPlan ..> ApiClient
+
+ApiClient ..> SubscriptionsController
+
+SubscriptionsController ..> JwtAuthGuard
+SubscriptionsController --> SubscriptionsService
+
+SubscriptionsService ..> PayPalCheckoutService
+SubscriptionsService ..> SubscriptionPlanEntity
+SubscriptionsService ..> UserSubscriptionEntity
+SubscriptionsService ..> PaymentMethodEntity
+
+UserSubscriptionEntity o-- SubscriptionPlanEntity
+
+@enduml

@@ -47,7 +47,7 @@ export class RegisterDto {
   @IsNotDisposableEmail({
     message: 'Please use an email from a reputable provider (Gmail, Outlook, Yahoo, etc.) or university email.',
   })
-  email: string;
+  email!: string;
 
   @ApiProperty({
     description: 'User password (minimum 8 characters, with lowercase and number/special character)',
@@ -60,7 +60,7 @@ export class RegisterDto {
   @Matches(/^(?=.*[a-z])(?=.*[\d@$!%*?&])/, {
     message: 'Password must contain at least one lowercase letter and one number or special character (@$!%*?&)',
   })
-  password: string;
+  password!: string;
 
   @ApiProperty({
     description: 'User full name (2-50 characters, letters and spaces only)',
@@ -75,7 +75,7 @@ export class RegisterDto {
   @Matches(/^[a-zA-ZÀ-ỹ\s]+$/, {
     message: 'Full name can only contain letters and spaces',
   })
-  fullName: string;
+  fullName!: string;
 
   @ApiProperty({
     description: 'Phone number (Vietnam format: 0[3|5|7|8|9]xxxxxxxx)',
@@ -87,7 +87,7 @@ export class RegisterDto {
   @Matches(/^0[3|5|7|8|9][0-9]{8}$/, {
     message: 'Invalid phone number format. Correct format: 0[3|5|7|8|9]xxxxxxxx (e.g., 0987654321)',
   })
-  phoneNumber: string;
+  phoneNumber!: string;
 
   @ApiProperty({
     description: 'User role in the system (only CLIENT, BROKER, FREELANCER, STAFF allowed)',
@@ -96,7 +96,7 @@ export class RegisterDto {
   })
   @IsEnum(REGISTERABLE_ROLES, { message: 'Role must be CLIENT, BROKER, FREELANCER, or STAFF' })
   @IsNotEmpty({ message: 'Role is required' })
-  role: RegisterableRole;
+  role!: RegisterableRole;
 
   @ApiPropertyOptional({
     description: 'Google reCAPTCHA token from frontend',
@@ -132,7 +132,7 @@ export class RegisterDto {
   })
   @IsBoolean({ message: 'acceptTerms must be a boolean' })
   @IsNotEmpty({ message: 'You must accept the Terms of Service' })
-  acceptTerms: boolean;
+  acceptTerms!: boolean;
 
   @ApiProperty({
     description: 'Confirm acceptance of Privacy Policy',
@@ -140,5 +140,5 @@ export class RegisterDto {
   })
   @IsBoolean({ message: 'acceptPrivacy must be a boolean' })
   @IsNotEmpty({ message: 'You must accept the Privacy Policy' })
-  acceptPrivacy: boolean;
+  acceptPrivacy!: boolean;
 }

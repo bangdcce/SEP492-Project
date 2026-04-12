@@ -105,13 +105,21 @@ export class TasksController {
   }
 
   @Post(':id/subtasks')
-  createSubtask(@Param('id') id: string, @Body() body: CreateSubtaskDto) {
-    return this.tasksService.createSubtask(id, body);
+  createSubtask(
+    @Param('id') id: string,
+    @Body() body: CreateSubtaskDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.tasksService.createSubtask(id, body, req.user?.role);
   }
 
   @Post(':id/subtasks/link')
-  linkSubtask(@Param('id') id: string, @Body() body: LinkSubtaskDto) {
-    return this.tasksService.linkExistingSubtask(id, body.subtaskId);
+  linkSubtask(
+    @Param('id') id: string,
+    @Body() body: LinkSubtaskDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.tasksService.linkExistingSubtask(id, body.subtaskId, req.user?.role);
   }
 
   @Post('upload-attachment')

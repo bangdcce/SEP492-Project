@@ -696,7 +696,7 @@ describe('ContractsService', () => {
       const project = buildProject({ currency: 'USD' });
       const updatedSnapshot = buildSnapshot().map((item, index) => ({
         ...item,
-        amount: index === 0 ? 350 : item.amount,
+        amount: item.amount,
         title: index === 0 ? 'Discovery' : item.title,
       }));
       const contract = {
@@ -739,7 +739,7 @@ describe('ContractsService', () => {
         ProjectEntity,
         expect.objectContaining({
           currency: 'EUR',
-          totalBudget: 1050,
+          totalBudget: 1000,
         }),
       );
       expect(mockManager.save).toHaveBeenCalledWith(
@@ -865,6 +865,7 @@ describe('ContractsService', () => {
           brokerUser,
           'contract-uuid',
           '   ',
+          '123456',
           {
             headers: {},
             ip: '127.0.0.1',
@@ -952,6 +953,7 @@ describe('ContractsService', () => {
           outsiderUser,
           contract.id,
           contract.contentHash,
+          '123456',
           {
             headers: {},
             ip: '127.0.0.1',
@@ -991,6 +993,7 @@ describe('ContractsService', () => {
           brokerUser,
           contract.id,
           contract.contentHash,
+          '123456',
           {
             headers: {},
             ip: '127.0.0.1',
@@ -1066,6 +1069,7 @@ describe('ContractsService', () => {
           brokerUser,
           contract.id,
           contract.contentHash,
+          '123456',
           {
             headers: {},
             ip: '127.0.0.1',
@@ -1117,6 +1121,7 @@ describe('ContractsService', () => {
           brokerUser,
           contract.id,
           contract.contentHash,
+          '123456',
           {
             headers: {},
             ip: '127.0.0.1',
@@ -1174,6 +1179,7 @@ describe('ContractsService', () => {
         brokerUser,
         contract.id,
         contract.contentHash,
+        '123456',
         {
           headers: {},
           ip: '127.0.0.1',
@@ -1255,6 +1261,7 @@ describe('ContractsService', () => {
         brokerUser,
         contract.id,
         expectedHash,
+        '123456',
         {
           headers: {
             'x-forwarded-for': '203.0.113.10, 10.0.0.1',
@@ -1274,8 +1281,8 @@ describe('ContractsService', () => {
           userId: brokerUser.id,
           ipAddress: '203.0.113.10',
           userAgent: 'jest-agent',
-          provider: 'INTERDEV_AUDIT',
-          legalStatus: 'AUDIT_RECORDED',
+          provider: 'INTERDEV_MINI_CA',
+          legalStatus: 'VERIFIED',
         }),
       );
       expect(mockNotificationsService.createMany).toHaveBeenCalledWith(

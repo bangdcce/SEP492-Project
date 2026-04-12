@@ -994,6 +994,8 @@ export const ParticipantHearingsPage = () => {
       "HEARING_EXTENDED",
       "HEARING_FOLLOW_UP_SCHEDULED",
       "HEARING_INVITE_RESPONDED",
+      "APPEAL_SUBMITTED",
+      "APPEAL_RESOLVED",
       "VERDICT_ISSUED",
       "APPEAL_DEADLINE_PASSED",
     ] as const;

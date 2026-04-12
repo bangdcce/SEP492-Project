@@ -1,0 +1,140 @@
+@startuml View_List_Dispute_Class_Diagram
+title View List Dispute - Class Diagram
+skinparam backgroundColor white
+skinparam monochrome true
+skinparam defaultFontColor black
+skinparam ArrowColor black
+skinparam classBorderColor black
+skinparam classFontColor black
+skinparam classBackgroundColor white
+skinparam stereotypeFontColor black
+skinparam linetype polyline
+skinparam classAttributeIconSize 0
+hide circle
+
+skinparam classHeaderBackgroundColor white
+skinparam classHeaderFontColor black
+
+class StaffCaseloadPage {
+    --
+    + StaffCaseloadPage(): JSX.Element
+}
+
+class StaffCaseloadBoard {
+    --
+    + StaffCaseloadBoard(): JSX.Element
+}
+
+class StaffDisputeBoard {
+    - disputes: DisputeSummary[]
+    - loading: boolean
+    - searchValue: string
+    - viewFilter: ViewFilter
+    - page: number
+    --
+    + StaffDisputeBoard(props: StaffDisputeBoardProps): JSX.Element
+    + loadDisputes(): Promise<void>
+}
+
+class getCaseloadDisputes {
+    --
+    + getCaseloadDisputes(filters?: DisputeFilters, options?: CacheOptions): Promise<PaginatedDisputesResponse>
+}
+
+class ApiClient {
+    - client: AxiosInstance
+    - refreshPromise: Promise<void> | null
+    - sessionReconcilePromise: Promise<void> | null
+    - isRedirectingToLogin: boolean
+    - lastLoginTime: number
+    --
+    + constructor()
+    + get<T>(url: string, config?: AxiosRequestConfig): Promise<T>
+    + refreshAccessTokenSingleFlight(): Promise<void>
+    ...
+}
+
+class DisputesController {
+    - disputesService: DisputesService
+    --
+    + getCaseloadDisputes(user: UserEntity, filters: DisputeFilterDto): Promise<PaginatedDisputesResponse>
+}
+
+class DisputesService {
+    - disputeRepo: Repository<DisputeEntity>
+    --
+    + getCaseloadDisputes(filters?: DisputeFilterDto): Promise<PaginatedDisputesResponse>
+    + getAll(filters?: DisputeFilterDto): Promise<PaginatedDisputesResponse>
+    + applyFiltersAndPaginate(qb: any, filters: DisputeFilterDto, context?: object): Promise<PaginatedDisputesResponse>
+    ...
+}
+
+class DisputeFilterDto {
+    + page?: number
+    + limit?: number
+    + sortBy?: string
+    + sortOrder?: string
+    + statusIn?: string[]
+    + priority?: string
+    + category?: string
+    + assignedStaffId?: string
+    --
+}
+
+class DisputeSummary {
+    + id: string
+    + displayCode?: string
+    + displayTitle?: string
+    + status: DisputeStatus
+    + caseStage?: string
+    + isAppealed?: boolean
+    + project?: object
+    + latestHearing?: object
+    ...
+}
+
+class DisputeEntity {
+    + id: string
+    + status: DisputeStatus
+    + priority?: DisputePriority
+    + category: DisputeCategory
+    + assignedStaffId?: string | null
+    + projectId: string
+    + updatedAt: Date
+    --
+}
+
+class UserEntity {
+    + id: string
+    + email: string
+    + fullName: string
+    + role: UserRole
+    --
+}
+
+class ProjectEntity {
+    + id: string
+    + title: string
+    + clientId: string
+    + freelancerId?: string | null
+    + brokerId?: string | null
+    --
+}
+
+StaffCaseloadPage ..> StaffCaseloadBoard
+StaffCaseloadBoard ..> StaffDisputeBoard
+StaffDisputeBoard ..> getCaseloadDisputes
+getCaseloadDisputes ..> ApiClient
+ApiClient ..> DisputesController
+DisputesController --> DisputesService
+DisputesController ..> UserEntity
+DisputesController ..> DisputeFilterDto
+
+StaffDisputeBoard ..> DisputeSummary
+DisputesService ..> DisputeFilterDto
+DisputesService ..> DisputeSummary
+DisputesService ..> DisputeEntity
+DisputesService ..> UserEntity
+DisputesService ..> ProjectEntity
+
+@enduml

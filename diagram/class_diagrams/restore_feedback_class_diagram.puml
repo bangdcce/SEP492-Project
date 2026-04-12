@@ -1,0 +1,122 @@
+@startuml Restore_Feedback_Class_Diagram
+title Restore Feedback - Class Diagram
+skinparam backgroundColor white
+skinparam monochrome true
+skinparam defaultFontColor black
+skinparam ArrowColor black
+skinparam classBorderColor black
+skinparam classFontColor black
+skinparam classBackgroundColor white
+skinparam stereotypeFontColor black
+skinparam linetype polyline
+skinparam classAttributeIconSize 0
+hide circle
+
+skinparam classHeaderBackgroundColor white
+skinparam classHeaderFontColor black
+
+class AdminReviewModerationPage {
+    - selectedReview: AdminReview | null
+    - showRestoreModal: boolean
+    - isLoading: boolean
+    --
+    + AdminReviewModerationPage(): JSX.Element
+    + handleRestore(reason: string): Promise<void>
+}
+
+class RestoreReviewModal {
+    - reason: string
+    --
+    + RestoreReviewModal(props: RestoreReviewModalProps): JSX.Element
+    + handleConfirm(): void
+    + handleClose(): void
+}
+
+class restoreReview {
+    --
+    + restoreReview(reviewId: string, reason: string): Promise<{ message: string; review: AdminReview }>
+}
+
+class ApiClient {
+    - client: AxiosInstance
+    - refreshPromise: Promise<void> | null
+    - sessionReconcilePromise: Promise<void> | null
+    - isRedirectingToLogin: boolean
+    - lastLoginTime: number
+    --
+    + constructor()
+    + post<T>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<T>
+    + refreshAccessTokenSingleFlight(): Promise<void>
+    ...
+}
+
+class ReviewController {
+    - reviewService: ReviewService
+    --
+    + restore(adminId: string, id: string, dto: { reason: string }): Promise<any>
+}
+
+class ReviewService {
+    - reviewRepo: Repository<ReviewEntity>
+    - auditLogRepo: Repository<AuditLogEntity>
+    - reportRepo: Repository<ReportEntity>
+    --
+    + restore(reviewId: string, adminId: string, reason: string): Promise<any>
+    + handleSoftDeleteCommitted(review: Pick<ReviewEntity, 'id' | 'targetUserId'>, adminId: string): Promise<void>
+    ...
+}
+
+class AdminReview {
+    + id: string
+    + rating: number
+    + comment: string
+    + status: ReviewStatus
+    + reviewer: object
+    + project: object
+    + moderationHistory?: object[]
+    --
+}
+
+class ReviewEntity {
+    + id: string
+    + targetUserId: string
+    + deletedAt?: Date | null
+    + deletedBy?: string | null
+    + deleteReason?: string | null
+    + comment: string
+    + rating: number
+    --
+}
+
+class AuditLogEntity {
+    + id: string
+    + action: string
+    + entityType: string
+    + entityId: string
+    + actorId: string
+    + createdAt: Date
+    --
+}
+
+class ReportEntity {
+    + id: string
+    + reviewId: string
+    + status: ReportStatus
+    + createdAt: Date
+    --
+}
+
+AdminReviewModerationPage ..> RestoreReviewModal
+AdminReviewModerationPage ..> restoreReview
+AdminReviewModerationPage ..> AdminReview
+
+RestoreReviewModal ..> AdminReview
+restoreReview ..> ApiClient
+ApiClient ..> ReviewController
+ReviewController --> ReviewService
+
+ReviewService ..> ReviewEntity
+ReviewService ..> AuditLogEntity
+ReviewService ..> ReportEntity
+
+@enduml

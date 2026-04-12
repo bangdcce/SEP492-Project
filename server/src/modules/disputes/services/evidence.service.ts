@@ -1256,7 +1256,7 @@ export class EvidenceService {
     // Load all non-flagged evidence
     const evidenceList = await this.evidenceRepo.find({
       where: { disputeId, isFlagged: false },
-      order: { createdAt: 'ASC' },
+      order: { uploadedAt: 'ASC' },
     });
 
     // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -1276,6 +1276,12 @@ export class EvidenceService {
       description: string | null;
       archivePath: string;
     }> = [];
+    const omittedFiles: Array<{
+      evidenceId: string;
+      fileName: string;
+      storagePath: string;
+      reason: string;
+    }> = [];
 
     let index = 0;
     for (const evidence of evidenceList) {
@@ -1288,10 +1294,21 @@ export class EvidenceService {
         .from(this.bucketName)
         .download(evidence.storagePath);
 
-      if (!error && data) {
-        const buffer = Buffer.from(await data.arrayBuffer());
-        archive.append(buffer, { name: archivePath });
+      if (error || !data) {
+        omittedFiles.push({
+          evidenceId: evidence.id,
+          fileName: evidence.fileName,
+          storagePath: evidence.storagePath,
+          reason: error?.message || 'File unavailable in storage',
+        });
+        this.logger.warn(
+          `Skipping evidence ${evidence.id} during export because download failed: ${error?.message || 'File unavailable in storage'}`,
+        );
+        continue;
       }
+
+      const buffer = Buffer.from(await data.arrayBuffer());
+      archive.append(buffer, { name: archivePath });
 
       manifest.push({
         index,
@@ -1302,7 +1319,7 @@ export class EvidenceService {
         sha256: evidence.fileHash || '',
         uploadedBy: evidence.uploaderId,
         uploaderRole: evidence.uploaderRole,
-        uploadedAt: evidence.createdAt?.toISOString() || '',
+        uploadedAt: evidence.uploadedAt?.toISOString() || '',
         description: evidence.description || null,
         archivePath,
       });
@@ -1314,7 +1331,10 @@ export class EvidenceService {
         {
           exportedAt: new Date().toISOString(),
           disputeId,
-          totalFiles: evidenceList.length,
+          expectedFiles: evidenceList.length,
+          totalFiles: manifest.length,
+          isComplete: omittedFiles.length === 0,
+          omittedFiles,
           exportedBy: userId,
           files: manifest,
         },

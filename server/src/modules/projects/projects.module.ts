@@ -14,6 +14,7 @@ import { ProjectsService } from './projects.service';
 import { ProjectsController } from './projects.controller';
 import { AuditLogsModule } from '../audit-logs/audit-logs.module';
 import { MilestoneLockPolicyService } from './milestone-lock-policy.service';
+import { MilestoneInteractionPolicyService } from './milestone-interaction-policy.service';
 import { PaymentsModule } from '../payments/payments.module';
 import { WorkspaceChatModule } from '../workspace-chat/workspace-chat.module';
 import { NotificationsModule } from '../notifications/notifications.module';
@@ -38,7 +39,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
     NotificationsModule,
   ],
   controllers: [ProjectsController],
-  providers: [ProjectsService, MilestoneLockPolicyService],
-  exports: [ProjectsService, MilestoneLockPolicyService],
+  providers: [ProjectsService, MilestoneLockPolicyService, MilestoneInteractionPolicyService],
+  exports: [ProjectsService, MilestoneLockPolicyService, MilestoneInteractionPolicyService],
 })
 export class ProjectsModule {}

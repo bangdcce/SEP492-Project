@@ -16,13 +16,13 @@ export class ProjectSpecSignatureEntity {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column()
+  @Column({ name: 'specId' })
   specId: string;
 
-  @Column()
+  @Column({ name: 'userId' })
   userId: string;
 
-  @Column({ type: 'varchar', length: 32 })
+  @Column({ name: 'signerRole', type: 'varchar', length: 32 })
   signerRole: string;
 
   @CreateDateColumn()

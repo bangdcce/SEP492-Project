@@ -9,6 +9,8 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import {
   AuditLogEntity,
+  MilestoneEntity,
+  MilestoneStatus,
   ProjectEntity,
   ProjectStatus,
   ReportEntity,
@@ -58,6 +60,8 @@ export class ReviewService {
     private reviewRepo: Repository<ReviewEntity>,
     @InjectRepository(ProjectEntity)
     private projectRepo: Repository<ProjectEntity>,
+    @InjectRepository(MilestoneEntity)
+    private milestoneRepo: Repository<MilestoneEntity>,
     @InjectRepository(AuditLogEntity)
     private auditLogRepo: Repository<AuditLogEntity>,
     @InjectRepository(ReportEntity)
@@ -88,6 +92,8 @@ export class ReviewService {
     if (!REVIEWABLE_PROJECT_STATUSES.includes(project.status)) {
       throw new BadRequestException('You can only review a completed or paid project.');
     }
+
+    await this.assertFinalMilestonePaid(projectId);
 
     // 2. Security Logic : Kiểm tra quyền thành viên
     // Client, Freelancer, Broker của dự án đó mới được review
@@ -177,6 +183,30 @@ export class ReviewService {
 
     // Audit log persisted inside the transaction above.
     return savedReview;
+  }
+
+  private async assertFinalMilestonePaid(projectId: string): Promise<void> {
+    const milestones = await this.milestoneRepo.find({
+      where: { projectId },
+      order: {
+        sortOrder: 'ASC',
+        dueDate: 'ASC',
+        createdAt: 'ASC',
+      },
+    });
+
+    if (milestones.length === 0) {
+      throw new BadRequestException(
+        'You can only review after the final milestone is accepted and paid.',
+      );
+    }
+
+    const finalMilestone = milestones[milestones.length - 1];
+    if (finalMilestone.status !== MilestoneStatus.PAID) {
+      throw new BadRequestException(
+        'You can only review after the final milestone is accepted and paid.',
+      );
+    }
   }
 
   async update(

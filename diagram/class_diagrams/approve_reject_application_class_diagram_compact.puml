@@ -1,0 +1,183 @@
+@startuml Approve_Reject_Application_Class_Diagram
+title Approve/Reject Application - Class Diagram
+skinparam backgroundColor white
+skinparam monochrome true
+skinparam defaultFontColor black
+skinparam ArrowColor black
+skinparam classBorderColor black
+skinparam classFontColor black
+skinparam classBackgroundColor white
+skinparam stereotypeFontColor black
+skinparam linetype polyline
+skinparam classAttributeIconSize 0
+hide circle
+
+skinparam classHeaderBackgroundColor white
+skinparam classHeaderFontColor black
+
+class RequestDetailPage {
+    - id: string | undefined
+    - request: ProjectRequest | null
+    - reviewingFreelancerProposalId: string | null
+    --
+    + fetchData(requestId: string): Promise<void>
+    + handleApproveFreelancerInvite(proposalId: string): Promise<void>
+    + handleRejectFreelancerInvite(proposalId: string): Promise<void>
+}
+
+class wizardService {
+    ...
+    --
+    + getRequestById(id: string): Promise<any>
+    + approveFreelancerInvite(requestId: string, proposalId: string): Promise<any>
+    + rejectFreelancerInvite(requestId: string, proposalId: string): Promise<any>
+    ...
+}
+
+class ApiClient {
+    - client: AxiosInstance
+    - refreshPromise: Promise<void> | null
+    - sessionReconcilePromise: Promise<void> | null
+    - isRedirectingToLogin: boolean
+    - lastLoginTime: number
+    --
+    + constructor()
+    + get<T>(url: string, config?: AxiosRequestConfig): Promise<T>
+    + post<T>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<T>
+    + refreshAccessTokenSingleFlight(): Promise<void>
+    - setupInterceptors()
+    - isRefreshEndpoint(url?: string): boolean
+    - isPublicAuthEndpoint(url?: string): boolean
+    - getAuthErrorCode(error: unknown): string | null
+    - shouldAttemptSessionReconcile(error: unknown): boolean
+    - reconcileSessionSingleFlight(): Promise<void>
+    ...
+}
+
+class JwtAuthGuard {
+    --
+    + canActivate(context: any): boolean | Promise<boolean> | any
+}
+
+class RolesGuard {
+    --
+    + canActivate(context: any): boolean | Promise<boolean>
+}
+
+class ProjectRequestsController {
+    - projectRequestsService: ProjectRequestsService
+    --
+    + getOne(id: string, user: UserEntity): Promise<any>
+    + approveFreelancerInvite(id: string, clientId: string, proposalId: string): Promise<any>
+    + rejectFreelancerInvite(id: string, clientId: string, proposalId: string): Promise<any>
+    - assertFilesAllowed(files: MulterFile[] = [])
+    + seedTestData(@Body('clientId')
+    + getProjectRequests(@GetUser()
+    + findMyDrafts(@GetUser('id')
+    + getMyInvitations(@GetUser()
+    + getFreelancerRequestAccessList(@GetUser()
+    + findMatches(@Param('id')
+    ...
+}
+
+class Repository {
+    --
+    + findOne(options: any): Promise<any>
+    + save(entity: any): Promise<any>
+    + find(options?: any): Promise<any[]>
+}
+
+class NotificationsService {
+    --
+    + createNotification(data: CreateNotificationDto): Promise<NotificationEntity>
+    + notifyUsers(userIds: string[], payload: CreateNotificationDto): Promise<void>
+    + list(userId: string, options: { page?: number; limit?: number; unreadOnly?: boolean })
+    + markRead(userId: string, notificationId: string)
+    + markAllRead(userId: string)
+    + create(input: CreateNotificationInput)
+    + createMany(inputs: CreateNotificationInput[])
+}
+
+class RequestChatService {
+    --
+    + createSystemMessage(requestId: string, message: string, options?: RequestSystemMessageOptions): Promise<any>
+    + getMessages(requestId: string, user: UserEntity): Promise<any[]>
+    - getRequestAccessContext(requestId: string): Promise<ProjectRequestEntity>
+    - isAcceptedFreelancerParticipant(request: ProjectRequestEntity, userId: string): boolean
+    - normalizeAttachmentsForPersistence(value: unknown): WorkspaceMessageAttachment[]
+    - hydrateAttachments(value: unknown): Promise<WorkspaceMessageAttachment[]>
+    - normalizeEditHistory(value: unknown): WorkspaceMessageEditHistoryEntry[]
+    - toMessage(message: RequestMessageEntity): Promise<RequestChatMessage>
+    - getMessageById(messageId: string): Promise<RequestChatMessage | null>
+    - getParticipantIds(request: ProjectRequestEntity): Promise<string[]>
+}
+
+class ProjectRequestEntity {
+    + id: string
+    + clientId: string
+    + title: string
+    + brokerId: string | null
+    + freelancerProposals: ProjectRequestProposalEntity[]
+    + description: string
+    + budgetRange: string
+    + intendedTimeline: string
+    + requestedDeadline: string | null
+    + techPreferences: string
+    ...
+    --
+}
+
+class ProjectRequestProposalEntity {
+    + id: string
+    + requestId: string
+    + freelancerId: string
+    + brokerId: string | null
+    + status: string
+    + coverLetter: string | null
+    + proposedBudget: number
+    + estimatedDuration: string
+    + createdAt: Date
+    + request: any
+    ...
+    --
+}
+
+class ProjectRequestsService {
+    - requestRepo: Repository<ProjectRequestEntity>
+    - freelancerProposalRepo: Repository<ProjectRequestProposalEntity>
+    - notificationsService: NotificationsService
+    - requestChatService: RequestChatService
+    --
+    + findOne(id: string, user?: UserEntity): Promise<any>
+    + approveFreelancerInvite(requestId: string, proposalId: string, clientId: string): Promise<ProjectRequestProposalEntity>
+    + rejectFreelancerInvite(requestId: string, proposalId: string, clientId: string): Promise<ProjectRequestProposalEntity>
+    - toUserHandle(user?: Pick<UserEntity, 'email'> | null): string | null
+    - getTodayDateInputValue(referenceDate: Date = new Date()
+    - normalizeIntendedTimeline(value?: string): string | undefined
+    - normalizeRequestedDeadline(value?: string | null): string | undefined
+    - safeNormalizeRequestedDeadline(value?: string | null): string | null
+    - getDateKeyFromDate(value?: Date | string | null): string | null
+    - sanitizePlainText(value?: string | null): string
+    ...
+}
+
+RequestDetailPage ..> wizardService : getRequestById()
+RequestDetailPage ..> wizardService : approveFreelancerInvite()
+RequestDetailPage ..> wizardService : rejectFreelancerInvite()
+
+wizardService ..> ApiClient
+ApiClient ..> ProjectRequestsController
+
+ProjectRequestsController ..> JwtAuthGuard
+ProjectRequestsController ..> RolesGuard
+ProjectRequestsController --> ProjectRequestsService
+
+ProjectRequestsService ..> Repository
+ProjectRequestsService ..> ProjectRequestEntity
+ProjectRequestsService ..> ProjectRequestProposalEntity
+ProjectRequestsService ..> NotificationsService
+ProjectRequestsService ..> RequestChatService
+
+ProjectRequestEntity o-- ProjectRequestProposalEntity
+
+@enduml

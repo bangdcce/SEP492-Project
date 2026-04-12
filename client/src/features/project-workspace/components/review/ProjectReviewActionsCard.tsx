@@ -16,9 +16,11 @@ import type {
   WorkspaceProject,
   WorkspaceProjectParticipant,
 } from "../../api";
+import type { Milestone } from "../../types";
 
 type ProjectReviewActionsCardProps = {
   project: WorkspaceProject;
+  milestones: Milestone[];
   currentUserId?: string | null;
   currentUserRole?: string | null;
   pathname: string;
@@ -32,6 +34,44 @@ type ReviewTarget = WorkspaceProjectParticipant & {
 };
 
 const REVIEWABLE_PROJECT_STATUSES = new Set(["COMPLETED", "PAID"]);
+const FINAL_REVIEWABLE_MILESTONE_STATUS = "PAID";
+
+const toTimestamp = (value?: string | null) => {
+  if (!value) return Number.POSITIVE_INFINITY;
+  const parsed = new Date(value).getTime();
+  return Number.isFinite(parsed) ? parsed : Number.POSITIVE_INFINITY;
+};
+
+const getFinalMilestone = (milestones: Milestone[]): Milestone | null => {
+  if (milestones.length === 0) {
+    return null;
+  }
+
+  const sorted = [...milestones].sort((left, right) => {
+    const leftOrder = left.sortOrder ?? Number.MAX_SAFE_INTEGER;
+    const rightOrder = right.sortOrder ?? Number.MAX_SAFE_INTEGER;
+
+    if (leftOrder !== rightOrder) {
+      return leftOrder - rightOrder;
+    }
+
+    const leftDueDate = toTimestamp(left.dueDate);
+    const rightDueDate = toTimestamp(right.dueDate);
+    if (leftDueDate !== rightDueDate) {
+      return leftDueDate - rightDueDate;
+    }
+
+    const leftCreatedAt = toTimestamp(left.createdAt);
+    const rightCreatedAt = toTimestamp(right.createdAt);
+    if (leftCreatedAt !== rightCreatedAt) {
+      return leftCreatedAt - rightCreatedAt;
+    }
+
+    return left.id.localeCompare(right.id);
+  });
+
+  return sorted[sorted.length - 1];
+};
 
 const participantRoleLabel = (role?: string | null) => {
   switch (String(role || "").toUpperCase()) {
@@ -48,6 +88,7 @@ const participantRoleLabel = (role?: string | null) => {
 
 export function ProjectReviewActionsCard({
   project,
+  milestones,
   currentUserId,
   currentUserRole,
   pathname,
@@ -58,6 +99,17 @@ export function ProjectReviewActionsCard({
   const [reviewsByTargetId, setReviewsByTargetId] = useState<Record<string, Review[]>>({});
   const [isLoading, setIsLoading] = useState(false);
   const [activeTarget, setActiveTarget] = useState<ReviewTarget | null>(null);
+
+  const finalMilestone = useMemo(
+    () => getFinalMilestone(milestones),
+    [milestones],
+  );
+
+  const isProjectReviewable = REVIEWABLE_PROJECT_STATUSES.has(
+    String(project.status || "").toUpperCase(),
+  );
+  const isFinalMilestonePaid =
+    String(finalMilestone?.status || "").toUpperCase() === FINAL_REVIEWABLE_MILESTONE_STATUS;
 
   const reviewableTargets = useMemo<ReviewTarget[]>(() => {
     const participants = [project.client, project.broker, project.freelancer];
@@ -77,16 +129,19 @@ export function ProjectReviewActionsCard({
     return Array.from(deduped.values());
   }, [currentUserId, project.broker, project.client, project.freelancer]);
 
+  const isRatingAvailable =
+    Boolean(currentUserId && currentUserId.trim().length > 0) &&
+    isProjectReviewable &&
+    isFinalMilestonePaid &&
+    reviewableTargets.length > 0;
+
   useEffect(() => {
     let isCancelled = false;
 
     const loadReviewStatus = async () => {
-      if (
-        !currentUserId ||
-        !REVIEWABLE_PROJECT_STATUSES.has(String(project.status || "").toUpperCase()) ||
-        reviewableTargets.length === 0
-      ) {
+      if (!isRatingAvailable) {
         setReviewsByTargetId({});
+        setIsLoading(false);
         return;
       }
 
@@ -116,7 +171,7 @@ export function ProjectReviewActionsCard({
     return () => {
       isCancelled = true;
     };
-  }, [currentUserId, project.id, project.status, reviewableTargets]);
+  }, [isRatingAvailable, project.id, reviewableTargets]);
 
   const targetState = useMemo(() => {
     return reviewableTargets.map((target) => {
@@ -134,12 +189,7 @@ export function ProjectReviewActionsCard({
 
   const hasPendingReview = targetState.some((target) => !target.existingReview);
 
-  if (
-    !currentUserId ||
-    currentUserId.trim().length === 0 ||
-    !REVIEWABLE_PROJECT_STATUSES.has(String(project.status || "").toUpperCase()) ||
-    reviewableTargets.length === 0
-  ) {
+  if (!isRatingAvailable) {
     return null;
   }
 
@@ -161,7 +211,7 @@ export function ProjectReviewActionsCard({
                 Rate project participants
               </h3>
               <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">
-                This project is financially settled. Submit ratings here instead of hunting for the trust profile flow manually.
+                Final milestone{finalMilestone?.title ? ` (${finalMilestone.title})` : ""} is paid. Submit ratings here instead of hunting for the trust profile flow manually.
               </p>
             </div>
           </div>
@@ -295,27 +345,28 @@ export function ProjectReviewActionsCard({
             fullName: activeTarget.fullName || "Unknown user",
           }}
           onSuccess={() => {
+            const optimisticReview: Review = {
+              id: `workspace-review-${project.id}-${activeTarget.id}`,
+              rating: 5,
+              comment: "",
+              weight: 1,
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+              reviewer: {
+                id: currentUserId ?? "current-user",
+                fullName: "You",
+              },
+              project: {
+                id: project.id,
+                title: project.title || "Project",
+                totalBudget: 0,
+              },
+            };
             setReviewsByTargetId((current) => ({
               ...current,
               [activeTarget.id]: [
                 ...(current[activeTarget.id] || []),
-                {
-                  id: `workspace-review-${project.id}-${activeTarget.id}`,
-                  rating: 5,
-                  comment: "",
-                  weight: 1,
-                  createdAt: new Date().toISOString(),
-                  updatedAt: new Date().toISOString(),
-                  reviewer: {
-                    id: currentUserId,
-                    fullName: "You",
-                  },
-                  project: {
-                    id: project.id,
-                    title: project.title || "Project",
-                    totalBudget: 0,
-                  },
-                },
+                optimisticReview,
               ],
             }));
             setActiveTarget(null);

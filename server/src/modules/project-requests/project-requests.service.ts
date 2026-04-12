@@ -63,6 +63,17 @@ const ACTIVE_BROKER_APPLICATION_STATUSES = [
   ProposalStatus.INVITED,
 ] as const;
 const FREELANCER_PENDING_CLIENT_APPROVAL = 'PENDING_CLIENT_APPROVAL' as const;
+const ACTIVE_FREELANCER_PROPOSAL_STATUSES = [
+  ProposalStatus.PENDING,
+  ProposalStatus.INVITED,
+  ProposalStatus.ACCEPTED,
+  FREELANCER_PENDING_CLIENT_APPROVAL,
+] as const;
+const AUTO_REJECTABLE_FREELANCER_PROPOSAL_STATUSES = [
+  ProposalStatus.PENDING,
+  ProposalStatus.INVITED,
+  FREELANCER_PENDING_CLIENT_APPROVAL,
+] as const;
 const DATE_ONLY_INPUT_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -2348,6 +2359,19 @@ export class ProjectRequestsService {
         );
       }
 
+      const activeFreelancerProposal = await this.freelancerProposalRepo.findOne({
+        where: {
+          requestId,
+          status: In([...ACTIVE_FREELANCER_PROPOSAL_STATUSES]),
+        },
+      });
+
+      if (activeFreelancerProposal) {
+        throw new BadRequestException(
+          'This request already has an active freelancer recommendation/invitation. Resolve it before inviting another freelancer.',
+        );
+      }
+
       const proposal = this.freelancerProposalRepo.create({
         requestId,
         freelancerId,
@@ -2402,8 +2426,31 @@ export class ProjectRequestsService {
         );
       }
 
+      const existingAccepted = await this.freelancerProposalRepo.findOne({
+        where: { requestId, status: ProposalStatus.ACCEPTED },
+      });
+
+      if (existingAccepted && existingAccepted.id !== proposal.id) {
+        throw new BadRequestException('A freelancer has already been accepted for this request.');
+      }
+
       proposal.status = 'INVITED';
       const savedProposal = await this.freelancerProposalRepo.save(proposal);
+
+      const competingProposals = await this.freelancerProposalRepo.find({
+        where: {
+          requestId,
+          status: In([...AUTO_REJECTABLE_FREELANCER_PROPOSAL_STATUSES]),
+        },
+      });
+
+      for (const competingProposal of competingProposals) {
+        if (competingProposal.id === proposal.id) {
+          continue;
+        }
+        competingProposal.status = 'REJECTED';
+        await this.freelancerProposalRepo.save(competingProposal);
+      }
 
       await this.notifyUsers([
         {
@@ -3145,7 +3192,13 @@ export class ProjectRequestsService {
             .set({ status: 'REJECTED' })
             .where('requestId = :requestId', { requestId: proposal.requestId })
             .andWhere('id != :id', { id: proposal.id })
-            .andWhere('status IN (:...statuses)', { statuses: ['INVITED', 'PENDING'] })
+            .andWhere('status IN (:...statuses)', {
+              statuses: [
+                ProposalStatus.INVITED,
+                ProposalStatus.PENDING,
+                FREELANCER_PENDING_CLIENT_APPROVAL,
+              ],
+            })
             .execute();
         } else {
           proposal.status = 'REJECTED';

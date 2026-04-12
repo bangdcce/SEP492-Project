@@ -387,6 +387,14 @@ export const StaffDisputeBoard = ({
 
   useStaffDashboardRealtime({
     onDisputeCreated: handleRealtimeRefresh,
+    onDisputeStatusChanged: handleRealtimeRefresh,
+    onDisputeAssigned: handleRealtimeRefresh,
+    onDisputeReassigned: handleRealtimeRefresh,
+    onDisputeInfoRequested: handleRealtimeRefresh,
+    onDisputeInfoProvided: handleRealtimeRefresh,
+    onDisputeDefendantResponded: handleRealtimeRefresh,
+    onDisputeResolved: handleRealtimeRefresh,
+    onDisputeClosed: handleRealtimeRefresh,
     onHearingScheduled: handleRealtimeRefresh,
     onHearingRescheduled: handleRealtimeRefresh,
     onHearingStarted: handleRealtimeRefresh,
@@ -395,7 +403,18 @@ export const StaffDisputeBoard = ({
     onHearingEnded: handleRealtimeRefresh,
     onHearingFollowUpScheduled: handleRealtimeRefresh,
     onHearingInviteResponded: handleRealtimeRefresh,
+    onHearingSupportInvited: handleRealtimeRefresh,
+    onHearingReminderSent: handleRealtimeRefresh,
+    onHearingModeratorDisconnected: handleRealtimeRefresh,
+    onHearingModeratorReconnected: handleRealtimeRefresh,
     onVerdictIssued: handleRealtimeRefresh,
+    onAppealSubmitted: handleRealtimeRefresh,
+    onAppealResolved: handleRealtimeRefresh,
+    onCalendarEventCreated: handleRealtimeRefresh,
+    onCalendarEventUpdated: handleRealtimeRefresh,
+    onCalendarRescheduleRequested: handleRealtimeRefresh,
+    onCalendarRescheduleProcessed: handleRealtimeRefresh,
+    onCalendarInviteResponded: handleRealtimeRefresh,
   });
 
   useEffect(() => {

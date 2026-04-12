@@ -46,7 +46,7 @@ deactivate Page
 Page -> Api : 5. Call signOut()
 activate Api
 
-Api -> Controller : 6. POST /auth/logout\n(with access cookie + optional refresh cookie)
+Api -> Controller : 6. Submit logout request\n(with access cookie + optional refresh cookie)
 activate Controller
 
 Controller -> Controller : 7. Read authenticated user id\nand refreshToken from cookie

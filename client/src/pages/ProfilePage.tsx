@@ -35,7 +35,7 @@ import {
   updateProfile,
   type DisputeDevSettingsSnapshot,
 } from "@/features/auth/api";
-import { CVUpload, SkillsDisplay } from "@/features/auth";
+import { CVUpload, DomainsDisplay, SkillsDisplay } from "@/features/auth";
 import { ROUTES, STORAGE_KEYS } from "@/constants";
 import { TrustScoreCard } from "@/features/trust-profile/components";
 import type { Certification } from "@/features/auth/types";
@@ -1473,6 +1473,9 @@ export default function ProfilePage() {
                       </div>
                     )}
                   </div>
+
+                  {/* Domains Display */}
+                  <DomainsDisplay userRole={profile.role} />
 
                   {/* Skills Display */}
                   <SkillsDisplay

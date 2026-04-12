@@ -1,0 +1,109 @@
+@startuml Rate_Other_User_Class_Diagram
+title Rate Other User - Class Diagram
+skinparam backgroundColor white
+skinparam monochrome true
+skinparam defaultFontColor black
+skinparam ArrowColor black
+skinparam classBorderColor black
+skinparam classFontColor black
+skinparam classBackgroundColor white
+skinparam stereotypeFontColor black
+skinparam linetype polyline
+skinparam classAttributeIconSize 0
+hide circle
+
+skinparam classHeaderBackgroundColor white
+skinparam classHeaderFontColor black
+
+class TrustProfileSection {
+    - reviewEligibility: TrustProfileReviewEligibility | undefined
+    - isCreateReviewOpen: boolean
+    - latestPendingReviewProject: ProjectHistoryItem | null
+    --
+    + TrustProfileSection(props: TrustProfileSectionProps): JSX.Element
+}
+
+class CreateReviewModal {
+    - rating: number
+    - comment: string
+    - isLoading: boolean
+    - error: string | null
+    --
+    + CreateReviewModal(props: CreateReviewModalProps): JSX.Element
+    + handleSubmit(event: React.FormEvent): Promise<void>
+    + handleClose(): void
+}
+
+class createReview {
+    --
+    + createReview(payload: CreateReviewPayload): Promise<Review>
+}
+
+class ApiClient {
+    - client: AxiosInstance
+    - refreshPromise: Promise<void> | null
+    - sessionReconcilePromise: Promise<void> | null
+    - isRedirectingToLogin: boolean
+    - lastLoginTime: number
+    --
+    + constructor()
+    + post<T>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<T>
+    + refreshAccessTokenSingleFlight(): Promise<void>
+    ...
+}
+
+class ReviewController {
+    - reviewService: ReviewService
+    --
+    + create(reviewerId: string, createReviewDto: CreateReviewDto, req: RequestContext): Promise<any>
+}
+
+class ReviewService {
+    - reviewRepo: Repository<ReviewEntity>
+    - projectRepo: Repository<ProjectEntity>
+    - auditLogsService: AuditLogsService
+    --
+    + create(reviewerId: string, dto: CreateReviewDto, reqInfo: RequestContext): Promise<ReviewEntity>
+}
+
+class CreateReviewDto {
+    + projectId: string
+    + targetUserId: string
+    + rating: number
+    + comment?: string
+    --
+}
+
+class ReviewEntity {
+    + id: string
+    + projectId: string
+    + reviewerId: string
+    + targetUserId: string
+    + rating: number
+    + comment: string
+    + weight: number
+    --
+}
+
+class ProjectEntity {
+    + id: string
+    + clientId: string
+    + brokerId: string | null
+    + freelancerId: string | null
+    + totalBudget: number
+    + status: ProjectStatus
+    --
+}
+
+TrustProfileSection ..> CreateReviewModal
+CreateReviewModal ..> createReview
+createReview ..> ApiClient
+ApiClient ..> ReviewController
+ReviewController --> ReviewService
+ReviewController ..> CreateReviewDto
+
+ReviewService ..> CreateReviewDto
+ReviewService ..> ReviewEntity
+ReviewService ..> ProjectEntity
+
+@enduml

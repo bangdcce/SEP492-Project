@@ -1,4 +1,4 @@
-import {
+﻿import {
   Controller,
   Post,
   Body,
@@ -295,7 +295,7 @@ export class AuthController {
         message: 'Authenticated user not found',
       });
     }
-    // Map the entity into the public auth response DTO.
+
     const certifications = Array.isArray(userWithProfile?.profile?.bankInfo?.certifications)
       ? userWithProfile.profile.bankInfo.certifications
       : undefined;

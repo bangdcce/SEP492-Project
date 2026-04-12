@@ -1,0 +1,169 @@
+@startuml Accept_Deny_Invitation_Class_Diagram
+title Accept/Deny Invitation - Class Diagram
+skinparam backgroundColor white
+skinparam monochrome true
+skinparam defaultFontColor black
+skinparam ArrowColor black
+skinparam classBorderColor black
+skinparam classFontColor black
+skinparam classBackgroundColor white
+skinparam stereotypeFontColor black
+skinparam linetype polyline
+skinparam classAttributeIconSize 0
+hide circle
+
+skinparam classHeaderBackgroundColor white
+skinparam classHeaderFontColor black
+
+class InvitationDetailsPage {
+    - kycStatus: string | null
+    - invitation: MyInvitationItem | null
+    --
+    + InvitationDetailsPage(): JSX.Element
+    + handleRespond(status: "ACCEPTED" | "REJECTED"): Promise<void>
+}
+
+class useMyInvitationsRealtime {
+    - invitations: MyInvitationItem[]
+    - isLoading: boolean
+    --
+    + useMyInvitationsRealtime(options?: UseMyInvitationsRealtimeOptions): object
+    + refresh(refreshOptions?: { silent?: boolean }): Promise<void>
+}
+
+class useKYCStatus {
+    --
+    + useKYCStatus(): object
+    + checkKycStatus(): Promise<string>
+}
+
+class discoveryApi {
+    --
+    + respondToInvitation(invitationId: string, status: "ACCEPTED" | "REJECTED"): Promise<any>
+    + getMyInvitations(): Promise<any>
+}
+
+class ApiClient {
+    - client: AxiosInstance
+    - refreshPromise: Promise<void> | null
+    - sessionReconcilePromise: Promise<void> | null
+    - isRedirectingToLogin: boolean
+    - lastLoginTime: number
+    --
+    + constructor()
+    + get<T>(url: string, config?: AxiosRequestConfig): Promise<T>
+    + patch<T>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<T>
+    + refreshAccessTokenSingleFlight(): Promise<void>
+    ...
+}
+
+class JwtAuthGuard {
+    --
+    + canActivate(context: any): boolean | Promise<boolean> | any
+}
+
+class RolesGuard {
+    --
+    + canActivate(context: any): boolean | Promise<boolean>
+}
+
+class RespondInvitationDto {
+    + status: InvitationResponseStatus
+    + reason?: string
+    --
+}
+
+class ProjectRequestsController {
+    - projectRequestsService: ProjectRequestsService
+    --
+    + respondToInvitation(id: string, user: UserEntity, status: "ACCEPTED" | "REJECTED"): Promise<any>
+    + getMyInvitations(user: UserEntity): Promise<any>
+}
+
+class ProjectRequestsService {
+    - brokerProposalRepo: Repository<BrokerProposalEntity>
+    - freelancerProposalRepo: Repository<ProjectRequestProposalEntity>
+    - requestRepo: Repository<ProjectRequestEntity>
+    - notificationsService: NotificationsService
+    --
+    + respondToInvitation(invitationId: string, userId: string, role: UserRole, status: "ACCEPTED" | "REJECTED"): Promise<any>
+    + getInvitationsForUser(userId: string, role: UserRole): Promise<any[]>
+    ...
+}
+
+class NotificationsService {
+    --
+    + createMany(inputs: CreateNotificationDto[]): Promise<any>
+    ...
+}
+
+class BrokerProposalEntity {
+    + id: string
+    + requestId: string
+    + brokerId: string
+    + status: ProposalStatus
+    + coverLetter: string | null
+    + request: ProjectRequestEntity
+    --
+}
+
+class ProjectRequestProposalEntity {
+    + id: string
+    + requestId: string
+    + freelancerId: string
+    + status: string
+    + coverLetter: string | null
+    + request: ProjectRequestEntity
+    --
+}
+
+class ProjectRequestEntity {
+    + id: string
+    + title: string
+    + status: RequestStatus
+    + clientId: string
+    + brokerId: string | null
+    + specs: ProjectSpecEntity[]
+    --
+}
+
+class ProjectSpecEntity {
+    + id: string
+    + status: ProjectSpecStatus
+    + specPhase: SpecPhase
+    --
+}
+
+class UserEntity {
+    + id: string
+    + role: UserRole
+    + fullName: string
+    --
+}
+
+InvitationDetailsPage ..> useMyInvitationsRealtime
+InvitationDetailsPage ..> useKYCStatus
+InvitationDetailsPage ..> discoveryApi
+
+useMyInvitationsRealtime ..> ApiClient
+discoveryApi ..> ApiClient
+
+ApiClient ..> ProjectRequestsController
+
+ProjectRequestsController ..> JwtAuthGuard
+ProjectRequestsController ..> RolesGuard
+ProjectRequestsController ..> RespondInvitationDto
+ProjectRequestsController ..> UserEntity
+ProjectRequestsController --> ProjectRequestsService
+
+ProjectRequestsService ..> NotificationsService
+ProjectRequestsService ..> BrokerProposalEntity
+ProjectRequestsService ..> ProjectRequestProposalEntity
+ProjectRequestsService ..> ProjectRequestEntity
+ProjectRequestsService ..> ProjectSpecEntity
+
+BrokerProposalEntity o-- ProjectRequestEntity
+ProjectRequestProposalEntity o-- ProjectRequestEntity
+ProjectRequestEntity o-- ProjectSpecEntity
+
+@enduml

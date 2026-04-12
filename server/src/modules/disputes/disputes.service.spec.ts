@@ -21,6 +21,7 @@ import {
   DisputeVerdictEntity,
   DisputeViewStateEntity,
   EscrowEntity,
+  EscrowStatus,
   EventParticipantEntity,
   HearingStatus,
   HearingParticipantEntity,
@@ -306,6 +307,50 @@ describe('DisputesService', () => {
 
       expect(statuses).toEqual(
         expect.arrayContaining([MilestoneStatus.COMPLETED, MilestoneStatus.PAID]),
+      );
+    });
+  });
+
+  describe('payment dispute escrow gates', () => {
+    const buildExecutionSignal = () => ({
+      totalTasks: 2,
+      completedTasks: 1,
+      proofTasks: 1,
+      milestoneHasProof: false,
+      progressPercent: 50,
+      hasMeaningfulWork: true,
+    });
+
+    it('rejects payment disputes when escrow is already released', () => {
+      const result = (service as any).evaluateDisputeEligibility({
+        category: DisputeCategory.PAYMENT,
+        milestone: { status: MilestoneStatus.PAID },
+        escrow: { status: EscrowStatus.RELEASED },
+        executionSignal: buildExecutionSignal(),
+        now: new Date(),
+      });
+
+      expect(result).toEqual(
+        expect.objectContaining({
+          allowed: false,
+        }),
+      );
+      expect(result.reason).toContain('FUNDED/DISPUTED');
+    });
+
+    it('allows payment disputes when escrow is funded', () => {
+      const result = (service as any).evaluateDisputeEligibility({
+        category: DisputeCategory.PAYMENT,
+        milestone: { status: MilestoneStatus.IN_PROGRESS },
+        escrow: { status: EscrowStatus.FUNDED },
+        executionSignal: buildExecutionSignal(),
+        now: new Date(),
+      });
+
+      expect(result).toEqual(
+        expect.objectContaining({
+          allowed: true,
+        }),
       );
     });
   });
