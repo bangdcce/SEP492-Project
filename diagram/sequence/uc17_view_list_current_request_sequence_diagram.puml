@@ -1,255 +1,68 @@
 @startuml UC17_View_List_Current_Request_Sequence_Diagram
 
 skinparam monochrome true
-
 skinparam defaultFontColor Black
-
 skinparam shadowing false
 
 skinparam sequence {
-
     ArrowColor Black
-
     LifeLineBorderColor Black
-
     LifeLineBackgroundColor White
-
     ParticipantBorderColor Black
-
     ParticipantBackgroundColor #DDDDDD
-
     ParticipantFontColor Black
-
     ActorBorderColor Black
-
     ActorBackgroundColor White
-
     ActorFontColor Black
-
     GroupHeaderFontColor Black
-
     GroupHeaderBackgroundColor White
-
     GroupBodyBackgroundColor White
-
     GroupBorderColor Black
-
 }
+
 
 title UC-17 View List Current Request Sequence Diagram
 
 actor user
-
-boundary "MyRequestsPage" as ClientPage
-
-boundary "ProjectRequestsPage" as BrokerPage
-
-boundary "FreelancerRequestsPage" as FreelancerPage
-
-participant "wizardService" as WizardAPI
-
-participant "projectRequestsApi" as RequestAPI
-
+boundary "Current Requests Page" as Page
+participant "wizardService / projectRequestsApi" as RequestAPI
 participant "apiClient" as ApiClient
-
 participant "ProjectRequestsController" as Controller
-
 participant "JwtAuthGuard" as JWTGuard
-
-participant "RolesGuard" as RolesGuard
-
 participant "ProjectRequestsService" as Service
-
-participant "KycController" as KycController
-
-participant "ProjectSpecsApi" as SpecsAPI
-
 database "Database" as DB
 
-alt [Role = Client]
-
-    user -> ClientPage : 1. Open "My Requests"
-
-    activate user
-
-    activate ClientPage
-
-    ClientPage -> WizardAPI : 2. Request the client's current requests
-
-    activate WizardAPI
-
-    WizardAPI -> ApiClient : 3. Forward HTTP request
-
-    activate ApiClient
-
-    ApiClient -> Controller : 4. Send GET "/project-requests"
-
-    activate Controller
-
-    Controller -> JWTGuard : 5. Confirm the user is signed in
-
-    activate JWTGuard
-
-    JWTGuard --> Controller : 6. Return authenticated client identity
-
-    Controller -> Service : 7. Load requests owned by the client
-
-    activate Service
-
-    Service -> DB : 8. Query requests where clientId matches the caller
-
-    activate DB
-
-    DB --> Service : 9. Return requests ordered by created date
-
-    deactivate DB
-
-    Service --> Controller : 10. Return the client's request list
-
-    Controller --> ApiClient : 11. Return server response
-
-    ApiClient --> WizardAPI : 12. Return request list response
-
-    WizardAPI --> ClientPage : 13. Render draft and active request cards
-
-    deactivate WizardAPI
-
-    ClientPage -> SpecsAPI : 14. For non-draft requests, request linked spec flow
-
-    activate SpecsAPI
-
-    SpecsAPI --> ClientPage : 15. Return spec-flow status per request
-
-    deactivate SpecsAPI
-
-    ClientPage -> ClientPage : 16. Apply search, filters, and "View Draft" / "View Details" actions
-
-    ClientPage --> user : 17. Show the current request list for the client
-
-    deactivate ClientPage
-
-else [Role = Broker]
-
-    user -> BrokerPage : 18. Open "Broker Marketplace"
-
-    activate BrokerPage
-
-    BrokerPage -> KycController : 19. Request KYC status for marketplace access
-
-    activate KycController
-
-    KycController -> JWTGuard : 20. Confirm the broker is signed in
-
-    JWTGuard --> KycController : 21. Return authenticated broker identity
-
-    KycController -> DB : 22. Load latest KYC status
-
-    activate DB
-
-    DB --> KycController : 23. Return KYC status
-
-    deactivate DB
-
-    KycController --> BrokerPage : 24. Return KYC response
-
-    deactivate KycController
-
-    BrokerPage -> RequestAPI : 25. Request current marketplace and assigned requests
-
-    activate RequestAPI
-
-    RequestAPI -> ApiClient : 26. Forward HTTP request
-
-    ApiClient -> Controller : 27. Send GET "/project-requests"
-
-    Controller -> JWTGuard : 28. Confirm the broker is signed in
-
-    JWTGuard --> Controller : 29. Return authenticated broker identity
-
-    Controller -> Service : 30. Load requests visible to non-client roles
-
-    Service -> DB : 31. Query requests and broker/freelancer state
-
-    activate DB
-
-    DB --> Service : 32. Return visible requests
-
-    deactivate DB
-
-    Service --> Controller : 33. Return broker-visible request list
-
-    Controller --> ApiClient : 34. Return server response
-
-    ApiClient --> RequestAPI : 35. Return request list response
-
-    RequestAPI --> BrokerPage : 36. Return request list
-
-    BrokerPage -> BrokerPage : 37. Split results into marketplace requests and assigned projects
-
-    BrokerPage --> user : 38. Show open requests, assigned projects, and broker actions
-
-    deactivate BrokerPage
-
-else [Role = Freelancer]
-
-    user -> FreelancerPage : 39. Open "Invited Requests"
-
-    activate FreelancerPage
-
-    FreelancerPage -> RequestAPI : 40. Request the freelancer's accessible requests
-
-    RequestAPI -> ApiClient : 41. Forward HTTP request
-
-    ApiClient -> Controller : 42. Send GET "/project-requests/freelancer/requests/my"
-
-    Controller -> JWTGuard : 43. Confirm the freelancer is signed in
-
-    JWTGuard --> Controller : 44. Return authenticated freelancer identity
-
-    deactivate JWTGuard
-
-    Controller -> RolesGuard : 45. Confirm the caller has role "FREELANCER"
-
-    activate RolesGuard
-
-    RolesGuard --> Controller : 46. Role check passed
-
-    deactivate RolesGuard
-
-    Controller -> Service : 47. Load request-access list for the freelancer
-
-    Service -> DB : 48. Query invited and accepted requests for the freelancer
-
-    activate DB
-
-    DB --> Service : 49. Return accessible requests
-
-    deactivate DB
-
-    Service --> Controller : 50. Return freelancer request-access data
-
-    deactivate Service
-
-    Controller --> ApiClient : 51. Return server response
-
-    deactivate Controller
-
-    ApiClient --> RequestAPI : 52. Return access-list response
-
-    deactivate ApiClient
-
-    RequestAPI --> FreelancerPage : 53. Return access-list payload
-
-    deactivate RequestAPI
-
-    FreelancerPage -> FreelancerPage : 54. Apply search and status filters
-
-    FreelancerPage --> user : 55. Show invited requests with the "Open Request" action
-
-    deactivate FreelancerPage
-
-    deactivate user
-
-end
+user -> Page : 1. Open the current-requests page for the signed-in role
+activate user
+activate Page
+Page -> Page : 2. Show loading state, filters, and search controls
+Page -> RequestAPI : 3. Request the current request list for the active role
+activate RequestAPI
+RequestAPI -> ApiClient : 4. Forward HTTP request
+activate ApiClient
+ApiClient -> Controller : 5. Send the role-specific current-request endpoint
+activate Controller
+Controller -> JWTGuard : 6. Confirm the user is signed in
+activate JWTGuard
+JWTGuard --> Controller : 7. Return authenticated user identity and role
+deactivate JWTGuard
+Controller -> Service : 8. Load the current request list for that role
+activate Service
+Service -> DB : 9. Query matching requests, invitations, or accessible request rows
+activate DB
+DB --> Service : 10. Return request records and related workflow state
+deactivate DB
+Service --> Controller : 11. Return the role-appropriate request list
+deactivate Service
+Controller --> ApiClient : 12. Return server response
+deactivate Controller
+ApiClient --> RequestAPI : 13. Return request list payload
+deactivate ApiClient
+RequestAPI --> Page : 14. Return current requests to the page
+deactivate RequestAPI
+Page -> Page : 15. Apply search, filters, and role-specific grouping
+Page --> user : 16. Show current requests with the available "View Details" or "Open Request" action
+deactivate Page
+deactivate user
 
 @enduml

@@ -1,8 +1,0 @@
-<map id="UC57_Accept_Deny_Invitation_Sequence_Diagram_map" name="UC57_Accept_Deny_Invitation_Sequence_Diagram_map">
-<area shape="rect" id="id1" href="Freelancer" title="Freelancer" alt="" coords="1727,589,1776,603"/>
-<area shape="rect" id="id2" href="Broker" title="Broker" alt="" coords="1797,511,1846,525"/>
-<area shape="rect" id="id3" href="Accepted" title="Accepted" alt="" coords="25,850,102,864"/>
-<area shape="rect" id="id4" href="Accepted" title="Accepted" alt="" coords="95,802,193,816"/>
-<area shape="rect" id="id5" href="User" title="User" alt="" coords="15,903,121,917"/>
-<area shape="rect" id="id6" href="User" title="User" alt="" coords="85,169,197,183"/>
-</map>

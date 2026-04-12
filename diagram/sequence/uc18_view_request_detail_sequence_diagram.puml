@@ -1,209 +1,68 @@
 @startuml UC18_View_Request_Detail_Sequence_Diagram
 
 skinparam monochrome true
-
 skinparam defaultFontColor Black
-
 skinparam shadowing false
 
 skinparam sequence {
-
     ArrowColor Black
-
     LifeLineBorderColor Black
-
     LifeLineBackgroundColor White
-
     ParticipantBorderColor Black
-
     ParticipantBackgroundColor #DDDDDD
-
     ParticipantFontColor Black
-
     ActorBorderColor Black
-
     ActorBackgroundColor White
-
     ActorFontColor Black
-
     GroupHeaderFontColor Black
-
     GroupHeaderBackgroundColor White
-
     GroupBodyBackgroundColor White
-
     GroupBorderColor Black
-
 }
+
 
 title UC-18 View Request Detail Sequence Diagram
 
 actor user
-
-boundary "RequestDetailPage" as ClientPage
-
-boundary "ProjectRequestDetailsPage" as BrokerPage
-
-boundary "FreelancerRequestDetailPage" as FreelancerPage
-
-participant "wizardService" as WizardAPI
-
-participant "projectRequestsApi" as RequestAPI
-
+boundary "Request Detail Page" as Page
+participant "wizardService / projectRequestsApi" as RequestAPI
 participant "apiClient" as ApiClient
-
 participant "ProjectRequestsController" as Controller
-
 participant "JwtAuthGuard" as JWTGuard
-
 participant "ProjectRequestsService" as Service
-
 database "Database" as DB
 
-alt [Role = Client]
-
-    user -> ClientPage : 1. Open a request from "My Requests"
-
-    activate user
-
-    activate ClientPage
-
-    ClientPage -> WizardAPI : 2. Load request detail
-
-    activate WizardAPI
-
-    WizardAPI -> ApiClient : 3. Forward HTTP request
-
-    activate ApiClient
-
-    ApiClient -> Controller : 4. Send GET "/project-requests/{requestId}"
-
-    activate Controller
-
-    Controller -> JWTGuard : 5. Confirm the client is signed in
-
-    activate JWTGuard
-
-    JWTGuard --> Controller : 6. Return authenticated client identity
-
-    Controller -> Service : 7. Load request detail for the client
-
-    activate Service
-
-    Service -> DB : 8. Query request, answers, proposals, spec summary, and contract summary
-
-    activate DB
-
-    DB --> Service : 9. Return full request detail
-
-    deactivate DB
-
-    Service --> Controller : 10. Return full client-visible request detail
-
-    Controller --> ApiClient : 11. Return server response
-
-    ApiClient --> WizardAPI : 12. Return request detail response
-
-    WizardAPI --> ClientPage : 13. Render project details, workflow tabs, and client actions
-
-    ClientPage --> user : 14. Show editable client request detail view
-
-    deactivate ClientPage
-
-else [Role = Broker]
-
-    user -> BrokerPage : 15. Open a request from the broker marketplace or assigned list
-
-    activate BrokerPage
-
-    BrokerPage -> RequestAPI : 16. Load request detail
-
-    activate RequestAPI
-
-    RequestAPI -> ApiClient : 17. Forward HTTP request
-
-    ApiClient -> Controller : 18. Send GET "/project-requests/{requestId}"
-
-    Controller -> JWTGuard : 19. Confirm the broker is signed in
-
-    JWTGuard --> Controller : 20. Return authenticated broker identity
-
-    Controller -> Service : 21. Load request detail for the broker viewer
-
-    Service -> DB : 22. Query request, broker applications, and workflow relations
-
-    activate DB
-
-    DB --> Service : 23. Return broker-visible request detail
-
-    deactivate DB
-
-    Service -> Service : 24. Mask client contact fields when the broker only has marketplace access
-
-    Service --> Controller : 25. Return broker request detail with viewer permissions
-
-    Controller --> ApiClient : 26. Return server response
-
-    ApiClient --> RequestAPI : 27. Return request detail response
-
-    RequestAPI --> BrokerPage : 28. Render overview, workflow, and application state
-
-    deactivate RequestAPI
-
-    BrokerPage --> user : 29. Show broker request detail view
-
-    deactivate BrokerPage
-
-else [Role = Freelancer]
-
-    user -> FreelancerPage : 30. Open a request from "Invited Requests" or the freelancer marketplace
-
-    activate FreelancerPage
-
-    FreelancerPage -> WizardAPI : 31. Load request detail
-
-    WizardAPI -> ApiClient : 32. Forward HTTP request
-
-    ApiClient -> Controller : 33. Send GET "/project-requests/{requestId}"
-
-    Controller -> JWTGuard : 34. Confirm the freelancer is signed in
-
-    JWTGuard --> Controller : 35. Return authenticated freelancer identity
-
-    deactivate JWTGuard
-
-    Controller -> Service : 36. Load request detail for the freelancer viewer
-
-    Service -> DB : 37. Query request, freelancer proposal state, specs, and contract summary
-
-    activate DB
-
-    DB --> Service : 38. Return freelancer-visible request detail
-
-    deactivate DB
-
-    Service --> Controller : 39. Return freelancer request detail with viewer permissions
-
-    deactivate Service
-
-    Controller --> ApiClient : 40. Return server response
-
-    deactivate Controller
-
-    ApiClient --> WizardAPI : 41. Return request detail response
-
-    deactivate ApiClient
-
-    WizardAPI --> FreelancerPage : 42. Render invitation-aware request detail and next actions
-
-    deactivate WizardAPI
-
-    FreelancerPage --> user : 43. Show freelancer request detail view
-
-    deactivate FreelancerPage
-
-    deactivate user
-
-end
+user -> Page : 1. Open a request detail page from the current list or marketplace
+activate user
+activate Page
+Page -> Page : 2. Show loading state
+Page -> RequestAPI : 3. Request request detail by id
+activate RequestAPI
+RequestAPI -> ApiClient : 4. Forward HTTP request
+activate ApiClient
+ApiClient -> Controller : 5. Send GET "/project-requests/{requestId}"
+activate Controller
+Controller -> JWTGuard : 6. Confirm the user is signed in
+activate JWTGuard
+JWTGuard --> Controller : 7. Return authenticated user identity and role
+deactivate JWTGuard
+Controller -> Service : 8. Load request detail for the current viewer
+activate Service
+Service -> DB : 9. Query request, answers, proposals, specs, contract summary, and viewer relations
+activate DB
+DB --> Service : 10. Return request detail data
+deactivate DB
+Service -> Service : 11. Apply role-based visibility, masking, and viewer permissions
+Service --> Controller : 12. Return request detail allowed for the current viewer
+deactivate Service
+Controller --> ApiClient : 13. Return server response
+deactivate Controller
+ApiClient --> RequestAPI : 14. Return request detail payload
+deactivate ApiClient
+RequestAPI --> Page : 15. Return request detail to the page
+deactivate RequestAPI
+Page --> user : 16. Show request information, workflow state, and the next actions allowed for that role
+deactivate Page
+deactivate user
 
 @enduml

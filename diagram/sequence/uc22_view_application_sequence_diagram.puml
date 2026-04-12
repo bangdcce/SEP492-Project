@@ -1,167 +1,93 @@
 @startuml UC22_View_Application_Sequence_Diagram
 
 skinparam monochrome true
-
 skinparam defaultFontColor Black
-
 skinparam shadowing false
 
 skinparam sequence {
-
     ArrowColor Black
-
     LifeLineBorderColor Black
-
     LifeLineBackgroundColor White
-
     ParticipantBorderColor Black
-
     ParticipantBackgroundColor #DDDDDD
-
     ParticipantFontColor Black
-
     ActorBorderColor Black
-
     ActorBackgroundColor White
-
     ActorFontColor Black
-
     GroupHeaderFontColor Black
-
     GroupHeaderBackgroundColor White
-
     GroupBodyBackgroundColor White
-
     GroupBorderColor Black
-
 }
+
 
 title UC-22 View Application Sequence Diagram
 
 actor user
-
 boundary "MyInvitationsPage" as ListPage
-
 boundary "InvitationDetailsPage" as DetailPage
-
 participant "discoveryApi" as DiscoveryAPI
-
 participant "apiClient" as ApiClient
-
 participant "ProjectRequestsController" as Controller
-
 participant "JwtAuthGuard" as JWTGuard
-
 participant "ProjectRequestsService" as Service
-
 database "Database" as DB
 
 user -> ListPage : 1. Open "My Invitations"
-
 activate user
-
 activate ListPage
-
-ListPage -> DiscoveryAPI : 2. Request the current invitation list
-
+ListPage -> ListPage : 2. Show loading state for invitations or applications
+ListPage -> DiscoveryAPI : 3. Request the current invitation or application list
 activate DiscoveryAPI
-
-DiscoveryAPI -> ApiClient : 3. Forward HTTP request
-
+DiscoveryAPI -> ApiClient : 4. Forward HTTP request
 activate ApiClient
-
-ApiClient -> Controller : 4. Send GET "/project-requests/invitations/my"
-
+ApiClient -> Controller : 5. Send GET "/project-requests/invitations/my"
 activate Controller
-
-Controller -> JWTGuard : 5. Confirm the user is signed in
-
+Controller -> JWTGuard : 6. Confirm the user is signed in
 activate JWTGuard
-
-JWTGuard --> Controller : 6. Return authenticated user identity and role
-
+JWTGuard --> Controller : 7. Return authenticated user identity and role
 deactivate JWTGuard
-
-Controller -> Service : 7. Load invitations for the current role
-
+Controller -> Service : 8. Load invitations or applications for the current role
 activate Service
-
-alt [Role = Broker]
-
-    Service -> DB : 8. Query broker invitations with status "INVITED"
-
-    activate DB
-
-    DB --> Service : 9. Return broker invitations ordered by newest first
-
-    deactivate DB
-
-else [Role = Freelancer]
-
-    Service -> DB : 10. Query freelancer invitations with status "INVITED"
-
-    activate DB
-
-    DB --> Service : 11. Return freelancer invitations ordered by newest first
-
-    deactivate DB
-
-end
-
-Service --> Controller : 12. Return invitation list
-
-Controller --> ApiClient : 13. Return server response
-
-ApiClient --> DiscoveryAPI : 14. Return invitation list response
-
-DiscoveryAPI --> ListPage : 15. Render invitation cards with request title and status
-
-user -> ListPage : 16. Click the invitation title to open the detail page
-
-ListPage --> DetailPage : 17. Navigate to "Invitation Details"
-
-activate DetailPage
-
-DetailPage -> DiscoveryAPI : 18. Request invitation data again to locate the selected invitation id
-
-DiscoveryAPI -> ApiClient : 19. Forward HTTP request
-
-ApiClient -> Controller : 20. Send GET "/project-requests/invitations/my"
-
-Controller -> Service : 21. Reload invitations for the current role
-
-Service -> DB : 22. Query current invitation list with linked request and client data
-
+Service -> DB : 9. Query linked invitation rows, request data, and client context
 activate DB
-
-DB --> Service : 23. Return actionable invitations
-
+DB --> Service : 10. Return invitation or application records
 deactivate DB
-
-Service --> Controller : 24. Return invitation list
-
+Service --> Controller : 11. Return the current invitation or application list
 deactivate Service
-
-Controller --> ApiClient : 25. Return server response
-
+Controller --> ApiClient : 12. Return server response
 deactivate Controller
-
-ApiClient --> DiscoveryAPI : 26. Return invitation list response
-
+ApiClient --> DiscoveryAPI : 13. Return invitation list payload
 deactivate ApiClient
-
-DiscoveryAPI --> DetailPage : 27. Return invitation list payload
-
+DiscoveryAPI --> ListPage : 14. Render invitation or application cards
 deactivate DiscoveryAPI
-
-DetailPage -> DetailPage : 28. Find the selected invitation and render full request information
-
-DetailPage --> user : 29. Show the invitation/application detail with Accept and Deny actions
-
+user -> ListPage : 15. Click a selected invitation or application row
+ListPage --> DetailPage : 16. Navigate to the detail page
+activate DetailPage
+DetailPage -> DiscoveryAPI : 17. Reload the list to resolve the selected invitation id
+activate DiscoveryAPI
+DiscoveryAPI -> ApiClient : 18. Forward HTTP request
+activate ApiClient
+ApiClient -> Controller : 19. Send GET "/project-requests/invitations/my"
+activate Controller
+Controller -> Service : 20. Reload invitations for the current role
+activate Service
+Service -> DB : 21. Query the latest invitation and linked request data
+activate DB
+DB --> Service : 22. Return current invitation rows
+deactivate DB
+Service --> Controller : 23. Return invitation detail source data
+deactivate Service
+Controller --> ApiClient : 24. Return server response
+deactivate Controller
+ApiClient --> DiscoveryAPI : 25. Return invitation detail payload
+deactivate ApiClient
+DiscoveryAPI --> DetailPage : 26. Return data for the selected item
+deactivate DiscoveryAPI
+DetailPage -> DetailPage : 27. Find the selected record and prepare the detail view
+DetailPage --> user : 28. Show the application or invitation detail with status and available response actions
 deactivate DetailPage
-
 deactivate ListPage
-
 deactivate user
 
 @enduml

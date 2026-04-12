@@ -98,117 +98,73 @@ Service --> Controller : 10. Return eligible request list
 
 Controller --> InviteModal : 11. Populate the request dropdown
 
-user -> InviteModal : 12. Select a request and click "Send Invitation"
-
-alt [User invites a broker as Client]
-
-    InviteModal -> DiscoveryAPI : 13. Call inviteBroker(requestId, brokerId, message)
-
-    activate DiscoveryAPI
-
-    DiscoveryAPI -> ApiClient : 14. Forward HTTP request
-
-    activate ApiClient
-
-    ApiClient -> Controller : 15. Send POST "/project-requests/{requestId}/invite/broker"
-
-    Controller -> JWTGuard : 16. Confirm the client is signed in
-
-    JWTGuard --> Controller : 17. Return authenticated client identity
-
-    Controller -> Service : 18. Create a broker invitation
-
-    Service -> QuotaService : 19. Check broker-invitation quota
-
-    activate QuotaService
-
-    QuotaService --> Service : 20. Quota is available
-
-    deactivate QuotaService
-
-    Service -> DB : 21. Load request and existing broker proposal state
-
-    activate DB
-
-    DB --> Service : 22. Return request and current proposal data
-
-deactivate DB
-
-    Service -> DB : 23. Save broker proposal with status "INVITED"
-
-    activate DB
-
-    DB --> Service : 24. Persist invited broker proposal
-
-deactivate DB
-
-    Service --> Controller : 25. Return invited broker proposal
-
-    Controller --> ApiClient : 26. Return server response
-
-    ApiClient --> DiscoveryAPI : 27. Return invite success response
-
-    DiscoveryAPI --> InviteModal : 28. Show invitation success
-
-else [User invites a freelancer as Broker]
-
-    InviteModal -> DiscoveryAPI : 29. Call inviteFreelancer(requestId, freelancerId, message)
-
-    DiscoveryAPI -> ApiClient : 30. Forward HTTP request
-
-    ApiClient -> Controller : 31. Send POST "/project-requests/{requestId}/invite/freelancer"
-
-    Controller -> JWTGuard : 32. Confirm the broker is signed in
-
-    JWTGuard --> Controller : 33. Return authenticated broker identity
-
-    deactivate JWTGuard
-
-    Controller -> RolesGuard : 34. Confirm the caller can invite freelancers
-
-    activate RolesGuard
-
-    RolesGuard --> Controller : 35. Role check passed
-
-    deactivate RolesGuard
-
-    Controller -> Service : 36. Create a freelancer recommendation for client review
-
-    Service -> DB : 37. Load request, broker assignment, and existing freelancer proposal state
-
-    activate DB
-
-    DB --> Service : 38. Return request and current proposal data
-
-deactivate DB
-
-    Service -> DB : 39. Save freelancer proposal with status "PENDING_CLIENT_APPROVAL"
-
-    activate DB
-
-    DB --> Service : 40. Persist freelancer recommendation
-
-deactivate DB
-
-    Service --> Controller : 41. Return saved freelancer recommendation
-
-    deactivate Service
-
-    Controller --> ApiClient : 42. Return server response
-
-    deactivate Controller
-
-    ApiClient --> DiscoveryAPI : 43. Return invite success response
-
-    deactivate ApiClient
-
-    DiscoveryAPI --> InviteModal : 44. Show recommendation success
-
-    deactivate DiscoveryAPI
-
-end
-
-InviteModal --> user : 45. Close the modal and show that the invitation has been sent
+user -> InviteModal : 12. Select a request and click "Send Invitation"
+
+InviteModal -> DiscoveryAPI : 13. Call the role-appropriate invitation action for the selected partner
+
+activate DiscoveryAPI
+
+DiscoveryAPI -> ApiClient : 14. Forward HTTP request
+
+activate ApiClient
+
+ApiClient -> Controller : 15. Send POST "/project-requests/{requestId}/invite/broker" or POST "/project-requests/{requestId}/invite/freelancer"
+
+Controller -> JWTGuard : 16. Confirm the user is signed in
+
+JWTGuard --> Controller : 17. Return authenticated user identity and role
+
+Controller -> RolesGuard : 18. Confirm the caller can invite this partner type
+
+activate RolesGuard
+
+RolesGuard --> Controller : 19. Role check passed
+
+deactivate RolesGuard
+
+Controller -> Service : 20. Create the invitation or recommendation record
+
+Service -> QuotaService : 21. Check the applicable invitation quota
+
+activate QuotaService
+
+QuotaService --> Service : 22. Quota is available
+
+deactivate QuotaService
+
+Service -> DB : 23. Load request, assignment state, and existing proposal state
+
+activate DB
+
+DB --> Service : 24. Return request and current proposal data
+
+deactivate DB
+
+Service -> DB : 25. Save the new partner proposal with the correct workflow status
+
+activate DB
+
+DB --> Service : 26. Persist the invitation or recommendation
+
+deactivate DB
+
+Service --> Controller : 27. Return saved invitation data
+
+deactivate Service
+
+Controller --> ApiClient : 28. Return server response
+
+deactivate Controller
+
+ApiClient --> DiscoveryAPI : 29. Return invite success response
+
+deactivate ApiClient
+
+DiscoveryAPI --> InviteModal : 30. Show invitation success
+
+deactivate DiscoveryAPI
+
+InviteModal --> user : 31. Close the modal and show that the invitation has been sent
 
 deactivate InviteModal
 

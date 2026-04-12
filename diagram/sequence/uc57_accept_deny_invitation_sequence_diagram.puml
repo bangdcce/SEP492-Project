@@ -60,7 +60,7 @@ activate user
 
 activate DetailPage
 
-alt [User accepts the invitation]
+alt [User accepts the invitation]
 
     user -> DetailPage : 2. Click "Accept Invitation"
 
@@ -88,105 +88,83 @@ alt [User accepts the invitation]
 
     activate Service
 
-    Service -> DB : 10. Load the target invitation and current request state
-
-    activate DB
-
-    DB --> Service : 11. Return invitation, request, and assignment context
-
-    deactivate DB
-
-    alt [Broker invitation]
-
-        Service -> DB : 12. Update broker invitation to "ACCEPTED" and assign the broker to the request
-
-        activate DB
-
-        DB --> Service : 13. Persist broker acceptance and broker assignment
-
-        deactivate DB
-
-    else [Freelancer invitation]
-
-        Service -> DB : 14. Update freelancer invitation to "ACCEPTED"
-
-        activate DB
-
-        DB --> Service : 15. Persist freelancer acceptance
-
-        deactivate DB
-
-    end
-
-    Service --> Controller : 16. Return updated invitation state
-
-    Controller --> ApiClient : 17. Return server response
-
-    ApiClient --> DiscoveryAPI : 18. Return success response
-
-    DiscoveryAPI --> DetailPage : 19. Return accepted invitation
-
-    alt [Accepted actor is Freelancer]
-
-        DetailPage --> user : 20. Navigate to the invited request detail page
-
-    else [Accepted actor is Broker]
-
-        DetailPage --> user : 21. Navigate back to invitations with success feedback
-
-    end
-
-else [User denies the invitation]
-
-    user -> DetailPage : 22. Click "Deny"
-
-    DetailPage -> DiscoveryAPI : 23. Call respondToInvitation(invitationId, "REJECTED")
-
-    DiscoveryAPI -> ApiClient : 24. Forward HTTP request
-
-    ApiClient -> Controller : 25. Send PATCH "/project-requests/invitations/{id}/respond"
-
-    Controller -> JWTGuard : 26. Confirm the user is signed in
-
-    JWTGuard --> Controller : 27. Return authenticated user identity and role
-
-    deactivate JWTGuard
-
-    Controller -> Service : 28. Reject the invitation for the current actor
-
-    Service -> DB : 29. Load the invitation and validate that it is still pending
-
-    activate DB
-
-    DB --> Service : 30. Return invitation state
-
-    deactivate DB
-
-    Service -> DB : 31. Update invitation status to "REJECTED"
-
-    activate DB
-
-    DB --> Service : 32. Persist rejection
-
-    deactivate DB
-
-    Service --> Controller : 33. Return updated invitation state
-
-    deactivate Service
-
-    Controller --> ApiClient : 34. Return server response
-
-    deactivate Controller
-
-    ApiClient --> DiscoveryAPI : 35. Return success response
-
-    deactivate ApiClient
-
-    DiscoveryAPI --> DetailPage : 36. Return rejected invitation
-
-    deactivate DiscoveryAPI
-
-    DetailPage --> user : 37. Navigate back to the invitations list with a denial message
+    Service -> DB : 10. Load the target invitation and current request state
+
+    activate DB
+
+    DB --> Service : 11. Return invitation, request, and assignment context
+
+    deactivate DB
+
+    Service -> DB : 12. Update the invitation to "ACCEPTED" and apply any role-specific workflow changes
+
+    activate DB
+
+    DB --> Service : 13. Persist the accepted invitation state
+
+    deactivate DB
+
+    Service --> Controller : 14. Return updated invitation state
+
+    Controller --> ApiClient : 15. Return server response
+
+    ApiClient --> DiscoveryAPI : 16. Return success response
+
+    DiscoveryAPI --> DetailPage : 17. Return accepted invitation
+
+    DetailPage --> user : 18. Show acceptance success and navigate to the next allowed screen
+
+else [User denies the invitation]
+
+    user -> DetailPage : 19. Click "Deny"
+
+    DetailPage -> DiscoveryAPI : 20. Call respondToInvitation(invitationId, "REJECTED")
+
+    DiscoveryAPI -> ApiClient : 21. Forward HTTP request
+
+    ApiClient -> Controller : 22. Send PATCH "/project-requests/invitations/{id}/respond"
+
+    Controller -> JWTGuard : 23. Confirm the user is signed in
+
+    JWTGuard --> Controller : 24. Return authenticated user identity and role
+
+    deactivate JWTGuard
+
+    Controller -> Service : 25. Reject the invitation for the current actor
+
+    Service -> DB : 26. Load the invitation and validate that it is still pending
+
+    activate DB
+
+    DB --> Service : 27. Return invitation state
+
+    deactivate DB
+
+    Service -> DB : 28. Update invitation status to "REJECTED"
+
+    activate DB
+
+    DB --> Service : 29. Persist rejection
+
+    deactivate DB
+
+    Service --> Controller : 30. Return updated invitation state
+
+    deactivate Service
+
+    Controller --> ApiClient : 31. Return server response
+
+    deactivate Controller
+
+    ApiClient --> DiscoveryAPI : 32. Return success response
+
+    deactivate ApiClient
+
+    DiscoveryAPI --> DetailPage : 33. Return rejected invitation
+
+    deactivate DiscoveryAPI
+
+    DetailPage --> user : 34. Navigate back to the invitations list with a denial message
 
 end
 

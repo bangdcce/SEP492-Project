@@ -82,59 +82,45 @@ JWTGuard --> Controller : 7. Return authenticated user identity and role
 
 deactivate JWTGuard
 
-Controller -> Service : 8. Load invitations for the current broker or freelancer
-
-activate Service
-
-alt [User role is Broker]
-
-    Service -> DB : 9. Query broker proposals with status "INVITED"
-
-    activate DB
-
-    DB --> Service : 10. Return broker invitations with request and client relations
-
-    deactivate DB
-
-else [User role is Freelancer]
-
-    Service -> DB : 11. Query freelancer proposals with status "INVITED"
-
-    activate DB
-
-    DB --> Service : 12. Return freelancer invitations with request and client relations
-
-    deactivate DB
-
-end
-
-Service --> Controller : 13. Return invitation list sorted by newest first
-
-deactivate Service
-
-Controller --> ApiClient : 14. Return server response
-
-deactivate Controller
-
-ApiClient --> DiscoveryAPI : 15. Return invitation list
-
-deactivate ApiClient
-
-DiscoveryAPI --> Page : 16. Return invitation data to the page
-
-deactivate DiscoveryAPI
-
-alt [No actionable invitations]
-
-    Page --> user : 17. Show empty state and the "Browse Marketplace" button
-
-else [Pending invitations exist]
-
-    Page -> Page : 18. Filter items to status "INVITED"
-
-    Page --> user : 19. Show invitation cards with request title, status, and action buttons
-
-end
+Controller -> Service : 8. Load invitations for the current broker or freelancer
+
+activate Service
+
+Service -> DB : 9. Query invitation proposals with status "INVITED" for the signed-in partner role
+
+activate DB
+
+DB --> Service : 10. Return matching invitations with request and client relations
+
+deactivate DB
+
+Service --> Controller : 11. Return invitation list sorted by newest first
+
+deactivate Service
+
+Controller --> ApiClient : 12. Return server response
+
+deactivate Controller
+
+ApiClient --> DiscoveryAPI : 13. Return invitation list
+
+deactivate ApiClient
+
+DiscoveryAPI --> Page : 14. Return invitation data to the page
+
+deactivate DiscoveryAPI
+
+alt [No actionable invitations]
+
+    Page --> user : 15. Show empty state and the "Browse Marketplace" button
+
+else [Pending invitations exist]
+
+    Page -> Page : 16. Filter items to status "INVITED"
+
+    Page --> user : 17. Show invitation cards with request title, status, and action buttons
+
+end
 
 deactivate Page
 

@@ -1,171 +1,92 @@
 @startuml UC65_Apply_To_Public_Request_Sequence_Diagram
 
 skinparam monochrome true
-
 skinparam defaultFontColor Black
-
 skinparam shadowing false
 
 skinparam sequence {
-
     ArrowColor Black
-
     LifeLineBorderColor Black
-
     LifeLineBackgroundColor White
-
     ParticipantBorderColor Black
-
     ParticipantBackgroundColor #DDDDDD
-
     ParticipantFontColor Black
-
     ActorBorderColor Black
-
     ActorBackgroundColor White
-
     ActorFontColor Black
-
     GroupHeaderFontColor Black
-
     GroupHeaderBackgroundColor White
-
     GroupBodyBackgroundColor White
-
     GroupBorderColor Black
-
 }
+
 
 title UC-65 Apply To Public Request Sequence Diagram
 
 actor user
-
 boundary "Marketplace Page" as Page
-
 boundary "ProposalModal" as ProposalModal
-
 participant "projectRequestsApi" as RequestsAPI
-
 participant "apiClient" as ApiClient
-
 participant "ProjectRequestsController" as Controller
-
 participant "JwtAuthGuard" as JWTGuard
-
 participant "RolesGuard" as RolesGuard
-
 participant "ProjectRequestsService" as Service
-
 participant "QuotaService" as QuotaService
-
 database "Database" as DB
 
 user -> Page : 1. Open a public request from the marketplace
-
 activate user
-
 activate Page
-
-alt [User is Broker]
-
-    user -> Page : 2. Click "Apply"
-
-    Page -> ProposalModal : 3. Open the proposal dialog
-
-    activate ProposalModal
-
-    user -> ProposalModal : 4. Enter a cover letter and submit the application
-
-    ProposalModal -> RequestsAPI : 5. Call applyToRequest(requestId, coverLetter)
-
-    activate RequestsAPI
-
-    RequestsAPI -> ApiClient : 6. Forward HTTP request
-
-    activate ApiClient
-
-    ApiClient -> Controller : 7. Send POST "/project-requests/{id}/apply"
-
-    activate Controller
-
-    Controller -> JWTGuard : 8. Confirm the broker is signed in
-
-    activate JWTGuard
-
-    JWTGuard --> Controller : 9. Return authenticated broker identity
-
-    deactivate JWTGuard
-
-    Controller -> RolesGuard : 10. Confirm the caller has the BROKER role
-
-    activate RolesGuard
-
-    RolesGuard --> Controller : 11. Role check passed
-
-    deactivate RolesGuard
-
-    Controller -> Service : 12. Create a broker application for the public request
-
-    activate Service
-
-    Service -> QuotaService : 13. Check the broker's apply-to-request quota
-
-    activate QuotaService
-
-    QuotaService --> Service : 14. Quota is available
-
-    deactivate QuotaService
-
-    Service -> DB : 15. Load request, assignment state, and existing proposal state
-
-    activate DB
-
-    DB --> Service : 16. Return request and proposal context
-
-    deactivate DB
-
-    Service -> DB : 17. Save a broker proposal with status "PENDING"
-
-    activate DB
-
-    DB --> Service : 18. Persist broker application
-
-    deactivate DB
-
-    Service --> Controller : 19. Return created broker proposal
-
-    deactivate Service
-
-    Controller --> ApiClient : 20. Return server response
-
-    deactivate Controller
-
-    ApiClient --> RequestsAPI : 21. Return application success response
-
-    deactivate ApiClient
-
-    RequestsAPI --> ProposalModal : 22. Return submitted application
-
-    deactivate RequestsAPI
-
-    ProposalModal --> Page : 23. Close the dialog and refresh the marketplace list
-
-    deactivate ProposalModal
-
-    Page --> user : 24. Show that the request is now marked as "Applied"
-
-else [User is Freelancer]
-
-    user -> Page : 25. Open the request detail from the freelancer marketplace
-
-    Page --> user : 26. Show preview-only access with no "Apply" action
-
-    Page --> user : 27. Require invitation-based access instead of public self-application
-
-end
-
+Page -> Page : 2. Check whether the current viewer has direct apply permission
+note over Page
+In the current codebase, direct self-apply is exposed for broker users.
+Freelancer users stay in preview-only mode and continue through invitations.
+end note
+user -> Page : 3. Click "Apply" when the action is available
+Page -> ProposalModal : 4. Open the proposal dialog
+activate ProposalModal
+user -> ProposalModal : 5. Enter a cover letter and submit the application
+ProposalModal -> RequestsAPI : 6. Call applyToRequest(requestId, coverLetter)
+activate RequestsAPI
+RequestsAPI -> ApiClient : 7. Forward HTTP request
+activate ApiClient
+ApiClient -> Controller : 8. Send POST "/project-requests/{id}/apply"
+activate Controller
+Controller -> JWTGuard : 9. Confirm the user is signed in
+activate JWTGuard
+JWTGuard --> Controller : 10. Return authenticated user identity
+deactivate JWTGuard
+Controller -> RolesGuard : 11. Confirm the caller has direct apply permission
+activate RolesGuard
+RolesGuard --> Controller : 12. Role check passed
+deactivate RolesGuard
+Controller -> Service : 13. Create an application for the public request
+activate Service
+Service -> QuotaService : 14. Check apply-to-request quota and usage
+activate QuotaService
+QuotaService --> Service : 15. Return quota result
+deactivate QuotaService
+Service -> DB : 16. Load request, assignment state, and existing proposal state
+activate DB
+DB --> Service : 17. Return request and proposal context
+deactivate DB
+Service -> DB : 18. Save a new pending application
+activate DB
+DB --> Service : 19. Persist application record
+deactivate DB
+Service --> Controller : 20. Return created application
+deactivate Service
+Controller --> ApiClient : 21. Return server response
+deactivate Controller
+ApiClient --> RequestsAPI : 22. Return application success payload
+deactivate ApiClient
+RequestsAPI --> ProposalModal : 23. Return submitted application
+deactivate RequestsAPI
+ProposalModal --> Page : 24. Close the dialog and refresh the marketplace view
+deactivate ProposalModal
+Page --> user : 25. Show the submitted state, or keep preview-only access when direct apply is unavailable
 deactivate Page
-
 deactivate user
 
 @enduml

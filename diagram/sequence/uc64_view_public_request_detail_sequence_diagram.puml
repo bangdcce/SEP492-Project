@@ -1,135 +1,68 @@
 @startuml UC64_View_Public_Request_Detail_Sequence_Diagram
 
 skinparam monochrome true
-
 skinparam defaultFontColor Black
-
 skinparam shadowing false
 
 skinparam sequence {
-
     ArrowColor Black
-
     LifeLineBorderColor Black
-
     LifeLineBackgroundColor White
-
     ParticipantBorderColor Black
-
     ParticipantBackgroundColor #DDDDDD
-
     ParticipantFontColor Black
-
     ActorBorderColor Black
-
     ActorBackgroundColor White
-
     ActorFontColor Black
-
     GroupHeaderFontColor Black
-
     GroupHeaderBackgroundColor White
-
     GroupBodyBackgroundColor White
-
     GroupBorderColor Black
-
 }
+
 
 title UC-64 View Public Request Detail Sequence Diagram
 
 actor user
-
-boundary "Request Detail Page" as Page
-
+boundary "Public Request Detail Page" as Page
 participant "projectRequestsApi" as RequestsAPI
-
 participant "apiClient" as ApiClient
-
 participant "ProjectRequestsController" as Controller
-
 participant "JwtAuthGuard" as JWTGuard
-
 participant "ProjectRequestsService" as Service
-
 database "Database" as DB
 
-user -> Page : 1. Open a request from the marketplace list
-
+user -> Page : 1. Open a public request detail from the marketplace list
 activate user
-
 activate Page
-
 Page -> Page : 2. Show loading state
-
-Page -> RequestsAPI : 3. Call getById(requestId)
-
+Page -> RequestsAPI : 3. Request public request detail by id
 activate RequestsAPI
-
 RequestsAPI -> ApiClient : 4. Forward HTTP request
-
 activate ApiClient
-
 ApiClient -> Controller : 5. Send GET "/project-requests/{id}"
-
 activate Controller
-
 Controller -> JWTGuard : 6. Confirm the user is signed in
-
 activate JWTGuard
-
 JWTGuard --> Controller : 7. Return authenticated user identity and role
-
 deactivate JWTGuard
-
-Controller -> Service : 8. Load request detail using role-based access rules
-
+Controller -> Service : 8. Load public request detail for the current viewer
 activate Service
-
-Service -> DB : 9. Query request, client, broker, proposals, specs, and related workflow data
-
+Service -> DB : 9. Query request, proposal, spec, contract, and workflow context
 activate DB
-
-DB --> Service : 10. Return request detail data
-
+DB --> Service : 10. Return raw public request detail
 deactivate DB
-
-alt [User is Broker]
-
-    Service -> Service : 11. Allow open marketplace request detail when the request is public
-
-    Service --> Controller : 12. Return broker-visible request detail
-
-else [User is Freelancer and request is phase-3 marketplace preview]
-
-    Service -> Service : 13. Mask client contact and spec access for preview mode
-
-    Service --> Controller : 14. Return freelancer preview detail
-
-    deactivate Service
-
-else [User is invited freelancer]
-
-    Service --> Controller : 15. Return full invited-freelancer detail
-
-end
-
-Controller --> ApiClient : 16. Return server response
-
+Service -> Service : 11. Apply viewer permissions, contact masking, and preview rules for the current role
+Service --> Controller : 12. Return public request detail allowed for the current viewer
+deactivate Service
+Controller --> ApiClient : 13. Return server response
 deactivate Controller
-
-ApiClient --> RequestsAPI : 17. Return request detail response
-
+ApiClient --> RequestsAPI : 14. Return request detail payload
 deactivate ApiClient
-
-RequestsAPI --> Page : 18. Return request detail payload
-
+RequestsAPI --> Page : 15. Return public request detail to the page
 deactivate RequestsAPI
-
-Page --> user : 19. Show request title, description, budget, timeline, and the allowed next actions for that role
-
-deactivate Page
-
+Page --> user : 16. Show public request information and the actions allowed for the current role
+Deactivate Page
 deactivate user
 
 @enduml
