@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { ArrowLeft, Check, CreditCard, Loader2, ShieldCheck, Sparkles, TriangleAlert, X } from "lucide-react";
 import { createPaymentMethod, getPaymentMethods } from "@/features/payments/api";
@@ -20,6 +20,7 @@ import {
   getMonthlyEquivalent,
   type MySubscriptionResponse,
   type SubscriptionPlan,
+  type SubscribeResponse,
 } from "./types";
 import { resolveSubscriptionRoute } from "./subscriptionRoutes";
 
@@ -115,6 +116,18 @@ export function SubscriptionCheckoutPage() {
   const isPremium = subscription?.isPremium || false;
   const currentSub = subscription?.subscription;
   const needsPayPalSetup = !isPremium && paymentMethodsLoaded && !activePayPalMethod;
+  const previewPlan = plans[0] ?? null;
+  const previewMonthlyAmount = previewPlan
+    ? getMonthlyEquivalent(previewPlan, selectedCycle)
+    : null;
+  const previewCycleAmount = previewPlan
+    ? getPlanDisplayAmount(previewPlan, selectedCycle)
+    : null;
+  const checkoutTheme: CSSProperties = {
+    ["--checkout-spot-a" as string]: "rgba(14, 165, 233, 0.15)",
+    ["--checkout-spot-b" as string]: "rgba(245, 158, 11, 0.16)",
+    ["--checkout-spot-c" as string]: "rgba(15, 23, 42, 0.08)",
+  };
 
   const ensurePayPalCheckoutMethod = useCallback(async () => {
     if (activePayPalMethod) {
@@ -150,6 +163,19 @@ export function SubscriptionCheckoutPage() {
     });
   }, [ensurePayPalCheckoutMethod, needsPayPalSetup, savingPayPalMethod]);
 
+  const handleSubscriptionSuccess = useCallback(
+    async (result: SubscribeResponse) => {
+      setSuccessMessage(result.message);
+      setError(null);
+      await fetchData();
+    },
+    [fetchData],
+  );
+
+  const handleCheckoutError = useCallback((message: string | null) => {
+    setError(message);
+  }, []);
+
   if (loading) {
     return (
       <div className="flex h-[400px] items-center justify-center">
@@ -183,7 +209,7 @@ export function SubscriptionCheckoutPage() {
   }
 
   return (
-    <div className="container mx-auto max-w-6xl space-y-8 py-8">
+    <div className="container mx-auto max-w-6xl space-y-8 px-4 py-8 sm:px-6 lg:px-0">
       {successMessage ? (
         <Alert className="border-green-500/50 bg-green-500/10 text-green-700 dark:text-green-400">
           <Check className="h-4 w-4" />
@@ -203,23 +229,129 @@ export function SubscriptionCheckoutPage() {
         </Alert>
       ) : null}
 
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <div>
-          <Button variant="ghost" className="-ml-4 mb-2 w-fit" onClick={() => navigate(subscriptionRoute)}>
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            Back to subscription
-          </Button>
-          <h1 className="text-3xl font-bold tracking-tight">Premium Checkout</h1>
-          <p className="mt-2 text-muted-foreground">
-            Choose your billing cycle, then finish the PayPal popup approval to activate premium.
-          </p>
+      <section
+        className="relative overflow-hidden rounded-[2rem] border border-slate-200/80 bg-white/90 shadow-[0_30px_90px_rgba(15,23,42,0.08)] backdrop-blur"
+        style={checkoutTheme}
+      >
+        <div
+          className="pointer-events-none absolute inset-0"
+          style={{
+            background:
+              "radial-gradient(circle at top left, var(--checkout-spot-a), transparent 34%), radial-gradient(circle at bottom right, var(--checkout-spot-b), transparent 38%), linear-gradient(180deg, rgba(255,255,255,0.98), rgba(248,250,252,0.92))",
+          }}
+        />
+        <div className="relative grid gap-8 p-6 md:p-8 xl:grid-cols-[minmax(0,1.2fr)_360px]">
+          <div className="space-y-6">
+            <Button variant="ghost" className="-ml-4 w-fit text-slate-600 hover:text-slate-900" onClick={() => navigate(subscriptionRoute)}>
+              <ArrowLeft className="mr-2 h-4 w-4" />
+              Back to subscription
+            </Button>
+
+            <div className="space-y-4">
+              <Badge variant="secondary" className="rounded-full border border-sky-200 bg-sky-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-sky-700">
+                Premium Checkout
+              </Badge>
+              <div className="max-w-3xl space-y-3">
+                <h1 className="text-4xl font-semibold tracking-tight text-slate-950 md:text-5xl">
+                  Choose a billing cycle and finish checkout in one secure PayPal approval.
+                </h1>
+                <p className="max-w-2xl text-base leading-7 text-slate-600 md:text-lg">
+                  Premium turns on immediately after the approved capture, and the first successful payment also prepares faster PayPal checkout for future purchases.
+                </p>
+              </div>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-3">
+              <div className="rounded-[1.5rem] border border-slate-200/80 bg-white/80 p-4 shadow-sm">
+                <div className="flex items-center gap-2 text-sm font-medium text-slate-900">
+                  <Sparkles className="h-4 w-4 text-amber-500" />
+                  Activation
+                </div>
+                <p className="mt-3 text-sm leading-6 text-slate-600">
+                  Premium access unlocks right after PayPal approves and captures the payment.
+                </p>
+              </div>
+              <div className="rounded-[1.5rem] border border-slate-200/80 bg-white/80 p-4 shadow-sm">
+                <div className="flex items-center gap-2 text-sm font-medium text-slate-900">
+                  <ShieldCheck className="h-4 w-4 text-sky-600" />
+                  Secure Flow
+                </div>
+                <p className="mt-3 text-sm leading-6 text-slate-600">
+                  Checkout opens in a PayPal popup so approval stays inside PayPal’s secure flow.
+                </p>
+              </div>
+              <div className="rounded-[1.5rem] border border-slate-200/80 bg-white/80 p-4 shadow-sm">
+                <div className="flex items-center gap-2 text-sm font-medium text-slate-900">
+                  <CreditCard className="h-4 w-4 text-teal-600" />
+                  Faster Next Time
+                </div>
+                <p className="mt-3 text-sm leading-6 text-slate-600">
+                  The first successful approval also prepares PayPal for a faster follow-up checkout experience.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-[1.75rem] border border-slate-200/80 bg-slate-950 p-6 text-white shadow-[0_24px_80px_rgba(15,23,42,0.22)]">
+            <p className="text-xs font-semibold uppercase tracking-[0.28em] text-white/55">
+              Billing Cycle
+            </p>
+            <div className="mt-4 grid grid-cols-3 gap-2 rounded-[1.25rem] bg-white/5 p-1">
+              {Object.values(BillingCycle).map((cycle) => (
+                <button
+                  key={cycle}
+                  onClick={() => setSelectedCycle(cycle)}
+                  className={`rounded-[1rem] px-3 py-3 text-sm font-medium transition-all ${
+                    selectedCycle === cycle
+                      ? "bg-white text-slate-950 shadow-[0_12px_30px_rgba(255,255,255,0.18)]"
+                      : "text-white/70 hover:text-white"
+                  }`}
+                >
+                  {getBillingCycleLabel(cycle)}
+                </button>
+              ))}
+            </div>
+
+            <div className="mt-6 rounded-[1.5rem] border border-white/10 bg-white/5 p-5">
+              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-white/55">
+                At a glance
+              </p>
+              <div className="mt-4 space-y-4">
+                <div>
+                  <p className="text-sm text-white/70">Preview plan</p>
+                  <p className="mt-1 text-xl font-semibold">
+                    {previewPlan?.displayName || "Premium subscription"}
+                  </p>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-1">
+                  <div>
+                    <p className="text-sm text-white/70">Equivalent monthly rate</p>
+                    <p className="mt-1 text-3xl font-semibold">
+                      {previewPlan && previewMonthlyAmount !== null
+                        ? formatCurrency(previewMonthlyAmount, previewPlan.displayCurrency)
+                        : "--"}
+                      <span className="ml-1 text-sm font-medium text-white/55">/mo</span>
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-white/70">Charged this cycle</p>
+                    <p className="mt-1 text-lg font-medium">
+                      {previewPlan && previewCycleAmount !== null
+                        ? formatCurrency(previewCycleAmount, previewPlan.displayCurrency)
+                        : "--"}
+                    </p>
+                  </div>
+                </div>
+                <div className="rounded-[1.25rem] border border-white/10 bg-black/10 px-4 py-3 text-sm leading-6 text-white/75">
+                  {activePayPalMethod?.fastCheckoutReady
+                    ? "Your PayPal vault is already ready, so approval should feel faster."
+                    : "A secure PayPal popup opens when you subscribe. The first successful approval also finishes vault setup."}
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
-        {activePayPalMethod ? (
-          <Badge variant="secondary" className="w-fit">
-            {activePayPalMethod.fastCheckoutReady ? "PayPal ready" : "PayPal saved"}
-          </Badge>
-        ) : null}
-      </div>
+      </section>
 
       {isPremium ? (
         <Card className="border-primary/20">
@@ -250,140 +382,135 @@ export function SubscriptionCheckoutPage() {
           </CardFooter>
         </Card>
       ) : (
-        <>
-          <Card className="border-primary/20 bg-primary/5">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <ShieldCheck className="h-5 w-5 text-primary" />
-                PayPal checkout
-              </CardTitle>
-              <CardDescription>
-                Subscription purchase uses the same PayPal Vault lane as milestone funding.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {activePayPalMethod ? (
-                <div className="flex flex-col gap-4 rounded-2xl border border-border bg-background p-4 md:flex-row md:items-center md:justify-between">
-                  <div>
-                    <p className="font-medium">{activePayPalMethod.paypalEmail || "PayPal buyer will be confirmed in checkout"}</p>
-                    <p className="text-sm text-muted-foreground">
-                      {activePayPalMethod.fastCheckoutReady
-                        ? "PayPal vault is ready for faster future approval."
-                        : "The first successful premium payment will verify and vault the buyer automatically."}
-                    </p>
-                  </div>
-                  <div className="flex flex-col items-start gap-3 md:items-end">
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <CreditCard className="h-4 w-4 text-primary" />
-                      {activePayPalMethod.fastCheckoutReady ? "Fast checkout ready" : "First approval pending"}
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      A PayPal popup will open when you choose a plan below.
-                    </p>
-                  </div>
-                </div>
-              ) : (
-                <div className="flex flex-col gap-4 rounded-2xl border border-dashed border-slate-300 bg-background p-5 md:flex-row md:items-center md:justify-between">
-                  <div>
-                    <p className="font-medium text-foreground">Preparing PayPal checkout</p>
-                    <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                      The app is setting up the same PayPal Vault lane used by wallet funding. You will approve the buyer directly in the PayPal popup.
-                    </p>
-                  </div>
-                  <Button onClick={() => void ensurePayPalCheckoutMethod()} disabled={savingPayPalMethod}>
-                    {savingPayPalMethod ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                    {savingPayPalMethod ? "Preparing..." : "Prepare PayPal"}
-                  </Button>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+        <div className="space-y-6">
+          <div className="mx-auto max-w-3xl text-center">
+            <h2 className="text-3xl font-semibold tracking-tight text-slate-950">
+              Pick your premium plan and confirm the PayPal popup
+            </h2>
+            <p className="mt-3 text-base leading-7 text-slate-600">
+              The checkout card below now focuses on the plan itself, with the payment step folded into a calmer PayPal panel.
+            </p>
+          </div>
 
-          <div className="space-y-8">
-            <div className="text-center">
-              <h2 className="text-3xl font-bold tracking-tight">Choose your premium plan</h2>
-              <p className="mx-auto mt-3 max-w-2xl text-muted-foreground">
-                Review the billing cycle below and finish checkout on PayPal to activate premium perks.
-              </p>
-              <div className="mt-6 inline-flex rounded-xl bg-muted p-1">
-                {Object.values(BillingCycle).map((cycle) => (
-                  <button
-                    key={cycle}
-                    onClick={() => setSelectedCycle(cycle)}
-                    className={`rounded-lg px-6 py-2.5 text-sm font-medium transition-all ${
-                      selectedCycle === cycle ? "bg-background shadow-sm ring-1 ring-border" : "text-muted-foreground"
-                    }`}
-                  >
-                    {getBillingCycleLabel(cycle)}
-                  </button>
-                ))}
-              </div>
-            </div>
+          <div className={`mx-auto grid gap-6 ${plans.length === 1 ? "max-w-4xl" : "xl:grid-cols-2"}`}>
+            {plans.map((plan, index) => {
+              const monthlyEquiv = getMonthlyEquivalent(plan, selectedCycle);
+              const totalPrice = getPlanDisplayAmount(plan, selectedCycle);
 
-            <div className={`mx-auto grid gap-6 ${plans.length === 1 ? "max-w-3xl" : "md:grid-cols-2 lg:grid-cols-3"}`}>
-              {plans.map((plan) => {
-                const monthlyEquiv = getMonthlyEquivalent(plan, selectedCycle);
-                const totalPrice = getPlanDisplayAmount(plan, selectedCycle);
-
-                return (
-                  <Card key={plan.id} className="border-primary/20 shadow-lg">
-                    <CardHeader className="pt-8 text-center">
-                      <CardTitle className="text-2xl">{plan.displayName}</CardTitle>
-                      <div className="mt-4 flex items-baseline justify-center gap-1">
-                        <span className="text-4xl font-extrabold tracking-tight">
-                          {formatCurrency(monthlyEquiv, plan.displayCurrency)}
-                        </span>
-                        <span className="text-sm text-muted-foreground">/mo</span>
+              return (
+                <Card
+                  key={plan.id}
+                  className="group relative overflow-hidden rounded-[2rem] border border-slate-200/80 bg-white/90 shadow-[0_24px_60px_rgba(15,23,42,0.08)] backdrop-blur"
+                >
+                  <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-sky-500 via-teal-400 to-amber-400" />
+                  <CardHeader className="space-y-6 p-6 md:p-8">
+                    <div className="flex flex-wrap items-start justify-between gap-4">
+                      <div className="space-y-4">
+                        <Badge
+                          variant="secondary"
+                          className="rounded-full border border-slate-200 bg-slate-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-600"
+                        >
+                          {plans.length === 1 ? "Premium access" : index === 0 ? "Recommended" : "Plan option"}
+                        </Badge>
+                        <div>
+                          <CardTitle className="text-3xl font-semibold tracking-tight text-slate-950">
+                            {plan.displayName}
+                          </CardTitle>
+                          <CardDescription className="mt-3 max-w-2xl text-base leading-7 text-slate-600">
+                            {plan.description}
+                          </CardDescription>
+                        </div>
                       </div>
+
                       {selectedCycle !== BillingCycle.MONTHLY ? (
-                        <p className="text-xs text-muted-foreground">
-                          Billed {formatCurrency(totalPrice, plan.displayCurrency)}{" "}
-                          {getBillingCycleLabel(selectedCycle).toLowerCase()}
-                        </p>
+                        <div className="rounded-full border border-teal-200 bg-teal-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-teal-700">
+                          {getBillingCycleLabel(selectedCycle)}
+                        </div>
                       ) : null}
-                      <CardDescription className="mt-2">{plan.description}</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <ul className="space-y-3">
-                        {Object.entries(plan.perks).map(([key, value]) => (
-                          <li key={key} className="flex items-start justify-between gap-4 text-sm">
-                            <span className="font-medium">{PERK_LABELS[key] || key}</span>
-                            <span className="text-muted-foreground">{formatPerkValue(key, value)}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </CardContent>
-                    <CardFooter>
+                    </div>
+
+                    <div className="grid gap-4 rounded-[1.75rem] bg-slate-950 px-5 py-6 text-white md:grid-cols-[minmax(0,1fr)_220px]">
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-[0.28em] text-white/55">
+                          Equivalent monthly rate
+                        </p>
+                        <div className="mt-3 flex items-end gap-2">
+                          <span className="text-5xl font-semibold tracking-tight">
+                            {formatCurrency(monthlyEquiv, plan.displayCurrency)}
+                          </span>
+                          <span className="pb-2 text-sm text-white/60">/mo</span>
+                        </div>
+                        <p className="mt-3 text-sm leading-6 text-white/70">
+                          {selectedCycle === BillingCycle.MONTHLY
+                            ? "Charged once per month after you approve the PayPal popup."
+                            : `Billed ${formatCurrency(totalPrice, plan.displayCurrency)} per ${getBillingCycleLabel(selectedCycle).toLowerCase()}.`}
+                        </p>
+                      </div>
+
+                      <div className="rounded-[1.25rem] border border-white/10 bg-white/10 p-4">
+                        <p className="text-xs font-semibold uppercase tracking-[0.24em] text-white/55">
+                          Checkout flow
+                        </p>
+                        <div className="mt-4 space-y-3 text-sm leading-6 text-white/80">
+                          <p>PayPal popup approval</p>
+                          <p>Instant premium activation</p>
+                          <p>Vault setup after first success</p>
+                        </div>
+                      </div>
+                    </div>
+                  </CardHeader>
+
+                  <CardContent className="grid gap-3 px-6 pb-6 md:grid-cols-2 md:px-8">
+                    {Object.entries(plan.perks).map(([key, value]) => (
+                      <div
+                        key={key}
+                        className="flex items-start gap-3 rounded-[1.35rem] border border-slate-200/80 bg-slate-50/80 px-4 py-4"
+                      >
+                        <div className="mt-0.5 rounded-full bg-emerald-100 p-1 text-emerald-700">
+                          <Check className="h-3.5 w-3.5" />
+                        </div>
+                        <div className="space-y-1">
+                          <p className="text-sm font-semibold text-slate-900">
+                            {PERK_LABELS[key] || key}
+                          </p>
+                          <p className="text-sm leading-6 text-slate-600">
+                            {formatPerkValue(key, value)}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </CardContent>
+
+                  <CardFooter className="px-6 pb-6 pt-0 md:px-8">
+                    <div className="w-full">
                       {activePayPalMethod ? (
                         <PayPalSubscriptionCheckout
                           planId={plan.id}
                           planDisplayName={plan.displayName}
                           billingCycle={selectedCycle}
                           paymentMethodId={activePayPalMethod.id}
-                          onSubscribed={async (result) => {
-                            setSuccessMessage(result.message);
-                            setError(null);
-                            await fetchData();
-                          }}
-                          onError={setError}
+                          onSubscribed={handleSubscriptionSuccess}
+                          onError={handleCheckoutError}
                         />
                       ) : (
-                        <Button
-                          className="w-full"
-                          onClick={() => void ensurePayPalCheckoutMethod()}
-                          disabled={savingPayPalMethod}
-                        >
-                          {savingPayPalMethod ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                          {savingPayPalMethod ? "Preparing PayPal..." : "Prepare PayPal to continue"}
-                        </Button>
+                        <div className="rounded-[1.5rem] border border-dashed border-slate-300 bg-slate-50/70 p-4">
+                          <Button
+                            className="w-full"
+                            onClick={() => void ensurePayPalCheckoutMethod()}
+                            disabled={savingPayPalMethod}
+                          >
+                            {savingPayPalMethod ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                            {savingPayPalMethod ? "Preparing secure checkout..." : "Prepare PayPal to continue"}
+                          </Button>
+                        </div>
                       )}
-                    </CardFooter>
-                  </Card>
-                );
-              })}
-            </div>
+                    </div>
+                  </CardFooter>
+                </Card>
+              );
+            })}
           </div>
-        </>
+        </div>
       )}
 
     </div>

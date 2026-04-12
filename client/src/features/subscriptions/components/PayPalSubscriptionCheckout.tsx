@@ -100,11 +100,21 @@ export function PayPalSubscriptionCheckout({
   onError,
 }: PayPalSubscriptionCheckoutProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const onSubscribedRef = useRef(onSubscribed);
+  const onErrorRef = useRef(onError);
   const [loading, setLoading] = useState(true);
   const [quote, setQuote] = useState<SubscriptionPayPalCheckoutConfig | null>(null);
   const [renderError, setRenderError] = useState<string | null>(null);
   const [isCapturing, setIsCapturing] = useState(false);
   const [hasRenderedButtons, setHasRenderedButtons] = useState(false);
+
+  useEffect(() => {
+    onSubscribedRef.current = onSubscribed;
+  }, [onSubscribed]);
+
+  useEffect(() => {
+    onErrorRef.current = onError;
+  }, [onError]);
 
   useEffect(() => {
     let active = true;
@@ -116,7 +126,7 @@ export function PayPalSubscriptionCheckout({
         setRenderError(null);
         setHasRenderedButtons(false);
         setQuote(null);
-        onError?.(null);
+        onErrorRef.current?.(null);
 
         const config = await getSubscriptionPayPalConfig({
           planId,
@@ -172,14 +182,14 @@ export function PayPalSubscriptionCheckout({
             if (!orderId) {
               const message = "PayPal did not return an order id to finish checkout.";
               setRenderError(message);
-              onError?.(message);
+              onErrorRef.current?.(message);
               toast.error(message);
               return;
             }
 
             try {
               setIsCapturing(true);
-              onError?.(null);
+              onErrorRef.current?.(null);
               const result = await subscribeToPlan({
                 planId,
                 billingCycle,
@@ -187,14 +197,14 @@ export function PayPalSubscriptionCheckout({
                 orderId,
               });
               toast.success(result.message);
-              await onSubscribed?.(result);
+              await onSubscribedRef.current?.(result);
             } catch (error: unknown) {
               const message = getErrorMessage(
                 error,
                 "PayPal approved the order, but the subscription could not be activated.",
               );
               setRenderError(message);
-              onError?.(message);
+              onErrorRef.current?.(message);
               toast.error(message);
             } finally {
               setIsCapturing(false);
@@ -203,12 +213,12 @@ export function PayPalSubscriptionCheckout({
           onCancel: () => {
             const message = "PayPal checkout was cancelled before activation.";
             setRenderError(message);
-            onError?.(message);
+            onErrorRef.current?.(message);
           },
           onError: () => {
             const message = "PayPal checkout failed. Please try again.";
             setRenderError(message);
-            onError?.(message);
+            onErrorRef.current?.(message);
           },
         });
 
@@ -227,7 +237,7 @@ export function PayPalSubscriptionCheckout({
         );
         if (active) {
           setRenderError(message);
-          onError?.(message);
+          onErrorRef.current?.(message);
         }
       } finally {
         if (active) {
@@ -244,55 +254,60 @@ export function PayPalSubscriptionCheckout({
         container.innerHTML = "";
       }
     };
-  }, [billingCycle, onError, onSubscribed, paymentMethodId, planId]);
+  }, [billingCycle, paymentMethodId, planId]);
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-3 rounded-[1.5rem] border border-slate-200/80 bg-slate-50/85 p-4 shadow-inner shadow-slate-200/50">
       {quote ? (
-        <div className="rounded-2xl border border-border/70 bg-muted/40 px-4 py-3 text-sm">
-          <div className="flex items-center gap-2 font-medium text-foreground">
-            <ShieldCheck className="h-4 w-4 text-primary" />
-            PayPal checkout quote
+        <div className="flex flex-wrap items-start justify-between gap-3 rounded-[1.25rem] border border-white bg-white/90 px-4 py-3 text-sm shadow-sm">
+          <div>
+            <div className="flex items-center gap-2 font-medium text-slate-900">
+              <ShieldCheck className="h-4 w-4 text-sky-600" />
+              Secure PayPal approval
+            </div>
+            <p className="mt-1 text-slate-600">
+              {planDisplayName} will capture{" "}
+              <span className="font-semibold text-slate-950">
+                {formatCurrency(quote.chargeAmount, quote.chargeCurrency)}
+              </span>{" "}
+              after you approve the popup.
+            </p>
           </div>
-          <p className="mt-1 text-muted-foreground">
-            {planDisplayName} will capture{" "}
-            <span className="font-semibold text-foreground">
-              {formatCurrency(quote.chargeAmount, quote.chargeCurrency)}
-            </span>{" "}
-            through PayPal for this billing cycle.
-          </p>
+          <div className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+            Popup checkout
+          </div>
         </div>
       ) : null}
 
       {loading ? (
-        <div className="flex items-center gap-2 rounded-2xl border border-border/70 bg-background px-4 py-3 text-sm text-muted-foreground">
+        <div className="flex items-center gap-2 rounded-[1.25rem] border border-dashed border-slate-300 bg-white/75 px-4 py-3 text-sm text-slate-500">
           <Loader2 className="h-4 w-4 animate-spin" />
-          Loading PayPal checkout...
+          Securing PayPal checkout...
         </div>
       ) : null}
 
       <div className={loading || isCapturing ? "pointer-events-none opacity-70" : ""}>
         <div
           ref={containerRef}
-          className="min-h-[56px] rounded-2xl border border-border bg-white px-3 py-2"
+          className="min-h-[58px] rounded-[1.25rem] border border-slate-200 bg-white px-3 py-2 shadow-sm"
         />
       </div>
 
       {!loading && !renderError && !hasRenderedButtons ? (
-        <div className="rounded-2xl border border-amber-300/50 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-          PayPal is still loading in this browser session. If the button does not appear, refresh once and try again.
+        <div className="rounded-[1.25rem] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          PayPal is still warming up in this browser session. If the button does not appear after a moment, refresh once and try again.
         </div>
       ) : null}
 
       {isCapturing ? (
-        <div className="flex items-center gap-2 rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800">
+        <div className="flex items-center gap-2 rounded-[1.25rem] border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800">
           <Loader2 className="h-4 w-4 animate-spin" />
           Finalizing payment capture and activating your subscription...
         </div>
       ) : null}
 
       {renderError ? (
-        <div className="flex items-start gap-2 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+        <div className="flex items-start gap-2 rounded-[1.25rem] border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
           <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />
           <span>{renderError}</span>
         </div>
