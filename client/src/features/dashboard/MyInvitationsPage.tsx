@@ -6,6 +6,7 @@ import { AlertTriangle, Loader2 } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { useKYCStatus } from "@/shared/components/custom/KYCBlocker";
+import { ROUTES } from "@/constants";
 import {
   normalizeInvitationStatus,
   useMyInvitationsRealtime,
@@ -106,12 +107,12 @@ export const MyInvitationsPage = () => {
               onClick={() =>
                 navigate(
                   isBrokerRoute
-                    ? "/broker/marketplace"
-                    : "/freelancer/requests",
+                    ? ROUTES.BROKER_MARKETPLACE
+                    : ROUTES.FREELANCER_MARKETPLACE,
                 )
               }
             >
-              {isBrokerRoute ? "Browse Marketplace" : "View Requests"}
+              Browse Marketplace
             </Button>
           </CardContent>
         </Card>

@@ -1,0 +1,209 @@
+@startuml UC14_Post_Request_To_Marketplace_Sequence_Diagram
+
+skinparam monochrome true
+
+skinparam defaultFontColor Black
+
+skinparam shadowing false
+
+skinparam sequence {
+
+    ArrowColor Black
+
+    LifeLineBorderColor Black
+
+    LifeLineBackgroundColor White
+
+    ParticipantBorderColor Black
+
+    ParticipantBackgroundColor #DDDDDD
+
+    ParticipantFontColor Black
+
+    ActorBorderColor Black
+
+    ActorBackgroundColor White
+
+    ActorFontColor Black
+
+    GroupHeaderFontColor Black
+
+    GroupHeaderBackgroundColor White
+
+    GroupBodyBackgroundColor White
+
+    GroupBorderColor Black
+
+}
+
+title UC-14 Post Request To Marketplace Sequence Diagram
+
+actor Client
+
+boundary "RequestDetailPage" as Page
+
+boundary "RequestBrokerMarketPanel" as MarketPanel
+
+participant "wizardService" as WizardAPI
+
+participant "apiClient" as ApiClient
+
+participant "ProjectRequestsController" as Controller
+
+participant "JwtAuthGuard" as JWTGuard
+
+participant "RolesGuard" as RolesGuard
+
+participant "ProjectRequestsService" as Service
+
+participant "AuditLogsService" as AuditService
+
+database "Database" as DB
+
+Client -> Page : 1. Open a draft or private request from "My Requests"
+
+activate Client
+
+activate Page
+
+Page -> WizardAPI : 2. Load request detail
+
+activate WizardAPI
+
+WizardAPI -> ApiClient : 3. Forward HTTP request
+
+activate ApiClient
+
+ApiClient -> Controller : 4. Send GET "/project-requests/{requestId}"
+
+activate Controller
+
+Controller -> JWTGuard : 5. Confirm the client is signed in
+
+activate JWTGuard
+
+JWTGuard --> Controller : 6. Return authenticated client identity
+
+Controller -> Service : 7. Load the target request
+
+activate Service
+
+Service -> DB : 8. Query request detail and current status
+
+activate DB
+
+DB --> Service : 9. Return request detail
+
+deactivate DB
+
+Service --> Controller : 10. Return request detail
+
+Controller --> ApiClient : 11. Return server response
+
+ApiClient --> WizardAPI : 12. Return request detail response
+
+WizardAPI --> Page : 13. Render the visibility panel
+
+Client -> MarketPanel : 14. Click "Make Project Public"
+
+activate MarketPanel
+
+MarketPanel -> Page : 15. Request visibility change to "PUBLIC_DRAFT"
+
+Page -> WizardAPI : 16. Call publishRequest(requestId)
+
+WizardAPI -> ApiClient : 17. Forward HTTP request
+
+ApiClient -> Controller : 18. Send POST "/project-requests/{requestId}/publish"
+
+Controller -> JWTGuard : 19. Confirm the client is signed in
+
+JWTGuard --> Controller : 20. Return authenticated client identity
+
+deactivate JWTGuard
+
+Controller -> RolesGuard : 21. Confirm the caller has role "CLIENT"
+
+activate RolesGuard
+
+RolesGuard --> Controller : 22. Role check passed
+
+deactivate RolesGuard
+
+Controller -> Service : 23. Publish the request
+
+Service -> DB : 24. Load stored request
+
+activate DB
+
+DB --> Service : 25. Return stored request
+
+deactivate DB
+
+alt [Request is publishable and no broker is assigned]
+
+    Service -> Service : 26. Validate owner and allowed source status
+
+    Service -> DB : 27. Save status "PUBLIC_DRAFT"
+
+    activate DB
+
+    DB --> Service : 28. Persist updated request
+
+    deactivate DB
+
+    Service -> AuditService : 29. Write publish audit log
+
+    activate AuditService
+
+    AuditService --> Service : 30. Audit log saved
+
+    deactivate AuditService
+
+    Service -> DB : 31. Reload updated request
+
+    activate DB
+
+    DB --> Service : 32. Return updated detail
+
+    deactivate DB
+
+    Service --> Controller : 33. Return updated request
+
+    deactivate Service
+
+    Controller --> ApiClient : 34. Return server response
+
+    deactivate Controller
+
+    ApiClient --> WizardAPI : 35. Return publish success response
+
+    deactivate ApiClient
+
+    WizardAPI --> Page : 36. Return updated request detail
+
+    deactivate WizardAPI
+
+    Page --> Client : 37. Show success toast and keep the request visible in the marketplace
+
+else [Request cannot be published]
+
+    Service --> Controller : 38. Throw forbidden or bad-request error
+
+    Controller --> ApiClient : 39. Return server response
+
+    ApiClient --> WizardAPI : 40. Return error response
+
+    WizardAPI --> Page : 41. Return error payload
+
+    Page --> Client : 42. Show why posting to the marketplace is blocked
+
+end
+
+deactivate MarketPanel
+
+deactivate Page
+
+deactivate Client
+
+@enduml

@@ -1,0 +1,339 @@
+@startuml UC13_Create_Request_Sequence_Diagram
+
+skinparam monochrome true
+
+skinparam defaultFontColor Black
+
+skinparam shadowing false
+
+skinparam sequence {
+
+    ArrowColor Black
+
+    LifeLineBorderColor Black
+
+    LifeLineBackgroundColor White
+
+    ParticipantBorderColor Black
+
+    ParticipantBackgroundColor #DDDDDD
+
+    ParticipantFontColor Black
+
+    ActorBorderColor Black
+
+    ActorBackgroundColor White
+
+    ActorFontColor Black
+
+    GroupHeaderFontColor Black
+
+    GroupHeaderBackgroundColor White
+
+    GroupBodyBackgroundColor White
+
+    GroupBorderColor Black
+
+}
+
+title UC-13 Create Request Sequence Diagram
+
+actor Client
+
+boundary "WizardPage" as Page
+
+boundary "StepB5" as StepB5
+
+participant "wizardService" as WizardAPI
+
+participant "apiClient" as ApiClient
+
+participant "WizardController" as WizardController
+
+participant "WizardService" as WizardService
+
+participant "KycController" as KycController
+
+participant "JwtAuthGuard" as JWTGuard
+
+participant "ProjectRequestsController" as RequestController
+
+participant "RolesGuard" as RolesGuard
+
+participant "ProjectRequestsService" as RequestService
+
+participant "QuotaService" as QuotaService
+
+participant "AuditLogsService" as AuditService
+
+participant "NotificationsService" as NotificationService
+
+database "SupabaseStorage" as Storage
+
+database "Database" as DB
+
+Client -> Page : 1. Open the "Project Request Wizard"
+
+activate Client
+
+activate Page
+
+Page -> WizardAPI : 2. Request wizard questions
+
+activate WizardAPI
+
+WizardAPI -> ApiClient : 3. Forward HTTP request
+
+activate ApiClient
+
+ApiClient -> WizardController : 4. Send GET "/wizard/questions"
+
+activate WizardController
+
+WizardController -> WizardService : 5. Load active wizard questions and options
+
+activate WizardService
+
+WizardService -> DB : 6. Query wizard questions and options
+
+activate DB
+
+DB --> WizardService : 7. Return ordered question set
+
+deactivate DB
+
+WizardService --> WizardController : 8. Return wizard data
+
+deactivate WizardService
+
+WizardController --> ApiClient : 9. Return server response
+
+deactivate WizardController
+
+ApiClient --> WizardAPI : 10. Return wizard data
+
+WizardAPI --> Page : 11. Populate all five wizard steps
+
+Page -> KycController : 12. Request the client's KYC status
+
+activate KycController
+
+KycController -> JWTGuard : 13. Confirm the client is signed in
+
+activate JWTGuard
+
+JWTGuard --> KycController : 14. Return authenticated client identity
+
+KycController -> DB : 15. Load latest KYC record
+
+activate DB
+
+DB --> KycController : 16. Return KYC status
+
+deactivate DB
+
+KycController --> Page : 17. Return KYC result
+
+deactivate KycController
+
+Page -> Page : 18. Enable or block submission buttons based on KYC
+
+alt [Client uploads reference files]
+
+    Client -> StepB5 : 19. Add files in "Reference Documents"
+
+    activate StepB5
+
+    StepB5 -> WizardAPI : 20. Upload selected files
+
+    WizardAPI -> ApiClient : 21. Forward HTTP request
+
+    ApiClient -> RequestController : 22. Send POST "/project-requests/upload"
+
+    activate RequestController
+
+    RequestController -> JWTGuard : 23. Confirm the client is signed in
+
+    JWTGuard --> RequestController : 24. Return authenticated client identity
+
+    RequestController -> RequestController : 25. Validate file type and file group
+
+    RequestController -> Storage : 26. Store uploaded files and generate signed URLs
+
+    activate Storage
+
+    Storage --> RequestController : 27. Return uploaded-file metadata
+
+    deactivate Storage
+
+    RequestController --> ApiClient : 28. Return server response
+
+    ApiClient --> WizardAPI : 29. Return attachment metadata
+
+    WizardAPI --> StepB5 : 30. Merge uploaded files into wizard state
+
+    StepB5 --> Page : 31. Show uploaded files in the summary area
+
+    deactivate StepB5
+
+end
+
+Client -> Page : 32. Complete all steps and review the request summary
+
+Page -> Page : 33. Build the project-request payload from entered answers
+
+alt [Client clicks "Post to Market"]
+
+    Page -> WizardAPI : 34. Submit request with status "PUBLIC_DRAFT"
+
+    WizardAPI -> ApiClient : 35. Forward HTTP request
+
+    ApiClient -> RequestController : 36. Send POST "/project-requests"
+
+    RequestController -> JWTGuard : 37. Confirm the caller is signed in
+
+    JWTGuard --> RequestController : 38. Return authenticated client identity
+
+    RequestController -> RolesGuard : 39. Confirm the caller has role "CLIENT"
+
+    activate RolesGuard
+
+    RolesGuard --> RequestController : 40. Role check passed
+
+    RequestController -> RequestService : 41. Create a new marketplace request
+
+    activate RequestService
+
+    RequestService -> QuotaService : 42. Check create-request quota
+
+    activate QuotaService
+
+    QuotaService --> RequestService : 43. Quota is available
+
+    RequestService -> DB : 44. Insert request and answer rows with status "PUBLIC_DRAFT"
+
+    activate DB
+
+    DB --> RequestService : 45. Return saved request data
+
+    deactivate DB
+
+    RequestService -> AuditService : 46. Write creation audit log
+
+    activate AuditService
+
+    AuditService --> RequestService : 47. Audit log saved
+
+    RequestService -> NotificationService : 48. Queue confirmation notification
+
+    activate NotificationService
+
+    NotificationService --> RequestService : 49. Notification queued
+
+    deactivate NotificationService
+
+    RequestService -> QuotaService : 50. Increase quota usage
+
+    QuotaService --> RequestService : 51. Quota usage updated
+
+    RequestService --> RequestController : 52. Return created request
+
+    RequestController --> ApiClient : 53. Return server response
+
+    ApiClient --> WizardAPI : 54. Return success response
+
+    WizardAPI --> Page : 55. Return created request
+
+    Page --> Client : 56. Show success message and redirect to the dashboard
+
+else [Client clicks "Find & Invite"]
+
+    Page -> WizardAPI : 57. Submit request with status "PRIVATE_DRAFT"
+
+    WizardAPI -> ApiClient : 58. Forward HTTP request
+
+    ApiClient -> RequestController : 59. Send POST "/project-requests"
+
+    RequestController -> JWTGuard : 60. Confirm the caller is signed in
+
+    JWTGuard --> RequestController : 61. Return authenticated client identity
+
+    deactivate JWTGuard
+
+    RequestController -> RolesGuard : 62. Confirm the caller has role "CLIENT"
+
+    RolesGuard --> RequestController : 63. Role check passed
+
+    deactivate RolesGuard
+
+    RequestController -> RequestService : 64. Create a private request for the invite flow
+
+    RequestService -> QuotaService : 65. Check create-request quota
+
+    QuotaService --> RequestService : 66. Quota is available
+
+    RequestService -> DB : 67. Insert request and answer rows with status "PRIVATE_DRAFT"
+
+    activate DB
+
+    DB --> RequestService : 68. Return saved request data
+
+    deactivate DB
+
+    RequestService -> AuditService : 69. Write creation audit log
+
+    AuditService --> RequestService : 70. Audit log saved
+
+    deactivate AuditService
+
+    RequestService --> RequestController : 71. Return created request
+
+    RequestController --> ApiClient : 72. Return server response
+
+    ApiClient --> WizardAPI : 73. Return success response
+
+    WizardAPI --> Page : 74. Return created request
+
+    Page --> Client : 75. Show success message and redirect to the request detail invitation phase
+
+else [Quota or validation fails]
+
+    Page -> WizardAPI : 76. Submit create-request payload
+
+    WizardAPI -> ApiClient : 77. Forward HTTP request
+
+    ApiClient -> RequestController : 78. Send POST "/project-requests"
+
+    RequestController -> RequestService : 79. Attempt request creation
+
+    RequestService -> QuotaService : 80. Validate quota and request rules
+
+    QuotaService --> RequestService : 81. Return failure reason
+
+    deactivate QuotaService
+
+    RequestService --> RequestController : 82. Throw business or validation error
+
+    deactivate RequestService
+
+    RequestController --> ApiClient : 83. Return server response
+
+    deactivate RequestController
+
+    ApiClient --> WizardAPI : 84. Return error payload
+
+    deactivate ApiClient
+
+    WizardAPI --> Page : 85. Return error payload
+
+    deactivate WizardAPI
+
+    Page --> Client : 86. Show error message and keep entered data for correction
+
+end
+
+deactivate Page
+
+deactivate Client
+
+@enduml

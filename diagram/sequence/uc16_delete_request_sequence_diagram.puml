@@ -1,0 +1,231 @@
+@startuml UC16_Delete_Request_Sequence_Diagram
+
+skinparam monochrome true
+
+skinparam defaultFontColor Black
+
+skinparam shadowing false
+
+skinparam sequence {
+
+    ArrowColor Black
+
+    LifeLineBorderColor Black
+
+    LifeLineBackgroundColor White
+
+    ParticipantBorderColor Black
+
+    ParticipantBackgroundColor #DDDDDD
+
+    ParticipantFontColor Black
+
+    ActorBorderColor Black
+
+    ActorBackgroundColor White
+
+    ActorFontColor Black
+
+    GroupHeaderFontColor Black
+
+    GroupHeaderBackgroundColor White
+
+    GroupBodyBackgroundColor White
+
+    GroupBorderColor Black
+
+}
+
+title UC-16 Delete Request Sequence Diagram
+
+actor Client
+
+boundary "RequestDetailPage" as Page
+
+boundary "Delete Confirmation Dialog" as Dialog
+
+participant "wizardService" as WizardAPI
+
+participant "apiClient" as ApiClient
+
+participant "ProjectRequestsController" as Controller
+
+participant "JwtAuthGuard" as JWTGuard
+
+participant "RolesGuard" as RolesGuard
+
+participant "ProjectRequestsService" as Service
+
+participant "AuditLogsService" as AuditService
+
+database "Database" as DB
+
+Client -> Page : 1. Open a deletable request from "My Requests"
+
+activate Client
+
+activate Page
+
+Page -> WizardAPI : 2. Load request detail
+
+activate WizardAPI
+
+WizardAPI -> ApiClient : 3. Forward HTTP request
+
+activate ApiClient
+
+ApiClient -> Controller : 4. Send GET "/project-requests/{requestId}"
+
+activate Controller
+
+Controller -> JWTGuard : 5. Confirm the client is signed in
+
+activate JWTGuard
+
+JWTGuard --> Controller : 6. Return authenticated client identity
+
+Controller -> Service : 7. Load request detail
+
+activate Service
+
+Service -> DB : 8. Query request and related proposals
+
+activate DB
+
+DB --> Service : 9. Return request detail
+
+deactivate DB
+
+Service --> Controller : 10. Return request detail
+
+Controller --> ApiClient : 11. Return server response
+
+ApiClient --> WizardAPI : 12. Return request detail response
+
+WizardAPI --> Page : 13. Show the delete action
+
+Client -> Page : 14. Click "Delete Request"
+
+Page -> Dialog : 15. Open the delete confirmation dialog
+
+activate Dialog
+
+Dialog --> Client : 16. Show warning text and the "Delete Permanently" button
+
+Client -> Dialog : 17. Click "Delete Permanently"
+
+Dialog -> Page : 18. Confirm deletion
+
+Page -> WizardAPI : 19. Call deleteRequest(requestId)
+
+WizardAPI -> ApiClient : 20. Forward HTTP request
+
+ApiClient -> Controller : 21. Send DELETE "/project-requests/{requestId}"
+
+Controller -> JWTGuard : 22. Confirm the client is signed in
+
+JWTGuard --> Controller : 23. Return authenticated client identity
+
+deactivate JWTGuard
+
+Controller -> RolesGuard : 24. Confirm the caller has role "CLIENT"
+
+activate RolesGuard
+
+RolesGuard --> Controller : 25. Role check passed
+
+deactivate RolesGuard
+
+Controller -> Service : 26. Delete the target request
+
+Service -> DB : 27. Load stored request
+
+activate DB
+
+DB --> Service : 28. Return stored request
+
+deactivate DB
+
+Service -> Service : 29. Validate owner, broker assignment, and accepted freelancer state
+
+alt [Request can be deleted]
+
+    Service -> DB : 30. Delete request answers
+
+    activate DB
+
+    DB --> Service : 31. Answers removed
+
+    deactivate DB
+
+    Service -> DB : 32. Delete broker applications
+
+    activate DB
+
+    DB --> Service : 33. Broker applications removed
+
+    deactivate DB
+
+    Service -> DB : 34. Delete freelancer recommendations
+
+    activate DB
+
+    DB --> Service : 35. Freelancer recommendations removed
+
+    deactivate DB
+
+    Service -> DB : 36. Remove the request itself
+
+    activate DB
+
+    DB --> Service : 37. Request removed
+
+    deactivate DB
+
+    Service -> AuditService : 38. Write delete audit log
+
+    activate AuditService
+
+    AuditService --> Service : 39. Audit log saved
+
+    deactivate AuditService
+
+    Service --> Controller : 40. Return success payload
+
+    deactivate Service
+
+    Controller --> ApiClient : 41. Return server response
+
+    deactivate Controller
+
+    ApiClient --> WizardAPI : 42. Return delete success response
+
+    deactivate ApiClient
+
+    WizardAPI --> Page : 43. Return delete success response
+
+    deactivate WizardAPI
+
+    Page --> Client : 44. Show success toast and redirect to the dashboard
+
+else [Request cannot be deleted]
+
+    Service --> Controller : 45. Throw not-found, forbidden, or bad-request error
+
+    Controller --> ApiClient : 46. Return server response
+
+    ApiClient --> WizardAPI : 47. Return error response
+
+    WizardAPI --> Page : 48. Return error payload
+
+    Page --> Client : 49. Show why the request cannot be deleted
+
+end
+
+deactivate Dialog
+
+deactivate Page
+
+deactivate Client
+
+@enduml

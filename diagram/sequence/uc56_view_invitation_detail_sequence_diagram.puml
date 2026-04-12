@@ -1,0 +1,139 @@
+@startuml UC56_View_Invitation_Detail_Sequence_Diagram
+
+skinparam monochrome true
+
+skinparam defaultFontColor Black
+
+skinparam shadowing false
+
+skinparam sequence {
+
+    ArrowColor Black
+
+    LifeLineBorderColor Black
+
+    LifeLineBackgroundColor White
+
+    ParticipantBorderColor Black
+
+    ParticipantBackgroundColor #DDDDDD
+
+    ParticipantFontColor Black
+
+    ActorBorderColor Black
+
+    ActorBackgroundColor White
+
+    ActorFontColor Black
+
+    GroupHeaderFontColor Black
+
+    GroupHeaderBackgroundColor White
+
+    GroupBodyBackgroundColor White
+
+    GroupBorderColor Black
+
+}
+
+title UC-56 View Invitation Detail Sequence Diagram
+
+actor user
+
+boundary "MyInvitationsPage" as ListPage
+
+boundary "InvitationDetailsPage" as DetailPage
+
+participant "discoveryApi" as DiscoveryAPI
+
+participant "apiClient" as ApiClient
+
+participant "ProjectRequestsController" as Controller
+
+participant "JwtAuthGuard" as JWTGuard
+
+participant "ProjectRequestsService" as Service
+
+database "Database" as DB
+
+user -> ListPage : 1. Open the "My Invitations" page
+
+activate user
+
+activate ListPage
+
+user -> ListPage : 2. Click an invitation card to open its detail page
+
+ListPage -> DetailPage : 3. Navigate to the invitation detail route
+
+activate DetailPage
+
+DetailPage -> DetailPage : 4. Show loading state
+
+DetailPage -> DiscoveryAPI : 5. Call getMyInvitations() because there is no direct GET by invitation id
+
+activate DiscoveryAPI
+
+DiscoveryAPI -> ApiClient : 6. Forward HTTP request
+
+activate ApiClient
+
+ApiClient -> Controller : 7. Send GET "/project-requests/invitations/my"
+
+activate Controller
+
+Controller -> JWTGuard : 8. Confirm the user is signed in
+
+activate JWTGuard
+
+JWTGuard --> Controller : 9. Return authenticated user identity and role
+
+deactivate JWTGuard
+
+Controller -> Service : 10. Load invitation list for the current user
+
+activate Service
+
+Service -> DB : 11. Query invitation records with request and client relations
+
+activate DB
+
+DB --> Service : 12. Return invitation records
+
+deactivate DB
+
+Service --> Controller : 13. Return invitation list
+
+deactivate Service
+
+Controller --> ApiClient : 14. Return server response
+
+deactivate Controller
+
+ApiClient --> DiscoveryAPI : 15. Return invitation list
+
+deactivate ApiClient
+
+DiscoveryAPI --> DetailPage : 16. Return invitation data
+
+deactivate DiscoveryAPI
+
+DetailPage -> DetailPage : 17. Find the invitation whose id matches the route parameter
+
+alt [Invitation id exists in the returned list]
+
+    DetailPage --> user : 18. Show request summary, invitation status, client info, and action buttons
+
+else [Invitation id is not found]
+
+    DetailPage --> user : 19. Show "Invitation not found."
+
+end
+
+deactivate DetailPage
+
+deactivate ListPage
+
+deactivate user
+
+@enduml

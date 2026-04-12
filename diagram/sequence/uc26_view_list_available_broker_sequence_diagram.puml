@@ -1,0 +1,141 @@
+@startuml UC26_View_List_Available_Broker_Sequence_Diagram
+
+skinparam monochrome true
+
+skinparam defaultFontColor Black
+
+skinparam shadowing false
+
+skinparam sequence {
+
+    ArrowColor Black
+
+    LifeLineBorderColor Black
+
+    LifeLineBackgroundColor White
+
+    ParticipantBorderColor Black
+
+    ParticipantBackgroundColor #DDDDDD
+
+    ParticipantFontColor Black
+
+    ActorBorderColor Black
+
+    ActorBackgroundColor White
+
+    ActorFontColor Black
+
+    GroupHeaderFontColor Black
+
+    GroupHeaderBackgroundColor White
+
+    GroupBodyBackgroundColor White
+
+    GroupBorderColor Black
+
+}
+
+title UC-26 View List Available Broker Sequence Diagram
+
+actor Client
+
+boundary "RequestDetailPage" as Page
+
+boundary "RequestBrokerMarketPanel" as MarketPanel
+
+participant "wizardService" as WizardAPI
+
+participant "apiClient" as ApiClient
+
+participant "MatchingController" as MatchingController
+
+participant "JwtAuthGuard" as JWTGuard
+
+participant "MatchingService" as MatchingService
+
+database "Database" as DB
+
+Client -> Page : 1. Open the request detail page in phase 1 "Hire Broker"
+
+activate Client
+
+activate Page
+
+Page -> MarketPanel : 2. Open the "Find & Invite Brokers" section
+
+activate MarketPanel
+
+alt [Client clicks "Search"]
+
+    MarketPanel -> WizardAPI : 3. Request quick broker matches
+
+    activate WizardAPI
+
+    WizardAPI -> ApiClient : 4. Forward HTTP request
+
+    activate ApiClient
+
+    ApiClient -> MatchingController : 5. Send GET "/matching/{requestId}?role=BROKER&enableAi=false"
+
+    activate MatchingController
+
+else [Client clicks "Get AI Suggestion"]
+
+    MarketPanel -> WizardAPI : 6. Request AI-ranked broker matches
+
+    WizardAPI -> ApiClient : 7. Forward HTTP request
+
+    ApiClient -> MatchingController : 8. Send GET "/matching/{requestId}?role=BROKER&enableAi=true"
+
+end
+
+MatchingController -> JWTGuard : 9. Confirm the client is signed in
+
+activate JWTGuard
+
+JWTGuard --> MatchingController : 10. Return authenticated client identity
+
+deactivate JWTGuard
+
+MatchingController -> DB : 11. Load request detail and existing broker proposals
+
+activate DB
+
+DB --> MatchingController : 12. Return request terms and excluded broker ids
+
+deactivate DB
+
+MatchingController -> MatchingService : 13. Build matching input and find broker candidates
+
+activate MatchingService
+
+MatchingService -> MatchingService : 14. Hard-filter eligible brokers and score tag overlap
+
+MatchingService -> MatchingService : 15. Optionally run AI ranking and candidate classification
+
+MatchingService --> MatchingController : 16. Return ranked broker matches
+
+deactivate MatchingService
+
+MatchingController --> ApiClient : 17. Return server response
+
+deactivate MatchingController
+
+ApiClient --> WizardAPI : 18. Return broker matches response
+
+deactivate ApiClient
+
+WizardAPI --> MarketPanel : 19. Render broker cards with score, profile, and invite actions
+
+deactivate WizardAPI
+
+MarketPanel --> Client : 20. Show the list of available brokers for the request
+
+deactivate MarketPanel
+
+deactivate Page
+
+deactivate Client
+
+@enduml

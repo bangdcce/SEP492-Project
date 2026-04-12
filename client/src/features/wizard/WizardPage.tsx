@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import axios from "axios";
 import { useNavigate } from "react-router-dom";
 import {
   Button,
@@ -28,6 +29,7 @@ import {
   getTodayDateInputValue,
   isPastDateInputValue,
 } from "./utils/timelineDate";
+import { getApiErrorDetails } from "@/shared/utils/apiError";
 
 const TOTAL_STEPS = 5;
 
@@ -188,7 +190,21 @@ export default function WizardPage() {
       navigate(`/client/requests/${savedRequest.id}?tab=phase1`);
     } catch (error) {
       console.error("Wizard submit failed", error);
-      toast.error("Submission failed. Please try again.");
+      const details = getApiErrorDetails(
+        error,
+        "We couldn't submit your project request. Please try again.",
+      );
+
+      if (axios.isAxiosError(error) && error.response?.status === 429) {
+        toast.error("Project request limit reached", {
+          description: details.message,
+        });
+        return;
+      }
+
+      toast.error("Submission failed", {
+        description: details.message,
+      });
     } finally {
       setSubmitting(false);
     }
