@@ -1084,6 +1084,10 @@ export class AuthService {
       throw new BadRequestException('This account has already been deleted');
     }
 
+    if (user.role === UserRole.ADMIN || user.role === UserRole.STAFF) {
+      throw new BadRequestException('Admin and staff accounts cannot be self-deleted');
+    }
+
     // Verify password
     if (!user.passwordHash) {
       throw new BadRequestException('This account does not have a password');
