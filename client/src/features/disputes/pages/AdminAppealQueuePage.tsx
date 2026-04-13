@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   ArrowRight,
@@ -16,6 +16,7 @@ import {
   getAppealOwners,
   getCaseloadDisputes,
 } from "../api";
+import { useStaffDashboardRealtime } from "@/features/staff/hooks/useStaffDashboardRealtime";
 import type {
   AppealOwnerSummary,
   DisputeSummary,
@@ -66,6 +67,7 @@ export function AdminAppealQueuePage() {
     null,
   );
   const [ownerDrafts, setOwnerDrafts] = useState<Record<string, string>>({});
+  const realtimeRefreshTimerRef = useRef<number | null>(null);
 
   const loadAppealQueue = useCallback(async () => {
     try {
@@ -106,6 +108,34 @@ export function AdminAppealQueuePage() {
   useEffect(() => {
     void loadAppealQueue();
   }, [loadAppealQueue]);
+
+  const scheduleQueueRefresh = useCallback(() => {
+    if (realtimeRefreshTimerRef.current !== null) {
+      window.clearTimeout(realtimeRefreshTimerRef.current);
+      realtimeRefreshTimerRef.current = null;
+    }
+
+    realtimeRefreshTimerRef.current = window.setTimeout(() => {
+      realtimeRefreshTimerRef.current = null;
+      void loadAppealQueue();
+    }, 500);
+  }, [loadAppealQueue]);
+
+  useEffect(() => {
+    return () => {
+      if (realtimeRefreshTimerRef.current !== null) {
+        window.clearTimeout(realtimeRefreshTimerRef.current);
+      }
+    };
+  }, []);
+
+  useStaffDashboardRealtime({
+    onAppealSubmitted: scheduleQueueRefresh,
+    onAppealResolved: scheduleQueueRefresh,
+    onDisputeStatusChanged: scheduleQueueRefresh,
+    onDisputeAssigned: scheduleQueueRefresh,
+    onDisputeReassigned: scheduleQueueRefresh,
+  });
 
   const counts = useMemo(() => {
     const mine = currentUserId

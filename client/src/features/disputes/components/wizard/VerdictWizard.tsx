@@ -23,10 +23,10 @@ const FAULT_TYPES = [
 ];
 
 const FAULTY_PARTIES = [
-  { value: "raiser", label: "Raiser" },
-  { value: "defendant", label: "Defendant" },
-  { value: "both", label: "Both parties" },
-  { value: "none", label: "No fault" },
+  { value: "raiser", label: "Dispute raiser" },
+  { value: "defendant", label: "Dispute defendant" },
+  { value: "both", label: "Both dispute parties" },
+  { value: "none", label: "No party at fault" },
 ];
 
 const SAMPLE_APPEAL_VERDICT_COPY = {
@@ -396,7 +396,7 @@ export const VerdictWizard = ({
               <p className="text-xs font-semibold uppercase tracking-wider text-amber-700">
                 Appeal Context
               </p>
-              <div className="mt-2 max-h-40 overflow-y-auto rounded-lg border border-amber-200 bg-white/80 p-3 text-sm leading-6 text-amber-950 whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
+              <div className="mt-2 max-h-40 overflow-y-auto rounded-lg border border-amber-200 bg-white/80 p-3 text-sm leading-6 text-amber-950 whitespace-pre-wrap wrap-anywhere">
                 {appealContextText}
               </div>
             </div>
@@ -413,7 +413,7 @@ export const VerdictWizard = ({
               : "border-gray-200 text-gray-600 hover:border-slate-300"
           }`}
         >
-          <div className="font-bold">Refund Client</div>
+          <div className="font-bold">Award to Raiser</div>
           <div className="mt-1 text-xs opacity-80">Derived from escrow</div>
         </button>
 
@@ -425,7 +425,7 @@ export const VerdictWizard = ({
               : "border-gray-200 text-gray-600 hover:border-teal-300"
           }`}
         >
-          <div className="font-bold">Pay Freelancer</div>
+          <div className="font-bold">Award to Defendant</div>
           <div className="mt-1 text-xs opacity-80">Derived from escrow</div>
         </button>
 

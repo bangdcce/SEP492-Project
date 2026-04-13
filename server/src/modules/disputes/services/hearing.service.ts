@@ -275,13 +275,26 @@ const HEARING_CONFIG = {
   PAUSE_AUTO_CLOSE_MINUTES: 30,
 } as const;
 
+const resolveShortReminderLeadMinutes = (): number => {
+  const parsed = Number(process.env.HEARING_REMINDER_SHORT_LEAD_MINUTES ?? '5');
+  if (!Number.isFinite(parsed)) {
+    return 5;
+  }
+
+  return Math.min(60, Math.max(1, Math.round(parsed)));
+};
+
+const HEARING_SHORT_REMINDER_LEAD_MINUTES = resolveShortReminderLeadMinutes();
+
 const HEARING_REMINDER_WINDOWS = [
   { type: HearingReminderType.T72H, minutesBefore: 72 * 60 },
   { type: HearingReminderType.T24H, minutesBefore: 24 * 60 },
   { type: HearingReminderType.T1H, minutesBefore: 60 },
-  { type: HearingReminderType.T10M, minutesBefore: 10 },
+  { type: HearingReminderType.T10M, minutesBefore: HEARING_SHORT_REMINDER_LEAD_MINUTES },
 ] as const;
 const HEARING_REMINDER_DISPATCH_GRACE_MINUTES = 2;
+const HEARING_DISPLAY_TIMEZONE = 'Asia/Ho_Chi_Minh';
+const HEARING_DISPLAY_TIMEZONE_OFFSET_LABEL = 'UTC+07:00';
 const ACTIVE_HEARING_STATUSES = new Set<HearingStatus>([
   HearingStatus.SCHEDULED,
   HearingStatus.IN_PROGRESS,
@@ -3187,7 +3200,7 @@ export class HearingService implements OnModuleInit {
       occurredAt: hearing.createdAt,
       title: 'Hearing scheduled',
       description: hearing.scheduledAt
-        ? `Scheduled for ${hearing.scheduledAt.toISOString()}`
+        ? `Scheduled for ${this.formatReminderScheduleTime(hearing.scheduledAt)}`
         : undefined,
       relatedId: hearing.id,
     });
@@ -3953,6 +3966,15 @@ export class HearingService implements OnModuleInit {
 
     const updatedHearing = await this.hearingRepository.findOne({
       where: { id: hearing.id },
+    });
+
+    const hearingForStartNotification = updatedHearing || hearing;
+    void this.notifyHearingStarted(hearingForStartNotification).catch((error) => {
+      this.logger.warn(
+        `Failed to notify hearing start for hearing ${hearing.id}: ${
+          error instanceof Error ? error.message : 'unknown'
+        }`,
+      );
     });
 
     return {
@@ -6325,7 +6347,7 @@ export class HearingService implements OnModuleInit {
     };
   }
 
-  private reminderLabel(type: HearingReminderType): string {
+  private reminderLabel(type: HearingReminderType, minutesBefore?: number): string {
     switch (type) {
       case HearingReminderType.T72H:
         return 'in 72 hours';
@@ -6334,9 +6356,134 @@ export class HearingService implements OnModuleInit {
       case HearingReminderType.T1H:
         return 'in 1 hour';
       case HearingReminderType.T10M:
-        return 'in 10 minutes';
+        return `in ${Math.max(1, Math.round(minutesBefore ?? HEARING_SHORT_REMINDER_LEAD_MINUTES))} minutes`;
       default:
         return 'soon';
+    }
+  }
+
+  private formatReminderScheduleTime(value: Date): string {
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) {
+      return 'Unknown time';
+    }
+
+    const localTime = parsed.toLocaleString('en-GB', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+      timeZone: HEARING_DISPLAY_TIMEZONE,
+    });
+
+    return `${localTime} (${HEARING_DISPLAY_TIMEZONE}, ${HEARING_DISPLAY_TIMEZONE_OFFSET_LABEL})`;
+  }
+
+  private resolveReminderProjectTitle(hearing: DisputeHearingEntity): string {
+    const title = String(hearing.dispute?.project?.title || '').trim();
+    if (title) {
+      return title;
+    }
+
+    const fallbackProjectId = String(hearing.dispute?.projectId || '').trim();
+    if (fallbackProjectId) {
+      return `Project ${fallbackProjectId.slice(0, 8)}`;
+    }
+
+    return 'dispute project';
+  }
+
+  private async sendHearingStartedEmail(
+    email: string,
+    hearing: Pick<DisputeHearingEntity, 'hearingNumber' | 'scheduledAt'>,
+  ): Promise<boolean> {
+    const scheduledTime = this.formatReminderScheduleTime(hearing.scheduledAt);
+
+    try {
+      await this.emailService.sendPlatformNotification({
+        email,
+        subject: 'Hearing started now',
+        title: 'Your dispute hearing is live',
+        body: `Hearing #${hearing.hearingNumber || 1} is now in progress. Scheduled time: ${scheduledTime}. Please join now to avoid no-show handling.`,
+      });
+      return true;
+    } catch (error) {
+      this.logger.warn(
+        `Failed to send hearing started email to ${email}: ${
+          error instanceof Error ? error.message : 'unknown'
+        }`,
+      );
+      return false;
+    }
+  }
+
+  private async notifyHearingStarted(
+    hearing: Pick<
+      DisputeHearingEntity,
+      'id' | 'disputeId' | 'hearingNumber' | 'scheduledAt' | 'moderatorId'
+    >,
+  ): Promise<void> {
+    const participants = await this.participantRepository.find({
+      where: { hearingId: hearing.id },
+      select: ['userId'],
+    });
+
+    const recipientIds = Array.from(
+      new Set(
+        participants
+          .map((participant) => participant.userId)
+          .concat(hearing.moderatorId ? [hearing.moderatorId] : [])
+          .filter(Boolean),
+      ),
+    );
+
+    if (recipientIds.length === 0) {
+      return;
+    }
+
+    const recipients = await this.userRepository.find({
+      where: {
+        id: In(recipientIds),
+        isBanned: false,
+      },
+      select: ['id', 'email'],
+    });
+
+    if (recipients.length === 0) {
+      return;
+    }
+
+    const title = 'Hearing started';
+    const scheduledTime = this.formatReminderScheduleTime(hearing.scheduledAt);
+    const body = `Hearing #${hearing.hearingNumber || 1} is now in progress. Scheduled time: ${scheduledTime}.`;
+
+    for (const recipient of recipients) {
+      const notification = await this.createNotificationOnce({
+        userId: recipient.id,
+        title,
+        body,
+        relatedType: 'DisputeHearing',
+        relatedId: hearing.id,
+      });
+
+      if (!notification) {
+        continue;
+      }
+
+      let emailSent = false;
+      if (recipient.email) {
+        emailSent = await this.sendHearingStartedEmail(recipient.email, hearing);
+      }
+
+      this.eventEmitter.emit('hearing.started_notification_sent', {
+        hearingId: hearing.id,
+        disputeId: hearing.disputeId,
+        userId: recipient.id,
+        notificationId: notification.id,
+        emailSent,
+      });
     }
   }
 
@@ -6344,15 +6491,18 @@ export class HearingService implements OnModuleInit {
     email: string,
     hearing: DisputeHearingEntity,
     type: HearingReminderType,
+    minutesBefore: number,
   ): Promise<boolean> {
+    const projectTitle = this.resolveReminderProjectTitle(hearing);
+    const leadLabel = this.reminderLabel(type, minutesBefore);
+    const scheduledTime = this.formatReminderScheduleTime(hearing.scheduledAt);
+
     try {
       await this.emailService.sendPlatformNotification({
         email,
-        subject: `Hearing reminder (${this.reminderLabel(type)})`,
-        title: 'Upcoming dispute hearing',
-        body: `Your hearing is scheduled ${this.reminderLabel(type)} at ${new Date(
-          hearing.scheduledAt,
-        ).toISOString()}.`,
+        subject: `Hearing reminder (${leadLabel}) - ${projectTitle}`,
+        title: `Upcoming dispute hearing for ${projectTitle}`,
+        body: `Project under dispute: ${projectTitle}.\nHearing starts ${leadLabel}.\nScheduled time: ${scheduledTime}.`,
       });
       return true;
     } catch (error) {
@@ -6395,7 +6545,7 @@ export class HearingService implements OnModuleInit {
           status: HearingStatus.SCHEDULED,
           scheduledAt: Between(bounds.from, bounds.to),
         },
-        select: ['id', 'disputeId', 'scheduledAt'],
+        relations: ['dispute', 'dispute.project'],
       });
 
       for (const hearing of hearings) {
@@ -6432,9 +6582,10 @@ export class HearingService implements OnModuleInit {
           }
 
           const title = 'Hearing reminder';
-          const body = `Your dispute hearing starts ${this.reminderLabel(window.type)} (${new Date(
-            hearing.scheduledAt,
-          ).toISOString()}).`;
+          const projectTitle = this.resolveReminderProjectTitle(hearing);
+          const leadLabel = this.reminderLabel(window.type, window.minutesBefore);
+          const scheduledTime = this.formatReminderScheduleTime(hearing.scheduledAt);
+          const body = `Project under dispute: ${projectTitle}. Hearing starts ${leadLabel}. Scheduled time: ${scheduledTime}.`;
 
           const notification = await this.notificationRepository.save(
             this.notificationRepository.create({
@@ -6446,7 +6597,12 @@ export class HearingService implements OnModuleInit {
             }),
           );
 
-          const emailSent = await this.sendReminderEmail(targetUser.email, hearing, window.type);
+          const emailSent = await this.sendReminderEmail(
+            targetUser.email,
+            hearing,
+            window.type,
+            window.minutesBefore,
+          );
           await this.reminderDeliveryRepository.insert({
             hearingId: hearing.id,
             userId: targetUser.id,
@@ -6473,6 +6629,8 @@ export class HearingService implements OnModuleInit {
             reminderType: window.type,
             notificationId: notification.id,
             scheduledAt: hearing.scheduledAt,
+            reminderLeadMinutes: window.minutesBefore,
+            projectTitle,
           });
         }
       }

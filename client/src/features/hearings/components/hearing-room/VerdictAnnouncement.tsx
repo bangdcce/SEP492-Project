@@ -39,14 +39,14 @@ const RESULT_DISPLAY: Record<
   }
 > = {
   WIN_CLIENT: {
-    label: "Ruling in favor of the Client",
+    label: "Ruling in favor of the Raiser",
     icon: Trophy,
     color: "text-sky-800",
     bg: "bg-sky-50",
     border: "border-sky-200",
   },
   WIN_FREELANCER: {
-    label: "Ruling in favor of the Freelancer",
+    label: "Ruling in favor of the Defendant",
     icon: Trophy,
     color: "text-emerald-800",
     bg: "bg-emerald-50",
@@ -76,7 +76,7 @@ const FAULT_LABELS: Record<string, string> = {
 
 const PARTY_LABELS: Record<string, string> = {
   raiser: "Dispute Raiser",
-  defendant: "Defendant",
+  defendant: "Dispute Defendant",
   both: "Both Parties",
   none: "Neither Party",
 };

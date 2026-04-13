@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import type {
   ProjectHistoryItem,
   Review,
@@ -6,7 +7,6 @@ import type {
   TrustProfileReviewEligibility,
   User,
 } from "../types";
-import { CreateReviewModal } from "../modals/CreateReviewModal";
 import { ReviewItem } from "../components/review/ReviewItem";
 import { ReviewsFullPage } from "../components/review/ReviewsFullPage";
 import { TrustScoreCard } from "../components/review/TrustScoreCard";
@@ -35,11 +35,6 @@ export function TrustProfileSection({
   onReviewUpdated,
 }: TrustProfileSectionProps) {
   const [isFullPageOpen, setIsFullPageOpen] = useState(false);
-  const [isCreateReviewOpen, setIsCreateReviewOpen] = useState(false);
-  const [hasAutoPromptedReview, setHasAutoPromptedReview] = useState(false);
-  const [selectedPendingProjectId, setSelectedPendingProjectId] = useState<
-    string | null
-  >(null);
 
   const formatCompletedDate = (value: string) => {
     const parsed = new Date(value);
@@ -47,6 +42,27 @@ export function TrustProfileSection({
       return "Unknown date";
     }
     return parsed.toLocaleDateString();
+  };
+
+  const getWorkspacePath = (
+    projectId: string,
+    viewerRoleInProject?: string | null,
+  ) => {
+    const role = String(viewerRoleInProject || "").toUpperCase();
+
+    if (role === "BROKER") {
+      return `/broker/workspace/${projectId}`;
+    }
+
+    if (role === "FREELANCER") {
+      return `/freelancer/workspace/${projectId}`;
+    }
+
+    if (role === "STAFF") {
+      return `/projects/${projectId}`;
+    }
+
+    return `/client/workspace/${projectId}`;
   };
 
   const stats = useMemo(() => {
@@ -170,63 +186,13 @@ export function TrustProfileSection({
       );
   }, [reviewEligibility?.pendingProjects, computedPendingReviewProjects]);
 
-  const selectedPendingReviewProject = useMemo(() => {
-    if (pendingReviewProjects.length === 0) {
-      return null;
-    }
-
-    return (
-      pendingReviewProjects.find(
-        (project) => project.projectId === selectedPendingProjectId,
-      ) || pendingReviewProjects[0]
-    );
-  }, [pendingReviewProjects, selectedPendingProjectId]);
-
   const pendingReviewCount =
     reviewEligibility?.pendingReviewCount ??
     pendingReviewProjects.length;
 
-  const canCreateReview =
-    reviewEligibility?.canCreateReview ??
-    Boolean(
-      currentUserId &&
-      currentUserId !== user.id &&
-      pendingReviewProjects.length > 0,
-    );
-
-  useEffect(() => {
-    setHasAutoPromptedReview(false);
-    setSelectedPendingProjectId(null);
-  }, [user.id]);
-
-  useEffect(() => {
-    if (pendingReviewProjects.length === 0) {
-      setSelectedPendingProjectId(null);
-      return;
-    }
-
-    if (
-      !selectedPendingProjectId ||
-      !pendingReviewProjects.some(
-        (project) => project.projectId === selectedPendingProjectId,
-      )
-    ) {
-      setSelectedPendingProjectId(pendingReviewProjects[0].projectId);
-    }
-  }, [pendingReviewProjects, selectedPendingProjectId]);
-
-  useEffect(() => {
-    if (
-      !canCreateReview ||
-      !selectedPendingReviewProject ||
-      hasAutoPromptedReview
-    ) {
-      return;
-    }
-
-    setIsCreateReviewOpen(true);
-    setHasAutoPromptedReview(true);
-  }, [canCreateReview, selectedPendingReviewProject, hasAutoPromptedReview]);
+  const viewerCanReviewTarget = Boolean(currentUserId && currentUserId !== user.id);
+  const hasPendingReviewDebt = pendingReviewCount > 0;
+  const pendingReviewPreview = pendingReviewProjects.slice(0, 3);
 
   const previewReviews = sortedReviews.slice(0, previewCount);
 
@@ -262,77 +228,64 @@ export function TrustProfileSection({
                     <StarRating rating={stats.averageScore} />
                   </div>
                 ) : null}
-
-                {canCreateReview ? (
-                  <button
-                    type="button"
-                    data-testid="open-create-review"
-                    onClick={() => setIsCreateReviewOpen(true)}
-                    className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-teal-700"
-                  >
-                    Leave Required Review
-                  </button>
-                ) : null}
               </div>
             </div>
 
-            {canCreateReview && selectedPendingReviewProject ? (
-              <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
-                <p>
-                  Trust data required: You still need to review this user on
-                  completed shared projects.
+            {hasPendingReviewDebt ? (
+              <div
+                className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3"
+                data-testid="review-debt-row"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-sm font-semibold text-amber-900">
+                    Review debt: {pendingReviewCount} completed shared project
+                    {pendingReviewCount === 1 ? "" : "s"} waiting for your
+                    review.
+                  </p>
+                  <span className="text-[11px] text-amber-800">
+                    Showing {pendingReviewPreview.length} of {pendingReviewCount}
+                  </span>
+                </div>
+
+                <p className="mt-1 text-xs text-amber-800">
+                  Open each project workspace to create the missing reviews.
                 </p>
-                {pendingReviewCount > 1
-                  ? ` You still have ${pendingReviewCount} completed shared projects pending review.`
-                  : ""}
 
                 <div className="mt-3 space-y-2">
-                  {pendingReviewProjects.slice(0, 5).map((project) => {
-                    const isSelected =
-                      project.projectId === selectedPendingReviewProject.projectId;
-
-                    return (
-                      <div
-                        key={project.projectId}
-                        className={`flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 ${
-                          isSelected
-                            ? "border-amber-300 bg-white"
-                            : "border-amber-200 bg-amber-50/70"
-                        }`}
-                      >
-                        <div className="min-w-0">
-                          <p className="truncate text-xs font-semibold text-slate-900">
-                            {project.title}
-                          </p>
-                          <p className="text-[11px] text-slate-600">
-                            #{project.projectId.slice(0, 8)} · {formatCompletedDate(project.completedAt)} · You: {project.viewerRoleInProject || "UNKNOWN"} · Target: {project.targetRoleInProject}
-                          </p>
-                        </div>
-
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setSelectedPendingProjectId(project.projectId);
-                            setIsCreateReviewOpen(true);
-                          }}
-                          className="rounded-md border border-amber-300 bg-white px-2.5 py-1 text-[11px] font-medium text-amber-800 transition-colors hover:bg-amber-100"
-                        >
-                          {isSelected ? "Reviewing" : "Review"}
-                        </button>
+                  {pendingReviewPreview.map((project) => (
+                    <div
+                      key={project.projectId}
+                      className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200 bg-white px-3 py-2"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-xs font-semibold text-slate-900">
+                          {project.title}
+                        </p>
+                        <p className="text-[11px] text-slate-600">
+                          #{project.projectId.slice(0, 8)} ·{" "}
+                          {formatCompletedDate(project.completedAt)} · You:{" "}
+                          {project.viewerRoleInProject || "UNKNOWN"} · Target:{" "}
+                          {project.targetRoleInProject}
+                        </p>
                       </div>
-                    );
-                  })}
 
-                  {pendingReviewProjects.length > 5 ? (
-                    <p className="text-[11px] text-slate-600">
-                      +{pendingReviewProjects.length - 5} older project(s) pending review.
-                    </p>
-                  ) : null}
+                      <Link
+                        to={getWorkspacePath(
+                          project.projectId,
+                          project.viewerRoleInProject,
+                        )}
+                        className="rounded-md border border-amber-300 bg-white px-2.5 py-1 text-[11px] font-medium text-amber-800 transition-colors hover:bg-amber-100"
+                      >
+                        Open workspace
+                      </Link>
+                    </div>
+                  ))}
                 </div>
               </div>
             ) : null}
 
-            {!canCreateReview &&
+            {viewerCanReviewTarget &&
+            !hasPendingReviewDebt &&
             reviewEligibility?.reason === "NO_SHARED_COMPLETED_PROJECT" ? (
               <p className="mt-3 text-xs text-slate-500">
                 You can only review this profile after completing at least one
@@ -340,22 +293,13 @@ export function TrustProfileSection({
               </p>
             ) : null}
 
-            {!canCreateReview &&
+            {viewerCanReviewTarget &&
+            !hasPendingReviewDebt &&
             reviewEligibility?.reason ===
               "ALREADY_REVIEWED_ALL_SHARED_PROJECTS" ? (
               <p className="mt-3 text-xs text-slate-500">
                 You have already reviewed this user for every completed shared
                 project.
-              </p>
-            ) : null}
-
-            {canCreateReview && selectedPendingReviewProject ? (
-              <p className="mt-3 text-xs text-slate-500">
-                Review will be linked to project{" "}
-                <span className="font-medium">
-                  {selectedPendingReviewProject.title}
-                </span>
-                .
               </p>
             ) : null}
           </div>
@@ -384,7 +328,7 @@ export function TrustProfileSection({
             </div>
           ) : (
             <>
-              {!canCreateReview &&
+              {!hasPendingReviewDebt &&
               currentUserReviews.length > 0 &&
               sharedReviewableProjects.length > 0 ? (
                 <div className="mb-4 rounded-lg border border-teal-200 bg-teal-50 p-3">
@@ -427,22 +371,6 @@ export function TrustProfileSection({
           onBack={() => setIsFullPageOpen(false)}
           currentUserId={currentUserId}
           onReviewUpdated={onReviewUpdated}
-        />
-      ) : null}
-
-      {canCreateReview && selectedPendingReviewProject ? (
-        <CreateReviewModal
-          isOpen={isCreateReviewOpen}
-          onClose={() => setIsCreateReviewOpen(false)}
-          projectId={selectedPendingReviewProject.projectId}
-          targetUser={{
-            id: user.id,
-            fullName: user.fullName,
-          }}
-          onSuccess={() => {
-            onReviewUpdated?.();
-            setIsCreateReviewOpen(false);
-          }}
         />
       ) : null}
     </>

@@ -1714,6 +1714,7 @@ export class VerdictService {
     adjudicatorId: string,
     adjudicatorRole: UserRole,
     signatureContext?: LegalSignatureContext,
+    eventContext?: { hearingId?: string | null },
   ): Promise<{
     verdict: DisputeVerdictEntity;
     distribution: MoneyDistribution;
@@ -1898,6 +1899,7 @@ export class VerdictService {
         verdictId: savedVerdict.id,
         adjudicatorId,
         appealDeadline,
+        hearingId: eventContext?.hearingId || undefined,
       });
 
       return {
