@@ -351,6 +351,12 @@ describe('AdminDashboardService', () => {
         }),
       ]),
     );
+    const alertsBySource = new Map(
+      result.criticalAlerts.map((alert) => [alert.source, alert]),
+    );
+    expect(alertsBySource.get('DISPUTE_SLA')?.actionUrl).toBe('/admin/disputes');
+    expect(alertsBySource.get('FOLLOW_UP_SCHEDULING')?.actionUrl).toBe('/admin/hearings');
+
     expect(result.systemIncidentHub.summary).toEqual(
       expect.objectContaining({
         activeCount: 1,

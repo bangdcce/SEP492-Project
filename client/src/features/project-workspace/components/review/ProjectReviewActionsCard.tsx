@@ -34,7 +34,7 @@ type ReviewTarget = WorkspaceProjectParticipant & {
 };
 
 const REVIEWABLE_PROJECT_STATUSES = new Set(["COMPLETED", "PAID"]);
-const FINAL_REVIEWABLE_MILESTONE_STATUS = "PAID";
+const FINAL_REVIEWABLE_MILESTONE_STATUSES = new Set(["COMPLETED", "PAID"]);
 
 const toTimestamp = (value?: string | null) => {
   if (!value) return Number.POSITIVE_INFINITY;
@@ -108,8 +108,9 @@ export function ProjectReviewActionsCard({
   const isProjectReviewable = REVIEWABLE_PROJECT_STATUSES.has(
     String(project.status || "").toUpperCase(),
   );
-  const isFinalMilestonePaid =
-    String(finalMilestone?.status || "").toUpperCase() === FINAL_REVIEWABLE_MILESTONE_STATUS;
+  const isFinalMilestoneReadyForReview = FINAL_REVIEWABLE_MILESTONE_STATUSES.has(
+    String(finalMilestone?.status || "").toUpperCase(),
+  );
 
   const reviewableTargets = useMemo<ReviewTarget[]>(() => {
     const participants = [project.client, project.broker, project.freelancer];
@@ -132,7 +133,7 @@ export function ProjectReviewActionsCard({
   const isRatingAvailable =
     Boolean(currentUserId && currentUserId.trim().length > 0) &&
     isProjectReviewable &&
-    isFinalMilestonePaid &&
+    isFinalMilestoneReadyForReview &&
     reviewableTargets.length > 0;
 
   useEffect(() => {
@@ -211,7 +212,7 @@ export function ProjectReviewActionsCard({
                 Rate project participants
               </h3>
               <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">
-                Final milestone{finalMilestone?.title ? ` (${finalMilestone.title})` : ""} is paid. Submit ratings here instead of hunting for the trust profile flow manually.
+                Final milestone{finalMilestone?.title ? ` (${finalMilestone.title})` : ""} is completed. Submit ratings here instead of hunting for the trust profile flow manually.
               </p>
             </div>
           </div>

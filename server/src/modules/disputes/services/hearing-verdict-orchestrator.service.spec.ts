@@ -267,6 +267,8 @@ describe('HearingVerdictOrchestratorService', () => {
       }),
       'admin-1',
       UserRole.ADMIN,
+      undefined,
+      { hearingId: 'hearing-1' },
     );
   });
 
@@ -353,6 +355,8 @@ describe('HearingVerdictOrchestratorService', () => {
       }),
       'staff-1',
       UserRole.STAFF,
+      undefined,
+      { hearingId: 'hearing-1' },
     );
     expect(hearingService.endHearing).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -394,6 +398,8 @@ describe('HearingVerdictOrchestratorService', () => {
       }),
       'staff-1',
       UserRole.STAFF,
+      undefined,
+      { hearingId: 'hearing-1' },
     );
   });
 

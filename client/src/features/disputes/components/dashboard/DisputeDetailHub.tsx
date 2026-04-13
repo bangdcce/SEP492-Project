@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Calendar,
@@ -119,6 +119,82 @@ const parseHearingAgendaBlock = (
   };
 };
 
+const normalizeExpandableText = (
+  value: string | null | undefined,
+  fallback: string,
+) => {
+  const trimmed = String(value || "").trim();
+  return trimmed.length > 0 ? trimmed : fallback;
+};
+
+const shouldOfferTextExpansion = (
+  normalizedText: string,
+  fallback: string,
+  threshold: number,
+) => {
+  if (normalizedText === fallback) {
+    return false;
+  }
+
+  const compactLength = normalizedText.replace(/\s+/g, " ").trim().length;
+  return compactLength > threshold || normalizedText.includes("\n");
+};
+
+interface ExpandableTextBlockProps {
+  value?: string | null;
+  fallback?: string;
+  threshold?: number;
+  collapsedMaxHeightClass?: string;
+  expandedMaxHeightClass?: string;
+  contentClassName?: string;
+  buttonClassName?: string;
+}
+
+const ExpandableTextBlock = ({
+  value,
+  fallback = "No details provided.",
+  threshold = 280,
+  collapsedMaxHeightClass = "max-h-28",
+  expandedMaxHeightClass = "max-h-56",
+  contentClassName = "",
+  buttonClassName = "text-xs font-semibold text-teal-700 hover:text-teal-800",
+}: ExpandableTextBlockProps) => {
+  const normalizedText = useMemo(
+    () => normalizeExpandableText(value, fallback),
+    [value, fallback],
+  );
+  const [expanded, setExpanded] = useState(false);
+
+  const canExpand = useMemo(
+    () => shouldOfferTextExpansion(normalizedText, fallback, threshold),
+    [fallback, normalizedText, threshold],
+  );
+
+  const contentClasses = [
+    "min-w-0 whitespace-pre-wrap break-words [overflow-wrap:anywhere]",
+    contentClassName,
+    canExpand && !expanded ? `${collapsedMaxHeightClass} overflow-hidden` : "",
+    canExpand && expanded ? `${expandedMaxHeightClass} overflow-y-auto pr-1` : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  return (
+    <div className="space-y-1.5">
+      <div className={contentClasses}>{normalizedText}</div>
+      {canExpand ? (
+        <button
+          type="button"
+          onClick={() => setExpanded((prev) => !prev)}
+          className={buttonClassName}
+        >
+          {expanded ? "Show less" : "Show more"}
+        </button>
+      ) : null}
+    </div>
+  );
+};
+
 const TimelineRoute = ({
   activities,
   loading,
@@ -147,9 +223,15 @@ const TimelineRoute = ({
               <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
                 Initial Dispute Reason
               </p>
-              <p className="mt-1 whitespace-pre-wrap rounded-lg border border-slate-200 bg-white p-3 text-sm leading-6 text-slate-800">
-                {dispute.reason?.trim() || "No dispute reason was provided."}
-              </p>
+              <ExpandableTextBlock
+                value={dispute.reason}
+                fallback="No dispute reason was provided."
+                threshold={240}
+                collapsedMaxHeightClass="max-h-24"
+                expandedMaxHeightClass="max-h-64"
+                contentClassName="mt-1 rounded-lg border border-slate-200 bg-white p-3 text-sm leading-6 text-slate-800"
+                buttonClassName="text-xs font-semibold text-slate-600 hover:text-slate-800"
+              />
             </div>
             <div className="grid gap-3 md:grid-cols-3">
               <div className="rounded-lg border border-slate-200 bg-white p-3">
@@ -217,9 +299,14 @@ const TimelineRoute = ({
                       </p>
                       <p className="mt-1 text-xs text-gray-500">{actorLabel}</p>
                       {activity.description ? (
-                        <p className="mt-2 text-sm text-gray-700">
-                          {activity.description}
-                        </p>
+                        <ExpandableTextBlock
+                          value={activity.description}
+                          threshold={220}
+                          collapsedMaxHeightClass="max-h-20"
+                          expandedMaxHeightClass="max-h-44"
+                          contentClassName="mt-2 text-sm text-gray-700"
+                          buttonClassName="text-xs font-semibold text-slate-600 hover:text-slate-800"
+                        />
                       ) : null}
                     </div>
                     <div className="text-right">
@@ -380,6 +467,7 @@ export const DisputeDetailHub = ({
   const [panelRationale, setPanelRationale] = useState("");
   const [panelSubmitting, setPanelSubmitting] = useState(false);
   const [refreshToken, setRefreshToken] = useState(0);
+  const realtimeFollowUpRefreshRef = useRef<number | null>(null);
 
   const currentUser = useMemo(() => {
     return getStoredJson<{ id?: string; role?: UserRole }>(STORAGE_KEYS.USER);
@@ -524,10 +612,32 @@ export const DisputeDetailHub = ({
     fetchVerdict,
   ]);
 
+  const handleRealtimeRefreshBurst = useCallback(() => {
+    handleRealtimeRefresh();
+
+    if (realtimeFollowUpRefreshRef.current !== null) {
+      window.clearTimeout(realtimeFollowUpRefreshRef.current);
+      realtimeFollowUpRefreshRef.current = null;
+    }
+
+    realtimeFollowUpRefreshRef.current = window.setTimeout(() => {
+      realtimeFollowUpRefreshRef.current = null;
+      handleRealtimeRefresh();
+    }, 1200);
+  }, [handleRealtimeRefresh]);
+
+  useEffect(() => {
+    return () => {
+      if (realtimeFollowUpRefreshRef.current !== null) {
+        window.clearTimeout(realtimeFollowUpRefreshRef.current);
+      }
+    };
+  }, []);
+
   useDisputeRealtime(disputeId, {
     onEvidenceUploaded: handleRealtimeRefresh,
-    onVerdictIssued: handleRealtimeRefresh,
-    onHearingEnded: handleRealtimeRefresh,
+    onVerdictIssued: handleRealtimeRefreshBurst,
+    onHearingEnded: handleRealtimeRefreshBurst,
     onSettlementOffered: handleRealtimeRefresh,
     onSettlementAccepted: handleRealtimeRefresh,
     onSettlementRejected: handleRealtimeRefresh,
@@ -540,8 +650,8 @@ export const DisputeDetailHub = ({
     onDisputeDefendantResponded: handleRealtimeRefresh,
     onDisputeResolved: handleRealtimeRefresh,
     onDisputeClosed: handleRealtimeRefresh,
-    onAppealSubmitted: handleRealtimeRefresh,
-    onAppealResolved: handleRealtimeRefresh,
+    onAppealSubmitted: handleRealtimeRefreshBurst,
+    onAppealResolved: handleRealtimeRefreshBurst,
     onAppealDeadlinePassed: handleRealtimeRefresh,
   });
 
@@ -578,7 +688,10 @@ export const DisputeDetailHub = ({
     [],
   );
 
-  const allowedActions = dispute?.allowedActions ?? [];
+  const allowedActions = useMemo(
+    () => dispute?.allowedActions ?? [],
+    [dispute?.allowedActions],
+  );
   const appealTrack = dispute?.appealTrack;
   const appealDeadlineSource =
     appealTrack?.deadline ?? verdict?.appealDeadline ?? null;
@@ -862,9 +975,6 @@ export const DisputeDetailHub = ({
   }, [disputeId]);
   const evidenceReadOnly = !allowedActions.includes("UPLOAD_EVIDENCE");
   const hearingPanelReadOnly = !allowedActions.includes("MANAGE_HEARING");
-  const participantArchiveReadOnly = Boolean(
-    dispute?.isReadOnly && !canViewInternal,
-  );
 
   const openContractPage = useCallback(
     (contractId: string) => {
@@ -1382,9 +1492,15 @@ export const DisputeDetailHub = ({
                     <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-700">
                       Resolution
                     </div>
-                    <div className="mt-1 text-sm text-slate-800">
-                      {appealTrack.resolution || "Awaiting review"}
-                    </div>
+                    <ExpandableTextBlock
+                      value={appealTrack.resolution}
+                      fallback="Awaiting review"
+                      threshold={180}
+                      collapsedMaxHeightClass="max-h-16"
+                      expandedMaxHeightClass="max-h-36"
+                      contentClassName="mt-1 text-sm text-slate-800"
+                      buttonClassName="text-[11px] font-semibold text-amber-700 hover:text-amber-900"
+                    />
                   </div>
                 </div>
               </div>
@@ -1527,13 +1643,13 @@ export const DisputeDetailHub = ({
                             <div className="mt-1 text-sm font-semibold text-slate-900">
                               {agendaBlock.title}
                             </div>
-                            <div className="mt-2 max-h-40 overflow-y-auto whitespace-pre-wrap break-words text-sm leading-6 text-slate-700 [overflow-wrap:anywhere]">
+                            <div className="mt-2 max-h-40 overflow-y-auto whitespace-pre-wrap wrap-anywhere text-sm leading-6 text-slate-700">
                               {agendaBlock.body}
                             </div>
                           </div>
                         ) : null}
                         {entry.freezeReason ? (
-                          <p className="mt-2 min-w-0 whitespace-pre-wrap break-words text-xs text-slate-500 [overflow-wrap:anywhere]">
+                          <p className="mt-2 min-w-0 whitespace-pre-wrap wrap-anywhere text-xs text-slate-500">
                             {entry.freezeReason}
                           </p>
                         ) : null}
@@ -1544,7 +1660,7 @@ export const DisputeDetailHub = ({
                                 <div className="text-[11px] uppercase tracking-[0.18em] text-slate-400">
                                   Minutes
                                 </div>
-                                <p className="mt-1 whitespace-pre-wrap break-words text-sm text-slate-700 [overflow-wrap:anywhere]">
+                                <p className="mt-1 whitespace-pre-wrap wrap-anywhere text-sm text-slate-700">
                                   {entry.summary}
                                 </p>
                               </div>
@@ -1554,7 +1670,7 @@ export const DisputeDetailHub = ({
                                 <div className="text-[11px] uppercase tracking-[0.18em] text-slate-400">
                                   Findings
                                 </div>
-                                <p className="mt-1 whitespace-pre-wrap break-words text-sm text-slate-700 [overflow-wrap:anywhere]">
+                                <p className="mt-1 whitespace-pre-wrap wrap-anywhere text-sm text-slate-700">
                                   {entry.findings}
                                 </p>
                               </div>
@@ -1917,9 +2033,14 @@ export const DisputeDetailHub = ({
                 <span className="text-xs uppercase tracking-wider text-gray-400">
                   Appeal Reason
                 </span>
-                <p className="whitespace-pre-wrap text-slate-700">
-                  {dispute.appealReason || dispute.rejectionAppealReason}
-                </p>
+                <ExpandableTextBlock
+                  value={dispute.appealReason || dispute.rejectionAppealReason}
+                  threshold={220}
+                  collapsedMaxHeightClass="max-h-24"
+                  expandedMaxHeightClass="max-h-48"
+                  contentClassName="text-slate-700"
+                  buttonClassName="text-[11px] font-semibold text-slate-600 hover:text-slate-800"
+                />
               </div>
             ) : null}
             {appealTrack?.assignedAdmin?.fullName ||
@@ -1943,11 +2064,18 @@ export const DisputeDetailHub = ({
                 <span className="text-xs uppercase tracking-wider text-gray-400">
                   Resolution
                 </span>
-                <p className="whitespace-pre-wrap text-slate-700">
-                  {appealTrack?.resolution ||
+                <ExpandableTextBlock
+                  value={
+                    appealTrack?.resolution ||
                     dispute?.appealResolution ||
-                    dispute?.rejectionAppealResolution}
-                </p>
+                    dispute?.rejectionAppealResolution
+                  }
+                  threshold={220}
+                  collapsedMaxHeightClass="max-h-24"
+                  expandedMaxHeightClass="max-h-48"
+                  contentClassName="text-slate-700"
+                  buttonClassName="text-[11px] font-semibold text-slate-600 hover:text-slate-800"
+                />
                 {appealTrack?.resolvedAt ||
                 dispute?.appealResolvedAt ||
                 dispute?.rejectionAppealResolvedAt ? (

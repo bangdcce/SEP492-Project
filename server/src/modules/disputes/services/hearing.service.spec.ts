@@ -97,7 +97,10 @@ describe('HearingService', () => {
         { provide: getRepositoryToken(HearingReminderDeliveryEntity), useValue: repoMock() },
         { provide: DataSource, useValue: { transaction: jest.fn() } },
         { provide: EventEmitter2, useValue: { emit: jest.fn() } },
-        { provide: EmailService, useValue: { sendMail: jest.fn() } },
+        {
+          provide: EmailService,
+          useValue: { sendMail: jest.fn(), sendPlatformNotification: jest.fn() },
+        },
         { provide: HearingPresenceService, useValue: {} },
         { provide: EvidenceService, useValue: evidenceService },
         { provide: CalendarService, useValue: { findAvailableSlots: jest.fn() } },

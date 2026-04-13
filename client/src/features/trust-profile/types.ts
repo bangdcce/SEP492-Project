@@ -8,6 +8,11 @@ export interface TrustStats {
   score: number | string;
 }
 
+export interface PortfolioLink {
+  title?: string;
+  url: string;
+}
+
 //Simplified User Profile for Trust Display
 export interface User {
   id: string;
@@ -21,6 +26,9 @@ export interface User {
   role?: string;
   bio?: string;
   skills?: string[];
+  cvUrl?: string;
+  linkedinUrl?: string;
+  portfolioLinks?: PortfolioLink[];
   createdAt?: string;
 }
 // Reviewer Information (Nested in Review)

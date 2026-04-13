@@ -45,21 +45,21 @@ const FAULT_TYPES = [
 ];
 
 const FAULTY_PARTIES = [
-  { value: "raiser", label: "Raiser (Nguyen don)" },
-  { value: "defendant", label: "Defendant (Bi don)" },
-  { value: "both", label: "Both parties" },
-  { value: "none", label: "No fault" },
+  { value: "raiser", label: "Dispute raiser" },
+  { value: "defendant", label: "Dispute defendant" },
+  { value: "both", label: "Both dispute parties" },
+  { value: "none", label: "No party at fault" },
 ];
 
 const VERDICT_RESULTS = [
   {
     value: "WIN_CLIENT",
-    label: "Refund Client",
+    label: "Award to raiser",
     color: "border-sky-500 bg-sky-50 text-sky-800",
   },
   {
     value: "WIN_FREELANCER",
-    label: "Pay Freelancer",
+    label: "Award to defendant",
     color: "border-emerald-500 bg-emerald-50 text-emerald-800",
   },
   {
