@@ -145,9 +145,10 @@ export interface TaskSubmissionCreateResult {
 }
 
 export interface ProjectTaskRealtimeEvent {
-  action: 'CREATED' | 'UPDATED';
+  action: 'CREATED' | 'UPDATED' | 'DELETED';
   projectId: string;
-  task: TaskEntity;
+  task?: TaskEntity | null;
+  taskId?: string;
   milestoneId?: string | null;
   milestoneProgress?: number;
   totalTasks?: number;
@@ -650,6 +651,79 @@ export class TasksService implements OnModuleInit {
     await this.taskLinkRepository.remove(link);
   }
 
+  async deleteTask(
+    taskId: string,
+    actorId?: string,
+    actorRole?: UserRole | string,
+  ): Promise<void> {
+    if (!actorId) {
+      throw new ForbiddenException('Authentication required');
+    }
+
+    if (String(actorRole || '').toUpperCase() !== UserRole.BROKER) {
+      throw new ForbiddenException('Only brokers can delete tasks in project workspace.');
+    }
+
+    const task = await this.getTaskOrThrow(taskId);
+    await this.assertMilestoneAllowsTaskWorkById(task.milestoneId);
+    await this.assertMilestoneEscrowFundedForWorkspace(task.milestoneId);
+
+    if (task.status === TaskStatus.IN_REVIEW || task.status === TaskStatus.DONE) {
+      throw new BadRequestException('Tasks in review or done cannot be deleted.');
+    }
+
+    const project = await this.projectRepository.findOne({
+      where: { id: task.projectId },
+      select: ['id', 'brokerId'],
+    });
+
+    if (!project) {
+      throw new NotFoundException('Project not found for this task');
+    }
+
+    if (!project.brokerId || project.brokerId !== actorId) {
+      throw new ForbiddenException('Only the assigned broker can delete tasks for this project.');
+    }
+
+    const subtasks = await this.taskRepository.find({
+      where: { parentTaskId: taskId },
+      select: ['id'],
+    });
+    const subtaskIds = subtasks.map((subtask) => subtask.id);
+
+    if (subtaskIds.length > 0) {
+      await this.taskRepository.delete(subtaskIds);
+    }
+
+    await this.taskRepository.delete(taskId);
+
+    const { progress, totalTasks, completedTasks } = await this.calculateMilestoneProgress(
+      task.milestoneId,
+    );
+    await this.syncMilestoneStatus(task.milestoneId, progress);
+
+    if (task.parentTaskId) {
+      await this.emitWorkspaceRefreshForTask(task.parentTaskId);
+      return;
+    }
+
+    await this.recordWorkspaceSystemMessage(
+      task.projectId,
+      `Task "${task.title}" was deleted from the workspace.`,
+      task.id,
+    );
+
+    this.emitTaskRealtimeEvent({
+      action: 'DELETED',
+      projectId: task.projectId,
+      taskId: task.id,
+      milestoneId: task.milestoneId,
+      milestoneProgress: progress,
+      totalTasks,
+      completedTasks,
+    });
+  }
+
   async getSubtasks(taskId: string): Promise<TaskEntity[]> {
     const task = await this.taskRepository.findOne({ where: { id: taskId } });
     if (!task) {
@@ -758,6 +832,26 @@ export class TasksService implements OnModuleInit {
   private assertSubtaskManagementAllowed(actorRole?: UserRole): void {
     if (actorRole === UserRole.FREELANCER) {
       throw new ForbiddenException('Freelancers cannot create or link subtasks.');
+    }
+  }
+
+  private assertSubtaskDoneTransitionAllowed(
+    task: Pick<TaskEntity, 'parentTaskId'>,
+    nextStatus: TaskStatus | string | undefined,
+    actorRole?: UserRole | string,
+  ): void {
+    if (!task.parentTaskId) {
+      return;
+    }
+
+    const normalizedActorRole = String(actorRole || '').toUpperCase();
+
+    if (normalizedActorRole === UserRole.FREELANCER) {
+      throw new ForbiddenException('Freelancers are not allowed to change subtask status.');
+    }
+
+    if (nextStatus === TaskStatus.DONE && normalizedActorRole !== UserRole.BROKER) {
+      throw new ForbiddenException('Only brokers can move subtasks to DONE.');
     }
   }
 
@@ -1106,17 +1200,17 @@ export class TasksService implements OnModuleInit {
       submission.brokerReviewNote = trimmedReviewNote;
 
       if (dto.status === TaskSubmissionStatus.APPROVED) {
-        submission.status = TaskSubmissionStatus.PENDING_CLIENT_REVIEW;
-        submission.clientReviewDueAt = this.getClientReviewDueAt(reviewTimestamp);
+        submission.status = TaskSubmissionStatus.APPROVED;
+        submission.clientReviewDueAt = null;
         submission.clientReviewerId = null;
         submission.clientReviewedAt = null;
         submission.clientReviewNote = null;
         submission.autoApprovedAt = null;
-        submission.reviewNote = null;
-        submission.reviewerId = null;
-        submission.reviewedAt = null;
-        resolvedTaskStatus = TaskStatus.IN_REVIEW;
-        auditMessage = `Broker approved submission V${submission.version} for task "${task.title}" and sent it to client review.`;
+        submission.reviewNote = trimmedReviewNote;
+        submission.reviewerId = reviewerId;
+        submission.reviewedAt = reviewTimestamp;
+        resolvedTaskStatus = TaskStatus.DONE;
+        auditMessage = `Broker approved submission V${submission.version} for task "${task.title}". The task is now marked DONE.`;
       } else {
         submission.status = TaskSubmissionStatus.REQUEST_CHANGES;
         submission.clientReviewDueAt = null;
@@ -1528,6 +1622,7 @@ export class TasksService implements OnModuleInit {
     id: string,
     status: KanbanStatus,
     actorId?: string,
+    actorRole?: UserRole | string,
   ): Promise<TaskStatusUpdateResult> {
     // Step 1: Get the task to find its milestoneId
     const task = await this.taskRepository.findOne({
@@ -1538,6 +1633,8 @@ export class TasksService implements OnModuleInit {
     if (!task) {
       throw new NotFoundException('Task not found');
     }
+
+    this.assertSubtaskDoneTransitionAllowed(task, status, actorRole);
 
     await this.assertMilestoneAllowsTaskWorkById(task.milestoneId);
 
@@ -1854,12 +1951,19 @@ export class TasksService implements OnModuleInit {
     return created;
   }
 
-  async updateTask(id: string, data: Partial<TaskEntity>, actorId?: string): Promise<TaskEntity> {
+  async updateTask(
+    id: string,
+    data: Partial<TaskEntity>,
+    actorId?: string,
+    actorRole?: UserRole | string,
+  ): Promise<TaskEntity> {
     this.logger.log(`Updating task ${id} with actor: ${actorId || 'SYSTEM'}`);
     const task = await this.taskRepository.findOne({ where: { id } });
     if (!task) {
       throw new NotFoundException('Task not found');
     }
+
+    this.assertSubtaskDoneTransitionAllowed(task, data.status, actorRole);
 
     await this.assertMilestoneAllowsTaskWorkById(task.milestoneId);
     await this.assertMilestoneEscrowFundedForWorkspace(task.milestoneId);

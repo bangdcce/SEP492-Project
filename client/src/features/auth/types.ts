@@ -14,6 +14,8 @@ export type UserRole =
   | 'FREELANCER'
   | 'STAFF';
 
+export type NonStaffSignUpRole = 'CLIENT' | 'BROKER' | 'FREELANCER';
+
 export interface User {
   id: string;
   email: string;
@@ -70,12 +72,27 @@ export interface SignUpRequest {
   password: string;
   fullName: string;
   phoneNumber: string;
-  role: UserRole;
+  role: NonStaffSignUpRole;
   recaptchaToken?: string;
   domainIds?: string[]; // UUID arrays instead of slugs
   skillIds?: string[]; // UUID arrays instead of slugs
   acceptTerms: boolean;
   acceptPrivacy: boolean;
+}
+
+export interface StaffSignUpFormValues {
+  email: string;
+  password: string;
+  fullName: string;
+  phoneNumber: string;
+  recaptchaToken?: string;
+  acceptTerms: boolean;
+  acceptPrivacy: boolean;
+  fullNameOnDocument: string;
+  documentType: string;
+  documentNumber: string;
+  dateOfBirth: string;
+  address: string;
 }
 
 export interface SignUpResponse {

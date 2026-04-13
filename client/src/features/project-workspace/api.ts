@@ -16,6 +16,7 @@ import type {
   TaskCommentMutationResult,
   WorkspaceChatHistoryQuery,
   WorkspaceChatHistoryResponse,
+  WorkspaceChatExportEmailResponse,
   WorkspaceChatMutationResponse,
 } from "./types";
 
@@ -123,6 +124,20 @@ export const deleteWorkspaceChatMessage = async (
 ): Promise<WorkspaceChatMutationResponse> => {
   return apiClient.delete<WorkspaceChatMutationResponse>(
     `/workspace-chat/projects/${projectId}/messages/${messageId}`,
+  );
+};
+
+export const emailWorkspaceChatExport = async (
+  projectId: string,
+  file: Blob,
+  fileName: string,
+): Promise<WorkspaceChatExportEmailResponse> => {
+  const formData = new FormData();
+  formData.append("exportFile", file, fileName);
+
+  return apiClient.post<WorkspaceChatExportEmailResponse>(
+    `/workspace-chat/projects/${projectId}/export/email`,
+    formData,
   );
 };
 
@@ -236,6 +251,12 @@ export const deleteTaskLink = async (
   linkId: string
 ): Promise<{ success: boolean }> => {
   return apiClient.delete<{ success: boolean }>(`/tasks/${taskId}/links/${linkId}`);
+};
+
+export const deleteTask = async (
+  taskId: string,
+): Promise<{ success: boolean }> => {
+  return apiClient.delete<{ success: boolean }>(`/tasks/${taskId}`);
 };
 
 export const fetchSubtasks = async (taskId: string): Promise<Task[]> => {

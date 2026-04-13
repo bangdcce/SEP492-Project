@@ -43,6 +43,42 @@ export class StaffApplicationEntity {
   @Column({ type: 'text', nullable: true })
   rejectionReason: string | null;
 
+  @Column({ type: 'varchar', length: 500, nullable: true })
+  cvStorageKey: string | null;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  cvOriginalFilename: string | null;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  cvMimeType: string | null;
+
+  @Column({ type: 'integer', nullable: true })
+  cvSize: number | null;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  fullNameOnDocument: string | null;
+
+  @Column({ type: 'varchar', length: 32, nullable: true })
+  documentType: string | null;
+
+  @Column({ type: 'varchar', length: 32, nullable: true })
+  documentNumber: string | null;
+
+  @Column({ type: 'date', nullable: true })
+  dateOfBirth: Date | null;
+
+  @Column({ type: 'text', nullable: true })
+  address: string | null;
+
+  @Column({ type: 'varchar', length: 500, nullable: true })
+  idCardFrontStorageKey: string | null;
+
+  @Column({ type: 'varchar', length: 500, nullable: true })
+  idCardBackStorageKey: string | null;
+
+  @Column({ type: 'varchar', length: 500, nullable: true })
+  selfieStorageKey: string | null;
+
   @CreateDateColumn()
   createdAt: Date;
 

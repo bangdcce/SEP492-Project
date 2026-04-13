@@ -5,6 +5,12 @@ import { existsSync } from 'fs';
 import { basename, resolve } from 'path';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
 
+interface EmailAttachmentInput {
+  filename: string;
+  content: Buffer;
+  contentType: string;
+}
+
 @Injectable()
 export class EmailService {
   private readonly logger = new Logger(EmailService.name);
@@ -167,6 +173,85 @@ export class EmailService {
         context: {
           email: this.maskEmail(input.email),
           subject: input.subject,
+        },
+      });
+      throw error;
+    }
+  }
+
+  async sendWorkspaceChatExportEmail(input: {
+    email: string;
+    recipientName?: string | null;
+    projectTitle?: string | null;
+    fileName: string;
+    fileBuffer: Buffer;
+    mimeType: string;
+    exportedAt: Date;
+  }): Promise<void> {
+    const appName = this.configService.get<string>('APP_NAME', 'InterDev');
+    const rawFromEmail = this.configService.get('FROM_EMAIL') || this.configService.get('SMTP_USER');
+    const configuredFromName = this.configService.get<string>('FROM_NAME', appName);
+    const { fromEmail, detectedName } = this.parseFromAddress(rawFromEmail);
+    const fromName = configuredFromName || detectedName || appName;
+
+    if (!this.transporter) {
+      throw new Error('Email service is not configured');
+    }
+
+    const greeting = input.recipientName?.trim() ? `Hello ${input.recipientName.trim()},` : 'Hello,';
+    const workspaceLabel = input.projectTitle?.trim() || 'your workspace';
+    const exportedAtLabel = input.exportedAt.toLocaleString('en-US', {
+      dateStyle: 'medium',
+      timeStyle: 'short',
+    });
+
+    const html = `
+      <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #1f2937;">
+        <h2 style="margin-bottom: 12px;">Your chat log export is ready</h2>
+        <p style="margin: 0 0 12px;">${greeting}</p>
+        <p style="margin: 0 0 12px;">
+          Your workspace chat export for <strong>${workspaceLabel}</strong> has been generated.
+          The export file is attached to this email.
+        </p>
+        <p style="margin: 0 0 12px; color: #475569;">
+          Generated at: ${exportedAtLabel}
+        </p>
+        <p style="margin: 0;">If you did not request this export, please contact support.</p>
+      </div>
+    `;
+
+    try {
+      await this.transporter.sendMail({
+        from: `"${fromName}" <${fromEmail}>`,
+        to: input.email,
+        subject: 'Your chat log export is ready',
+        html,
+        attachments: [
+          {
+            filename: input.fileName,
+            content: input.fileBuffer,
+            contentType: input.mimeType,
+          } satisfies EmailAttachmentInput,
+        ],
+      });
+    } catch (error) {
+      await this.auditLogsService.logSystemIncident({
+        component: 'EmailService',
+        operation: 'send-workspace-chat-export',
+        summary: `Failed to send workspace chat export email to ${this.maskEmail(input.email)}`,
+        severity: 'HIGH',
+        category: 'EMAIL',
+        error,
+        target: {
+          type: 'Email',
+          id: input.email,
+          label: this.maskEmail(input.email),
+        },
+        context: {
+          email: this.maskEmail(input.email),
+          subject: 'Your chat log export is ready',
+          fileName: input.fileName,
+          projectTitle: input.projectTitle || null,
         },
       });
       throw error;
