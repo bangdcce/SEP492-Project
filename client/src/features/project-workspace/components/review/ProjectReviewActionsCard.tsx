@@ -345,27 +345,28 @@ export function ProjectReviewActionsCard({
             fullName: activeTarget.fullName || "Unknown user",
           }}
           onSuccess={() => {
+            const optimisticReview: Review = {
+              id: `workspace-review-${project.id}-${activeTarget.id}`,
+              rating: 5,
+              comment: "",
+              weight: 1,
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+              reviewer: {
+                id: currentUserId ?? "current-user",
+                fullName: "You",
+              },
+              project: {
+                id: project.id,
+                title: project.title || "Project",
+                totalBudget: 0,
+              },
+            };
             setReviewsByTargetId((current) => ({
               ...current,
               [activeTarget.id]: [
                 ...(current[activeTarget.id] || []),
-                {
-                  id: `workspace-review-${project.id}-${activeTarget.id}`,
-                  rating: 5,
-                  comment: "",
-                  weight: 1,
-                  createdAt: new Date().toISOString(),
-                  updatedAt: new Date().toISOString(),
-                  reviewer: {
-                    id: currentUserId,
-                    fullName: "You",
-                  },
-                  project: {
-                    id: project.id,
-                    title: project.title || "Project",
-                    totalBudget: 0,
-                  },
-                },
+                optimisticReview,
               ],
             }));
             setActiveTarget(null);

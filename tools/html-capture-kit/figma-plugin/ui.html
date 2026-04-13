@@ -1,0 +1,322 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>HTML Capture Importer</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family:
+          Inter,
+          ui-sans-serif,
+          system-ui,
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          sans-serif;
+        --bg: var(--figma-color-bg, #ffffff);
+        --surface: var(--figma-color-bg-secondary, #f8fafc);
+        --text: var(--figma-color-text, #111827);
+        --text-muted: var(--figma-color-text-secondary, #475569);
+        --border: var(--figma-color-border, rgba(148, 163, 184, 0.26));
+        --brand: #0d9488;
+      }
+
+      body {
+        margin: 0;
+        background:
+          radial-gradient(circle at top right, rgba(20, 184, 166, 0.14), transparent 40%),
+          var(--bg);
+        color: var(--text);
+      }
+
+      .shell {
+        padding: 18px;
+      }
+
+      .hero {
+        margin-bottom: 14px;
+      }
+
+      .eyebrow {
+        margin: 0 0 6px;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--brand);
+      }
+
+      h1 {
+        margin: 0;
+        font-size: 22px;
+        line-height: 1.15;
+      }
+
+      .copy {
+        margin: 8px 0 0;
+        font-size: 13px;
+        line-height: 1.5;
+        color: var(--text-muted);
+      }
+
+      .panel {
+        display: grid;
+        gap: 12px;
+        padding: 14px;
+        border: 1px solid var(--border);
+        border-radius: 18px;
+        background: var(--surface);
+      }
+
+      .file-drop {
+        display: grid;
+        gap: 4px;
+        padding: 16px;
+        border: 1px dashed rgba(13, 148, 136, 0.4);
+        border-radius: 16px;
+        background: rgba(13, 148, 136, 0.06);
+        cursor: pointer;
+      }
+
+      .file-title {
+        font-size: 13px;
+        font-weight: 700;
+      }
+
+      .file-subtitle {
+        font-size: 12px;
+        color: var(--text-muted);
+      }
+
+      input[type="file"] {
+        margin-top: 8px;
+      }
+
+      .summary {
+        min-height: 72px;
+        padding: 12px;
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        background: var(--bg);
+        font-size: 12px;
+        line-height: 1.6;
+        color: var(--text-muted);
+        white-space: pre-wrap;
+      }
+
+      .summary.empty {
+        color: var(--text-muted);
+      }
+
+      .import-button,
+      .secondary-button {
+        border: 0;
+        border-radius: 999px;
+        padding: 12px 16px;
+        font: inherit;
+        font-weight: 700;
+        cursor: pointer;
+      }
+
+      .import-button {
+        color: #f8fafc;
+        background: linear-gradient(135deg, #0f766e 0%, #0d9488 55%, #14b8a6 100%);
+      }
+
+      .import-button[disabled] {
+        opacity: 0.55;
+        cursor: not-allowed;
+      }
+
+      .secondary-button {
+        color: var(--text);
+        background: rgba(148, 163, 184, 0.16);
+      }
+
+      .status {
+        min-height: 20px;
+        margin: 0;
+        font-size: 12px;
+        line-height: 1.5;
+        color: var(--text-muted);
+      }
+
+      .status[data-state="error"] {
+        color: #dc2626;
+      }
+
+      .status[data-state="success"] {
+        color: #0f766e;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      <section class="hero">
+        <p class="eyebrow">Companion Plugin</p>
+        <h1>HTML Capture Importer</h1>
+        <p class="copy">
+          Import a `.figcap.json` file exported by the Chrome extension and recreate the page as
+          editable Figma layers.
+        </p>
+      </section>
+
+      <section class="panel">
+        <label class="file-drop" for="captureFile">
+          <span class="file-title">Select capture file</span>
+          <span class="file-subtitle">Accepts .figcap.json, .figcap, and .json</span>
+          <input id="captureFile" type="file" accept=".json,.figcap,.figcap.json" />
+        </label>
+
+        <div id="summary" class="summary empty">No file selected.</div>
+
+        <button id="importButton" class="import-button" type="button" disabled>
+          Import Into Figma
+        </button>
+        <button id="cancelButton" class="secondary-button" type="button">Close</button>
+
+        <p id="status" class="status" aria-live="polite"></p>
+      </section>
+    </main>
+
+    <script>
+      const captureFileInput = document.getElementById("captureFile");
+      const importButton = document.getElementById("importButton");
+      const cancelButton = document.getElementById("cancelButton");
+      const summaryElement = document.getElementById("summary");
+      const statusElement = document.getElementById("status");
+
+      let capturePayload = null;
+
+      captureFileInput.addEventListener("change", async (event) => {
+        const file = event.target.files && event.target.files[0];
+
+        if (!file) {
+          capturePayload = null;
+          importButton.disabled = true;
+          summaryElement.textContent = "No file selected.";
+          summaryElement.classList.add("empty");
+          return;
+        }
+
+        setStatus("Reading capture file…");
+
+        try {
+          const text = await file.text();
+          const parsed = JSON.parse(text);
+          validateCapture(parsed);
+          capturePayload = parsed;
+          const layerCount = countLayers(parsed);
+          importButton.disabled = false;
+          summaryElement.classList.remove("empty");
+          summaryElement.textContent = [
+            `Title: ${parsed.source.title || "Untitled page"}`,
+            `URL: ${parsed.source.url}`,
+            `Layers: ${layerCount}`,
+            `Canvas: ${parsed.document.width} x ${parsed.document.height}`,
+            `Captured: ${parsed.capturedAt}`,
+            `Version: ${parsed.version || "unknown"}`,
+          ].join("\n");
+          setStatus("Capture file is ready to import.", "success");
+        } catch (error) {
+          capturePayload = null;
+          importButton.disabled = true;
+          summaryElement.classList.remove("empty");
+          summaryElement.textContent = "Could not read this file as an HTML Capture Kit export.";
+          setStatus(error instanceof Error ? error.message : String(error), "error");
+        }
+      });
+
+      importButton.addEventListener("click", () => {
+        if (!capturePayload) {
+          setStatus("Choose a valid capture file first.", "error");
+          return;
+        }
+
+        setStatus("Sending capture to Figma…");
+        parent.postMessage(
+          {
+            pluginMessage: {
+              type: "IMPORT_CAPTURE",
+              payload: capturePayload,
+            },
+          },
+          "*",
+        );
+      });
+
+      cancelButton.addEventListener("click", () => {
+        parent.postMessage(
+          {
+            pluginMessage: {
+              type: "CLOSE_PLUGIN",
+            },
+          },
+          "*",
+        );
+      });
+
+      window.onmessage = (event) => {
+        const message = event.data && event.data.pluginMessage;
+        if (!message) {
+          return;
+        }
+
+        if (message.type === "IMPORT_COMPLETE") {
+          setStatus(message.summary || "Import finished.", "success");
+          return;
+        }
+
+        if (message.type === "IMPORT_ERROR") {
+          setStatus(message.error || "Import failed.", "error");
+        }
+      };
+
+      function validateCapture(payload) {
+        if (!payload || payload.format !== "html-capture-kit") {
+          throw new Error("This file is not an HTML Capture Kit capture.");
+        }
+
+        if (!payload.document || !payload.source) {
+          throw new Error("Capture file is missing document metadata.");
+        }
+
+        if (!payload.root && !Array.isArray(payload.nodes)) {
+          throw new Error("Capture file is missing importable layers.");
+        }
+      }
+
+      function countLayers(payload) {
+        if (payload.root) {
+          return countLayerTree(payload.root) - 1;
+        }
+
+        if (Array.isArray(payload.nodes)) {
+          return payload.nodes.length;
+        }
+
+        return 0;
+      }
+
+      function countLayerTree(layer) {
+        if (!layer || typeof layer !== "object") {
+          return 0;
+        }
+
+        const children = Array.isArray(layer.children) ? layer.children : [];
+        return 1 + children.reduce((sum, child) => sum + countLayerTree(child), 0);
+      }
+
+      function setStatus(message, state) {
+        statusElement.textContent = message;
+        if (state) {
+          statusElement.dataset.state = state;
+        } else {
+          delete statusElement.dataset.state;
+        }
+      }
+    </script>
+  </body>
+</html>

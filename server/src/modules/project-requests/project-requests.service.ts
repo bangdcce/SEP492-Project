@@ -622,18 +622,14 @@ export class ProjectRequestsService {
 
     return attachments
       .map((attachment) => {
-        const objectStoragePath =
-          extractProjectRequestStoragePath(attachment?.storagePath) ||
-          extractProjectRequestStoragePath(attachment?.url);
-        const localStoragePath =
-          extractUploadStoragePath(attachment?.storagePath) ||
-          extractUploadStoragePath(attachment?.url);
-        const storagePath = objectStoragePath ?? localStoragePath;
+        const rawStoragePath = `${attachment?.storagePath || ''}`.trim();
+        const objectStoragePath = extractProjectRequestStoragePath(rawStoragePath);
+        const localStoragePath = extractUploadStoragePath(rawStoragePath);
+        const storagePath = objectStoragePath ?? localStoragePath ?? undefined;
         const rawUrl = `${attachment?.url || ''}`.trim();
 
-        return {
+        const normalizedAttachment: ProjectRequestAttachmentMetadata = {
           filename: `${attachment?.filename || ''}`.trim(),
-          storagePath,
           url: objectStoragePath || localStoragePath || rawUrl,
           mimetype: attachment?.mimetype?.trim() || null,
           size:
@@ -642,6 +638,12 @@ export class ProjectRequestsService {
               : null,
           category: attachment?.category === 'requirements' ? 'requirements' : 'attachment',
         };
+
+        if (storagePath) {
+          normalizedAttachment.storagePath = storagePath;
+        }
+
+        return normalizedAttachment;
       })
       .filter(
         (attachment) =>
