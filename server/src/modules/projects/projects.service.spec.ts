@@ -20,6 +20,7 @@ import { TaskHistoryEntity } from '../../database/entities/task-history.entity';
 import { UserEntity } from '../../database/entities/user.entity';
 import { ProjectsService } from './projects.service';
 import { MilestoneLockPolicyService } from './milestone-lock-policy.service';
+import { MilestoneInteractionPolicyService } from './milestone-interaction-policy.service';
 import { EscrowReleaseService } from '../payments/escrow-release.service';
 import { NotificationsService } from '../notifications/notifications.service';
 
@@ -62,6 +63,9 @@ describe('ProjectsService', () => {
   const milestoneLockPolicyService = {
     findLatestActivatedContract: jest.fn(),
     assertCanMutateMilestoneStructure: jest.fn(),
+  };
+  const milestoneInteractionPolicyService = {
+    assertMilestoneUnlockedForWorkspace: jest.fn().mockResolvedValue(undefined),
   };
   const escrowReleaseService = {
     releaseForApprovedMilestone: jest.fn(),
@@ -173,6 +177,10 @@ describe('ProjectsService', () => {
           useValue: milestoneLockPolicyService,
         },
         {
+          provide: MilestoneInteractionPolicyService,
+          useValue: milestoneInteractionPolicyService,
+        },
+        {
           provide: EscrowReleaseService,
           useValue: escrowReleaseService,
         },
@@ -223,7 +231,7 @@ describe('ProjectsService', () => {
     expect(milestoneRepository.save).toHaveBeenCalledWith(milestone);
   });
 
-  it('rejects milestone review requests before escrow is funded', async () => {
+  it('allows milestone review requests to proceed once the task work is complete even if escrow is still pending', async () => {
     const milestone = {
       id: 'milestone-1',
       projectId: 'project-1',
@@ -249,9 +257,11 @@ describe('ProjectsService', () => {
       totalAmount: 100,
     });
 
-    await expect(
-      service.requestMilestoneReview('milestone-1', 'freelancer-1'),
-    ).rejects.toThrow('Fund this milestone first');
+    const result = await service.requestMilestoneReview('milestone-1', 'freelancer-1');
+
+    expect(result.status).toBe(MilestoneStatus.PENDING_STAFF_REVIEW);
+    expect(result.submittedAt).toBeInstanceOf(Date);
+    expect(milestoneRepository.save).toHaveBeenCalledWith(milestone);
   });
 
   describe('createMilestone', () => {

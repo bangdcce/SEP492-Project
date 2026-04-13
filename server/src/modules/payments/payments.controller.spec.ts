@@ -1,6 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { FundingGateway } from '../../database/entities';
+import { EscrowReleaseService } from './escrow-release.service';
 import { PaymentsController } from './payments.controller';
 import { MilestoneFundingService } from './milestone-funding.service';
 import { PayPalCheckoutService } from './pay-pal-checkout.service';
@@ -22,6 +23,9 @@ describe('PaymentsController', () => {
   const stripeCheckoutService = {
     getClientConfig: jest.fn(),
   };
+  const escrowReleaseService = {
+    releaseRetentionForMilestone: jest.fn(),
+  };
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -40,6 +44,10 @@ describe('PaymentsController', () => {
         {
           provide: PayPalCheckoutService,
           useValue: payPalCheckoutService,
+        },
+        {
+          provide: EscrowReleaseService,
+          useValue: escrowReleaseService,
         },
       ],
     }).compile();
