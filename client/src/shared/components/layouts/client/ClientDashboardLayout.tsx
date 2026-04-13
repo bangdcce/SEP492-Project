@@ -72,6 +72,7 @@ export const ClientDashboardLayout: React.FC<ClientDashboardLayoutProps> = ({
         <ClientHeader
           onMenuToggle={handleMobileMenuToggle}
           isMobileMenuOpen={isMobileMenuOpen}
+          forcedRoleBasePath="/client"
         />
         <main className={mainClass}>
           <div className={contentContainerClass}>{children}</div>

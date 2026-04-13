@@ -73,6 +73,7 @@ export const FreelancerDashboardLayout: React.FC<
         <ClientHeader
           onMenuToggle={handleMobileMenuToggle}
           isMobileMenuOpen={isMobileMenuOpen}
+          forcedRoleBasePath="/freelancer"
         />
         <main className={mainClass}>
           <div className={contentContainerClass}>{children}</div>

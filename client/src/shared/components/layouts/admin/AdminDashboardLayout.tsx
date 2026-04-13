@@ -70,6 +70,7 @@ export const AdminDashboardLayout: React.FC<AdminDashboardLayoutProps> = ({
         <ClientHeader
           onMenuToggle={handleMobileMenuToggle}
           isMobileMenuOpen={isMobileMenuOpen}
+          forcedRoleBasePath="/admin"
         />
         <main className={mainClass}>
           <div className={contentContainerClass}>{children}</div>

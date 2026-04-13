@@ -70,6 +70,7 @@ export const BrokerDashboardLayout: React.FC<BrokerDashboardLayoutProps> = ({
         <ClientHeader
           onMenuToggle={handleMobileMenuToggle}
           isMobileMenuOpen={isMobileMenuOpen}
+          forcedRoleBasePath="/broker"
         />
         <main className={mainClass}>
           <div className={contentContainerClass}>{children}</div>

@@ -842,6 +842,8 @@ export class HearingService implements OnModuleInit {
     durationMinutes: number = 60,
     options?: {
       bypassMinNotice?: boolean;
+      excludeCalendarEventIds?: string[];
+      excludeDisputeHearingId?: string;
     },
   ): Promise<HearingScheduleValidation> {
     const conflicts: string[] = [];
@@ -849,6 +851,20 @@ export class HearingService implements OnModuleInit {
     const conflictDetails: HearingScheduleConflictDetail[] = [];
     const now = new Date();
     const bypassMinNotice = options?.bypassMinNotice === true;
+    const excludeCalendarEventIds = new Set(
+      (options?.excludeCalendarEventIds || []).filter((id): id is string => Boolean(id)),
+    );
+    const excludeDisputeHearingId = options?.excludeDisputeHearingId?.trim();
+    const shouldExcludeEvent = (event: CalendarEventEntity): boolean => {
+      if (excludeCalendarEventIds.has(event.id)) {
+        return true;
+      }
+      return (
+        Boolean(excludeDisputeHearingId) &&
+        event.referenceType === 'DisputeHearing' &&
+        event.referenceId === excludeDisputeHearingId
+      );
+    };
 
     // 1. Check minimum notice period
     const hoursUntilHearing = (scheduledAt.getTime() - now.getTime()) / (1000 * 60 * 60);
@@ -942,7 +958,7 @@ export class HearingService implements OnModuleInit {
         new Map(
           [...organizerEvents, ...participantEvents].map((event) => [event.id, event]),
         ).values(),
-      );
+      ).filter((event) => !shouldExcludeEvent(event));
 
       if (allConflictingEvents.length > 0) {
         const eventTitles = allConflictingEvents.map((event) => event.title).join(', ');
@@ -5408,6 +5424,8 @@ export class HearingService implements OnModuleInit {
       durationMinutes,
       {
         bypassMinNotice: canUseTestBypass,
+        // Reschedule validation must ignore the current hearing event so it does not self-conflict.
+        excludeDisputeHearingId: hearing.id,
       },
     );
 

@@ -363,6 +363,24 @@ export class EscrowReleaseService {
     const now = new Date();
     const transactionRepo = manager.getRepository(TransactionEntity);
     const recipients: MilestoneReleaseRecipientView[] = [];
+    const retainedBalanceAfterRelease = fundedBalance
+      .minus(releaseValue)
+      .toDecimalPlaces(2, Decimal.ROUND_HALF_UP)
+      .toNumber();
+    const releaseMetadata = {
+      milestoneId: milestone.id,
+      milestoneTitle: milestone.title,
+      projectId: project.id,
+      releasedBy,
+      stage,
+      reason: reason ?? null,
+      releaseAmount: releaseValue.toNumber(),
+      developerAmount: developerAmount.toNumber(),
+      brokerAmount: brokerAmount.toNumber(),
+      platformFee: platformFee.toNumber(),
+      escrowFundedBalanceBeforeRelease: fundedBalance.toNumber(),
+      retainedBalanceAfterRelease,
+    };
 
     clientWallet.heldBalance = heldBalance.minus(releaseValue).toNumber();
     clientWallet.totalSpent = new Decimal(clientWallet.totalSpent || 0)
@@ -387,20 +405,11 @@ export class EscrowReleaseService {
         initiatedBy,
         completedAt: now,
         metadata: {
-          milestoneId: milestone.id,
-          projectId: project.id,
-          releasedBy,
-          stage,
-          reason: reason ?? null,
+          ...releaseMetadata,
           role: 'CLIENT',
-          releaseAmount: releaseValue.toNumber(),
-          developerAmount: developerAmount.toNumber(),
-          brokerAmount: brokerAmount.toNumber(),
-          platformFee: platformFee.toNumber(),
-          retainedBalanceAfterRelease: new Decimal(escrow.fundedAmount || 0)
-            .minus(releaseValue)
-            .toDecimalPlaces(2, Decimal.ROUND_HALF_UP)
-            .toNumber(),
+          sourceWalletId: clientWallet.id,
+          recipientWalletId: clientWallet.id,
+          recipientAmount: releaseValue.toNumber(),
         },
       }),
     );
@@ -451,12 +460,11 @@ export class EscrowReleaseService {
           relatedTransactionId: clientSettlementTransaction.id,
           completedAt: now,
           metadata: {
-            milestoneId: milestone.id,
-            projectId: project.id,
-            releasedBy,
-            stage,
+            ...releaseMetadata,
             role: 'FREELANCER',
             sourceWalletId: clientWallet.id,
+            recipientWalletId: freelancerWallet.id,
+            recipientAmount: developerAmount.toNumber(),
           },
         }),
       );
@@ -506,12 +514,11 @@ export class EscrowReleaseService {
           relatedTransactionId: clientSettlementTransaction.id,
           completedAt: now,
           metadata: {
-            milestoneId: milestone.id,
-            projectId: project.id,
-            releasedBy,
-            stage,
+            ...releaseMetadata,
             role: 'BROKER',
             sourceWalletId: clientWallet.id,
+            recipientWalletId: brokerWallet.id,
+            recipientAmount: brokerAmount.toNumber(),
           },
         }),
       );
@@ -562,13 +569,12 @@ export class EscrowReleaseService {
           relatedTransactionId: clientSettlementTransaction.id,
           completedAt: now,
           metadata: {
-            milestoneId: milestone.id,
-            projectId: project.id,
-            releasedBy,
-            stage,
+            ...releaseMetadata,
             role: 'PLATFORM',
             sourceWalletId: clientWallet.id,
             platformOwnerUserId: platformOwner.id,
+            recipientWalletId: platformWallet.id,
+            recipientAmount: platformFee.toNumber(),
           },
         }),
       );

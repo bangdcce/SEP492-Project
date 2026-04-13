@@ -56,6 +56,7 @@ describe('WalletService', () => {
           provide: getRepositoryToken(TransactionEntity),
           useValue: {
             findAndCount: jest.fn(),
+            findBy: jest.fn(),
             create: jest.fn((data) => data),
             save: jest.fn(),
           },
@@ -189,6 +190,101 @@ describe('WalletService', () => {
       id: 'tx-1',
       type: TransactionType.DEPOSIT,
       status: TransactionStatus.COMPLETED,
+    });
+  });
+
+  it('enriches release recipient rows with shared release breakdown metadata', async () => {
+    walletRepository.findOne.mockResolvedValueOnce({
+      id: 'wallet-freelancer',
+      userId: 'freelancer-1',
+      balance: 85,
+      pendingBalance: 0,
+      heldBalance: 0,
+      totalDeposited: 0,
+      totalWithdrawn: 0,
+      totalEarned: 85,
+      totalSpent: 0,
+      currency: 'USD',
+      status: WalletStatus.ACTIVE,
+      createdAt: new Date('2026-03-13T00:00:00.000Z'),
+      updatedAt: new Date('2026-03-13T00:00:00.000Z'),
+    } as WalletEntity);
+    transactionRepository.findAndCount.mockResolvedValueOnce([
+      [
+        {
+          id: 'tx-freelancer',
+          walletId: 'wallet-freelancer',
+          amount: 85,
+          fee: 0,
+          netAmount: 85,
+          currency: 'USD',
+          type: TransactionType.ESCROW_RELEASE,
+          status: TransactionStatus.COMPLETED,
+          referenceType: 'Escrow',
+          referenceId: 'escrow-1',
+          paymentMethod: null,
+          externalTransactionId: null,
+          balanceAfter: 85,
+          description: 'Milestone payout for "Kickoff"',
+          failureReason: null,
+          metadata: {
+            milestoneId: 'milestone-1',
+            role: 'FREELANCER',
+            sourceWalletId: 'wallet-client',
+          },
+          relatedTransactionId: 'tx-client',
+          createdAt: new Date('2026-03-13T00:00:00.000Z'),
+          completedAt: new Date('2026-03-13T00:00:00.000Z'),
+        } as TransactionEntity,
+      ],
+      1,
+    ]);
+    transactionRepository.findBy.mockResolvedValueOnce([
+      {
+        id: 'tx-client',
+        walletId: 'wallet-client',
+        amount: 100,
+        fee: 0,
+        netAmount: 100,
+        currency: 'USD',
+        type: TransactionType.ESCROW_RELEASE,
+        status: TransactionStatus.COMPLETED,
+        referenceType: 'Escrow',
+        referenceId: 'escrow-1',
+        paymentMethod: null,
+        externalTransactionId: null,
+        balanceAfter: 0,
+        description: 'Escrow released for milestone "Kickoff"',
+        failureReason: null,
+        metadata: {
+          milestoneId: 'milestone-1',
+          projectId: 'project-1',
+          stage: 'release_full',
+          releaseAmount: 100,
+          developerAmount: 85,
+          brokerAmount: 10,
+          platformFee: 5,
+          retainedBalanceAfterRelease: 0,
+        },
+        relatedTransactionId: null,
+        createdAt: new Date('2026-03-13T00:00:00.000Z'),
+        completedAt: new Date('2026-03-13T00:00:00.000Z'),
+      } as TransactionEntity,
+    ]);
+
+    const result = await service.listTransactions('freelancer-1', 1, 10);
+
+    expect(transactionRepository.findBy).toHaveBeenCalledTimes(1);
+    expect(result.items[0]).toMatchObject({
+      id: 'tx-freelancer',
+      metadata: expect.objectContaining({
+        role: 'FREELANCER',
+        stage: 'release_full',
+        releaseAmount: 100,
+        developerAmount: 85,
+        brokerAmount: 10,
+        platformFee: 5,
+      }),
     });
   });
 
