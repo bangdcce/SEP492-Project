@@ -16,9 +16,11 @@ import { BrokerProposalEntity } from '../../database/entities/broker-proposal.en
 import { TrustProfilesController } from './trust-profiles.controller';
 import { TrustProfilesService } from './trust-profiles.service';
 import { FreelancerDashboardController } from './freelancer-dashboard.controller';
+import { AuthModule } from '../auth/auth.module';
 
 @Module({
   imports: [
+    AuthModule,
     TypeOrmModule.forFeature([
       UserEntity,
       ProfileEntity,

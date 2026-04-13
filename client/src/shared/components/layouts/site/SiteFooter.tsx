@@ -28,7 +28,6 @@ const quickLinks = [
 const accessLinks = [
   { label: "Sign In", to: ROUTES.LOGIN },
   { label: "Create Account", to: ROUTES.REGISTER },
-  { label: "KYC Verification", to: ROUTES.KYC_VERIFICATION },
 ];
 
 const contactItems = [
@@ -41,14 +40,14 @@ const contactItems = [
   {
     icon: Mail,
     label: "General Support",
-    value: "support@interdev.vn",
-    href: "mailto:support@interdev.vn",
+    value: "bao20048888@gmail.com",
+    href: "mailto:bao20048888@gmail.com",
   },
   {
     icon: Mail,
     label: "Contracts Desk",
-    value: "contracts@interdev.vn",
-    href: "mailto:contracts@interdev.vn",
+    value: "bao20048888@gmail.com",
+    href: "mailto:bao20048888@gmail.com",
   },
   {
     icon: MapPin,
