@@ -104,19 +104,15 @@ export const MessageComposer = memo(function MessageComposer({
     setQuestionOpen(false);
   }, [questionTargetId, questionText, onAskQuestion]);
 
-  if (!canSendMessage) {
-    return (
-      <div className="border-t border-slate-200 bg-slate-50 px-4 py-3">
-        <div className="flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+  return (
+    <div className="border-t border-slate-200 bg-white px-4 py-3">
+      {!canSendMessage && (
+        <div className="mb-2 flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
           <AlertCircle className="h-4 w-4 shrink-0 text-amber-600" />
           <span>{chatBlockedReason}</span>
         </div>
-      </div>
-    );
-  }
+      )}
 
-  return (
-    <div className="border-t border-slate-200 bg-white px-4 py-3">
       {/* Pending question alert */}
       {pendingQuestionsForMe && pendingQuestionsForMe > 0 ? (
         <div className="mb-2 flex items-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">
@@ -133,18 +129,25 @@ export const MessageComposer = memo(function MessageComposer({
       <div className="flex items-end gap-2">
         <Textarea
           value={messageInput}
+          disabled={!canSendMessage}
           onChange={(e) => {
             setMessageInput(e.target.value);
-            onTyping?.();
+            if (canSendMessage) {
+              onTyping?.();
+            }
           }}
           onKeyDown={handleKeyDown}
-          placeholder="Type a message… (Enter to send, Shift+Enter for new line)"
+          placeholder={
+            canSendMessage
+              ? "Type a message… (Enter to send, Shift+Enter for new line)"
+              : "Chat is currently restricted"
+          }
           className="min-h-10 max-h-30 flex-1 resize-none rounded-lg border-slate-300 bg-white text-sm focus-visible:ring-slate-400"
           rows={1}
         />
         <button
           onClick={handleSend}
-          disabled={sending || !messageInput.trim()}
+          disabled={!canSendMessage || sending || !messageInput.trim()}
           className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-slate-800 text-white hover:bg-slate-700 disabled:opacity-40 transition-colors"
           aria-label="Send message"
         >

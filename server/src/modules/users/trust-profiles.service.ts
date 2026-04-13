@@ -28,6 +28,12 @@ type TrustProfileUserResponse = {
   role?: string;
   bio?: string;
   skills?: string[];
+  cvUrl?: string;
+  linkedinUrl?: string;
+  portfolioLinks?: Array<{
+    title?: string;
+    url: string;
+  }>;
   createdAt?: string;
 };
 
@@ -247,6 +253,21 @@ export class TrustProfilesService {
   }
 
   private mapUser(user: UserEntity, profile: ProfileEntity | null): TrustProfileUserResponse {
+    const normalizedRole = String(user.role ?? '').toUpperCase();
+    const canExposeProfessionalLinks =
+      normalizedRole === 'FREELANCER' || normalizedRole === 'BROKER';
+
+    const cvUrl = profile?.cvUrl?.trim() || undefined;
+    const linkedinUrl = profile?.linkedinUrl?.trim() || undefined;
+    const portfolioLinks = Array.isArray(profile?.portfolioLinks)
+      ? profile.portfolioLinks
+          .map((item) => ({
+            title: item?.title?.trim() || undefined,
+            url: item?.url?.trim() || '',
+          }))
+          .filter((item) => item.url.length > 0)
+      : [];
+
     return {
       id: user.id,
       fullName: user.fullName,
@@ -263,6 +284,9 @@ export class TrustProfilesService {
       role: user.role,
       bio: profile?.bio ?? undefined,
       skills: Array.isArray(profile?.skills) ? profile.skills : [],
+      cvUrl: canExposeProfessionalLinks ? cvUrl : undefined,
+      linkedinUrl: canExposeProfessionalLinks ? linkedinUrl : undefined,
+      portfolioLinks: canExposeProfessionalLinks ? portfolioLinks : [],
       createdAt: user.createdAt?.toISOString(),
     };
   }

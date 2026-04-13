@@ -5,7 +5,7 @@ import {
   getSignupTransport,
   validateStaffCvFile,
   validateStaffKycDraft,
-} from "./signup-flow";
+} from "./signup-flow.ts";
 
 test("staff signup uses Upload CV and Manual KYC steps", () => {
   assert.deepEqual(getSignupStepLabels("staff"), [

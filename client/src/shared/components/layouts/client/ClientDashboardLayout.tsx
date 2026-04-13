@@ -7,6 +7,7 @@ import React, { useState } from "react";
 import { ClientSidebar } from "./ClientSidebar";
 import { ClientHeader } from "./ClientHeader";
 import { ClientFooter } from "./ClientFooter";
+import { useCaptureMode } from "@/shared/hooks";
 
 interface ClientDashboardLayoutProps {
   children: React.ReactNode;
@@ -21,6 +22,7 @@ export const ClientDashboardLayout: React.FC<ClientDashboardLayoutProps> = ({
 }) => {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const isCaptureMode = useCaptureMode();
 
   const handleToggleSidebar = () => {
     setIsSidebarCollapsed(!isSidebarCollapsed);
@@ -70,10 +72,11 @@ export const ClientDashboardLayout: React.FC<ClientDashboardLayoutProps> = ({
         <ClientHeader
           onMenuToggle={handleMobileMenuToggle}
           isMobileMenuOpen={isMobileMenuOpen}
+          forcedRoleBasePath="/client"
         />
         <main className={mainClass}>
           <div className={contentContainerClass}>{children}</div>
-          {showFooter && <ClientFooter />}
+          {showFooter && !isCaptureMode && <ClientFooter />}
         </main>
       </div>
     </div>

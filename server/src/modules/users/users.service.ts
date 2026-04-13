@@ -1,4 +1,10 @@
-import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+  ForbiddenException,
+  Logger,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Like, In } from 'typeorm';
 import { UserEntity, UserRole } from '../../database/entities/user.entity';
@@ -20,9 +26,12 @@ import {
 } from './dto/admin-user.dto';
 import * as bcrypt from 'bcryptjs';
 import { getSignedUrl } from '../../common/utils/supabase-storage.util';
+import { EmailService } from '../auth/email.service';
 
 @Injectable()
 export class UsersService {
+  private readonly logger = new Logger(UsersService.name);
+
   constructor(
     @InjectRepository(UserEntity)
     private userRepo: Repository<UserEntity>,
@@ -38,7 +47,42 @@ export class UsersService {
     private projectRequestRepo: Repository<ProjectRequestEntity>,
     @InjectRepository(ProjectRequestProposalEntity)
     private projectRequestProposalRepo: Repository<ProjectRequestProposalEntity>,
+    private readonly emailService: EmailService,
   ) {}
+
+  private async sendBanStatusEmail(input: {
+    user: UserEntity;
+    reason: string;
+    type: 'BAN' | 'UNBAN';
+  }): Promise<void> {
+    const reason = `${input.reason || ''}`.trim() || 'No reason was provided by the administrator.';
+    const fullName = input.user.fullName?.trim() || 'User';
+    const subject =
+      input.type === 'BAN'
+        ? 'InterDev account access has been restricted'
+        : 'InterDev account access has been restored';
+    const title =
+      input.type === 'BAN' ? 'Your account was banned' : 'Your account was unbanned';
+    const body =
+      input.type === 'BAN'
+        ? `Hello ${fullName}, your InterDev account has been banned. Reason: ${reason}`
+        : `Hello ${fullName}, your InterDev account has been unbanned. Reason: ${reason}`;
+
+    try {
+      await this.emailService.sendPlatformNotification({
+        email: input.user.email,
+        subject,
+        title,
+        body,
+      });
+    } catch (error) {
+      this.logger.error(
+        `Failed to send ${input.type} notification email to ${input.user.email}: ${
+          error instanceof Error ? error.message : 'unknown error'
+        }`,
+      );
+    }
+  }
 
   private parseSkillFilter(input?: string | string[]): string[] {
     const values = Array.isArray(input) ? input : `${input || ''}`.split(',');
@@ -245,6 +289,11 @@ export class UsersService {
     user.bannedBy = adminId;
 
     await this.userRepo.save(user);
+    await this.sendBanStatusEmail({
+      user,
+      reason: dto.reason,
+      type: 'BAN',
+    });
 
     return {
       message: 'User banned successfully',
@@ -268,11 +317,16 @@ export class UsersService {
 
     // Update user status
     user.isBanned = false;
-    user.banReason = null;
-    user.bannedAt = null;
-    user.bannedBy = null;
+    user.banReason = null as any;
+    user.bannedAt = null as any;
+    user.bannedBy = null as any;
 
     await this.userRepo.save(user);
+    await this.sendBanStatusEmail({
+      user,
+      reason: dto.reason,
+      type: 'UNBAN',
+    });
 
     return {
       message: 'User unbanned successfully',

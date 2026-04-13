@@ -166,73 +166,83 @@ export class AuthService {
       const userSkillDomainRepo =
         this.userRepository.manager.getRepository('UserSkillDomainEntity');
       const userSkillRepo = this.userRepository.manager.getRepository('UserSkillEntity');
+      const skillDomainRepo = this.userRepository.manager.getRepository(SkillDomainEntity);
+      const skillRepo = this.userRepository.manager.getRepository(SkillEntity);
 
       const selectedDomainIds = new Set(parsedDomains.ids);
       const selectedSkillIds = new Set(parsedSkills.ids);
       const normalizedCustomDomains = this.normalizeCustomEntries(parsedDomains.custom);
       const normalizedCustomSkills = this.normalizeCustomEntries(parsedSkills.custom);
 
-      if (normalizedCustomDomains.length > 0) {
-        const skillDomainRepo = this.userRepository.manager.getRepository(SkillDomainEntity);
+      for (const domainName of normalizedCustomDomains) {
+        // Only reuse official/public domains. User-added entries stay private per account.
+        const domain = await skillDomainRepo
+          .createQueryBuilder('domain')
+          .where('LOWER(domain.name) = LOWER(:name)', { name: domainName })
+          .andWhere('domain.isActive = :isActive', { isActive: true })
+          .andWhere('(domain.description IS NULL OR domain.description NOT ILIKE :customPrefix)', {
+            customPrefix: 'User-added%',
+          })
+          .getOne();
 
-        for (const domainName of normalizedCustomDomains) {
-          let domain = await skillDomainRepo
-            .createQueryBuilder('domain')
-            .where('LOWER(domain.name) = LOWER(:name)', { name: domainName })
-            .getOne();
-
-          if (!domain) {
-            domain = await skillDomainRepo.save(
-              skillDomainRepo.create({
-                name: domainName,
-                slug: this.toSafeSlug(domainName, 'custom-domain'),
-                description: 'User-added during registration',
-                isActive: true,
-                sortOrder: 9999,
-              }),
-            );
-          }
-
+        if (domain) {
           selectedDomainIds.add(domain.id);
+          continue;
         }
+
+        const privateDomain = await skillDomainRepo.save(
+          skillDomainRepo.create({
+            name: domainName,
+            slug: this.toSafeSlug(domainName, 'custom-domain'),
+            description: 'User-added during registration (private)',
+            isActive: false,
+            sortOrder: 9999,
+          }),
+        );
+
+        selectedDomainIds.add(privateDomain.id);
       }
 
-      if (normalizedCustomSkills.length > 0) {
-        const skillRepo = this.userRepository.manager.getRepository(SkillEntity);
+      for (const skillName of normalizedCustomSkills) {
+        // Only reuse official/public skills. User-added entries stay private per account.
+        const skill = await skillRepo
+          .createQueryBuilder('skill')
+          .where('LOWER(skill.name) = LOWER(:name)', { name: skillName })
+          .andWhere('skill.isActive = :isActive', { isActive: true })
+          .andWhere('(skill.description IS NULL OR skill.description NOT ILIKE :customPrefix)', {
+            customPrefix: 'User-added%',
+          })
+          .getOne();
 
-        for (const skillName of normalizedCustomSkills) {
-          let skill = await skillRepo
-            .createQueryBuilder('skill')
-            .where('LOWER(skill.name) = LOWER(:name)', { name: skillName })
-            .getOne();
+        if (skill) {
+          const needsRoleFlagUpdate =
+            (role === UserRole.FREELANCER && !skill.forFreelancer) ||
+            (role === UserRole.BROKER && !skill.forBroker);
 
-          if (!skill) {
-            skill = await skillRepo.save(
-              skillRepo.create({
-                name: skillName,
-                slug: this.toSafeSlug(skillName, 'custom-skill'),
-                category: SkillCategory.OTHER,
-                description: 'User-added during registration',
-                isActive: true,
-                sortOrder: 9999,
-                forFreelancer: role === UserRole.FREELANCER,
-                forBroker: role === UserRole.BROKER,
-              }),
-            );
-          } else {
-            const needsRoleFlagUpdate =
-              (role === UserRole.FREELANCER && !skill.forFreelancer) ||
-              (role === UserRole.BROKER && !skill.forBroker);
-
-            if (needsRoleFlagUpdate) {
-              if (role === UserRole.FREELANCER) skill.forFreelancer = true;
-              if (role === UserRole.BROKER) skill.forBroker = true;
-              await skillRepo.save(skill);
-            }
+          if (needsRoleFlagUpdate) {
+            if (role === UserRole.FREELANCER) skill.forFreelancer = true;
+            if (role === UserRole.BROKER) skill.forBroker = true;
+            await skillRepo.save(skill);
           }
 
           selectedSkillIds.add(skill.id);
+          continue;
         }
+
+        const privateSkill = await skillRepo.save(
+          skillRepo.create({
+            name: skillName,
+            slug: this.toSafeSlug(skillName, 'custom-skill'),
+            category: SkillCategory.OTHER,
+            description: 'User-added during registration (private)',
+            isActive: false,
+            sortOrder: 9999,
+            forFreelancer: role === UserRole.FREELANCER,
+            forBroker: role === UserRole.BROKER,
+          }),
+        );
+
+        selectedSkillIds.add(privateSkill.id);
       }
 
       // Save domains.

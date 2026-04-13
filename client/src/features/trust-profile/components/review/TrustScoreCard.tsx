@@ -1,4 +1,4 @@
-import { CheckCircle, XCircle } from "lucide-react";
+import { CheckCircle, ExternalLink, FileText, Globe, Linkedin, XCircle } from "lucide-react";
 import type { User } from "../../types";
 import { TrustBadge } from "../ui/TrustBadge";
 
@@ -9,6 +9,28 @@ interface TrustScoreCardProps {
 export function TrustScoreCard({ user }: TrustScoreCardProps) {
   // Convert to number in case API returns string
   const score = Number(user.currentTrustScore) || 0;
+  const normalizedRole = String(user.role || "").toUpperCase();
+  const isProfessionalRole =
+    normalizedRole === "FREELANCER" || normalizedRole === "BROKER";
+
+  const sanitizeLink = (value?: string | null) => {
+    const trimmed = value?.trim();
+    if (!trimmed || /^javascript:/i.test(trimmed)) {
+      return null;
+    }
+    return trimmed;
+  };
+
+  const cvUrl = sanitizeLink(user.cvUrl);
+  const linkedinUrl = sanitizeLink(user.linkedinUrl);
+  const portfolioLinks = (user.portfolioLinks ?? [])
+    .map((link) => ({
+      title: link.title?.trim() || undefined,
+      url: sanitizeLink(link.url) || "",
+    }))
+    .filter((link) => link.url.length > 0);
+  const hasProfessionalLinks =
+    Boolean(cvUrl) || Boolean(linkedinUrl) || portfolioLinks.length > 0;
 
   // Determine color based on score
   const getScoreColor = (score: number) => {
@@ -95,6 +117,62 @@ export function TrustScoreCard({ user }: TrustScoreCardProps) {
           </div>
         </div>
       </div>
+
+      {isProfessionalRole ? (
+        <div className="mt-4 border-t border-gray-200 pt-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+            Professional Profile
+          </p>
+
+          {hasProfessionalLinks ? (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {cvUrl ? (
+                <a
+                  href={cvUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-xs font-medium text-blue-700 transition-colors hover:bg-blue-100"
+                >
+                  <FileText className="h-3.5 w-3.5" />
+                  View CV
+                  <ExternalLink className="h-3.5 w-3.5" />
+                </a>
+              ) : null}
+
+              {linkedinUrl ? (
+                <a
+                  href={linkedinUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 rounded-md border border-sky-200 bg-sky-50 px-2.5 py-1.5 text-xs font-medium text-sky-700 transition-colors hover:bg-sky-100"
+                >
+                  <Linkedin className="h-3.5 w-3.5" />
+                  View LinkedIn
+                  <ExternalLink className="h-3.5 w-3.5" />
+                </a>
+              ) : null}
+
+              {portfolioLinks.map((link, index) => (
+                <a
+                  key={`${link.url}-${index}`}
+                  href={link.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 rounded-md border border-teal-200 bg-teal-50 px-2.5 py-1.5 text-xs font-medium text-teal-700 transition-colors hover:bg-teal-100"
+                >
+                  <Globe className="h-3.5 w-3.5" />
+                  View {link.title || `Portfolio ${index + 1}`}
+                  <ExternalLink className="h-3.5 w-3.5" />
+                </a>
+              ))}
+            </div>
+          ) : (
+            <p className="mt-2 text-xs text-gray-500">
+              No public CV or profile links yet.
+            </p>
+          )}
+        </div>
+      ) : null}
     </div>
   );
 }

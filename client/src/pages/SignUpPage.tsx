@@ -78,7 +78,12 @@ export function SignUpPage({
       setLoadingDomains(true);
       getSkillDomains()
         .then((domains) => {
-          setAvailableDomains(domains || []);
+          const filteredDomains = (domains || []).filter(
+            (domain) =>
+              !domain.description ||
+              !domain.description.toLowerCase().startsWith("user-added"),
+          );
+          setAvailableDomains(filteredDomains);
         })
         .catch((err) => {
           toast.error("Failed to load domains");
@@ -97,7 +102,14 @@ export function SignUpPage({
           ? "FREELANCER"
           : "BROKER";
       getSkills(role)
-        .then((skills) => setAvailableSkills(skills || []))
+        .then((skills) => {
+          const filteredSkills = (skills || []).filter(
+            (skill) =>
+              !skill.description ||
+              !skill.description.toLowerCase().startsWith("user-added"),
+          );
+          setAvailableSkills(filteredSkills);
+        })
         .catch((err) => {
           toast.error("Failed to load skills");
           setAvailableSkills([]);

@@ -185,6 +185,32 @@ export function MilestoneFundingCard({
     );
   }
 
+  const retentionAmount = Number(milestone.retentionAmount || 0);
+  const hasRetention = Number.isFinite(retentionAmount) && retentionAmount > 0;
+  const fundingBreakdownCards = [
+    {
+      label: "Freelancer",
+      amount: escrow.developerShare,
+    },
+    {
+      label: "Broker",
+      amount: escrow.brokerShare,
+    },
+    {
+      label: "Platform fee",
+      amount: escrow.platformFee,
+    },
+    ...(hasRetention
+      ? [
+          {
+            label: "Retention hold",
+            amount: retentionAmount,
+            helper: "Held back until retention release",
+          },
+        ]
+      : []),
+  ];
+
   return (
     <section className="overflow-hidden rounded-[1.9rem] border border-slate-200 bg-white shadow-sm">
       <div
@@ -225,25 +251,23 @@ export function MilestoneFundingCard({
             </div>
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-3">
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-              <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Freelancer</p>
-              <p className="mt-2 text-lg font-semibold text-slate-950">
-                {formatCurrency(escrow.developerShare, displayCurrency)}
-              </p>
-            </div>
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-              <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Broker</p>
-              <p className="mt-2 text-lg font-semibold text-slate-950">
-                {formatCurrency(escrow.brokerShare, displayCurrency)}
-              </p>
-            </div>
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-              <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Platform fee</p>
-              <p className="mt-2 text-lg font-semibold text-slate-950">
-                {formatCurrency(escrow.platformFee, displayCurrency)}
-              </p>
-            </div>
+          <div className={`grid gap-3 ${hasRetention ? "sm:grid-cols-2 xl:grid-cols-4" : "sm:grid-cols-3"}`}>
+            {fundingBreakdownCards.map((card) => (
+              <div
+                key={card.label}
+                className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3"
+              >
+                <p className="text-xs uppercase tracking-[0.16em] text-slate-500">
+                  {card.label}
+                </p>
+                <p className="mt-2 text-lg font-semibold text-slate-950">
+                  {formatCurrency(card.amount, displayCurrency)}
+                </p>
+                {"helper" in card && card.helper ? (
+                  <p className="mt-1 text-xs text-slate-500">{card.helper}</p>
+                ) : null}
+              </div>
+            ))}
           </div>
 
           <div className="flex flex-wrap gap-3 text-sm text-slate-500">

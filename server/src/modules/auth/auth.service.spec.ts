@@ -2,6 +2,8 @@ import { BadRequestException, ConflictException, UnauthorizedException } from '@
 import * as bcrypt from 'bcryptjs';
 
 import { ProjectStatus } from '../../database/entities/project.entity';
+import { SkillDomainEntity } from '../../database/entities/skill-domain.entity';
+import { SkillEntity } from '../../database/entities/skill.entity';
 import { StaffApplicationEntity, StaffApplicationStatus } from '../../database/entities/staff-application.entity';
 import { UserEntity, UserRole, UserStatus } from '../../database/entities/user.entity';
 import { AuthService } from './auth.service';
@@ -98,6 +100,48 @@ describe('AuthService.register', () => {
       }),
       overrides,
     );
+
+  const createLookupRepoMock = () => ({
+    createQueryBuilder: jest.fn(() => ({
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      getOne: jest.fn().mockResolvedValue(null),
+    })),
+    create: jest.fn((data) => data),
+    save: jest.fn().mockImplementation(async (value) => value),
+  });
+
+  const mockRegistrationAssociationRepositories = (options?: {
+    staffApplicationRepository?: {
+      create: jest.Mock;
+      save: jest.Mock;
+    };
+  }) => {
+    const userSkillDomainRepository = {
+      save: jest.fn().mockResolvedValue(undefined),
+    };
+    const userSkillRepository = {
+      save: jest.fn().mockResolvedValue(undefined),
+    };
+    const skillDomainRepository = createLookupRepoMock();
+    const skillRepository = createLookupRepoMock();
+
+    userRepository.manager.getRepository.mockImplementation((entityName: unknown) => {
+      if (entityName === 'UserSkillDomainEntity') return userSkillDomainRepository;
+      if (entityName === 'UserSkillEntity') return userSkillRepository;
+      if (entityName === SkillDomainEntity) return skillDomainRepository;
+      if (entityName === SkillEntity) return skillRepository;
+      if (entityName === StaffApplicationEntity && options?.staffApplicationRepository) {
+        return options.staffApplicationRepository;
+      }
+      throw new Error(`Unexpected repository request: ${String(entityName)}`);
+    });
+
+    return {
+      userSkillDomainRepository,
+      userSkillRepository,
+    };
+  };
 
   beforeEach(() => {
     userRepository = createRepositoryMock();
@@ -216,19 +260,9 @@ describe('AuthService.register', () => {
   });
 
   it('persists selected domains and skills for a freelancer registration', async () => {
-    const domainRepository = {
-      save: jest.fn().mockResolvedValue(undefined),
-    };
-    const skillRepository = {
-      save: jest.fn().mockResolvedValue(undefined),
-    };
-
     userRepository.findOne.mockResolvedValue(null);
-    userRepository.manager.getRepository.mockImplementation((entityName: string) => {
-      if (entityName === 'UserSkillDomainEntity') return domainRepository;
-      if (entityName === 'UserSkillEntity') return skillRepository;
-      throw new Error(`Unexpected repository request: ${entityName}`);
-    });
+    const { userSkillDomainRepository, userSkillRepository } =
+      mockRegistrationAssociationRepositories();
 
     await service.register(
       createRegisterDto({
@@ -240,11 +274,11 @@ describe('AuthService.register', () => {
       'Chrome',
     );
 
-    expect(domainRepository.save).toHaveBeenCalledWith([
+    expect(userSkillDomainRepository.save).toHaveBeenCalledWith([
       { userId: 'user-1', domainId: 'domain-1' },
       { userId: 'user-1', domainId: 'domain-2' },
     ]);
-    expect(skillRepository.save).toHaveBeenCalledWith([
+    expect(userSkillRepository.save).toHaveBeenCalledWith([
       {
         userId: 'user-1',
         skillId: 'skill-1',
@@ -262,19 +296,9 @@ describe('AuthService.register', () => {
   });
 
   it('persists selected domains and skills for a broker registration', async () => {
-    const domainRepository = {
-      save: jest.fn().mockResolvedValue(undefined),
-    };
-    const skillRepository = {
-      save: jest.fn().mockResolvedValue(undefined),
-    };
-
     userRepository.findOne.mockResolvedValue(null);
-    userRepository.manager.getRepository.mockImplementation((entityName: string) => {
-      if (entityName === 'UserSkillDomainEntity') return domainRepository;
-      if (entityName === 'UserSkillEntity') return skillRepository;
-      throw new Error(`Unexpected repository request: ${entityName}`);
-    });
+    const { userSkillDomainRepository, userSkillRepository } =
+      mockRegistrationAssociationRepositories();
 
     const result = await service.register(
       createRegisterDto({
@@ -286,10 +310,10 @@ describe('AuthService.register', () => {
       'Edge',
     );
 
-    expect(domainRepository.save).toHaveBeenCalledWith([
+    expect(userSkillDomainRepository.save).toHaveBeenCalledWith([
       { userId: 'user-1', domainId: 'domain-1' },
     ]);
-    expect(skillRepository.save).toHaveBeenCalledWith([
+    expect(userSkillRepository.save).toHaveBeenCalledWith([
       {
         userId: 'user-1',
         skillId: 'skill-1',
@@ -369,19 +393,7 @@ describe('AuthService.register', () => {
   });
 
   it('skips association saves when broker skill selections are empty', async () => {
-    const domainRepository = {
-      save: jest.fn().mockResolvedValue(undefined),
-    };
-    const skillRepository = {
-      save: jest.fn().mockResolvedValue(undefined),
-    };
-
     userRepository.findOne.mockResolvedValue(null);
-    userRepository.manager.getRepository.mockImplementation((entityName: string) => {
-      if (entityName === 'UserSkillDomainEntity') return domainRepository;
-      if (entityName === 'UserSkillEntity') return skillRepository;
-      throw new Error(`Unexpected repository request: ${entityName}`);
-    });
 
     const result = await service.register(
       createRegisterDto({
@@ -392,8 +404,6 @@ describe('AuthService.register', () => {
     );
 
     expect(userRepository.manager.getRepository).not.toHaveBeenCalled();
-    expect(domainRepository.save).not.toHaveBeenCalled();
-    expect(skillRepository.save).not.toHaveBeenCalled();
     expect(result.role).toBe(UserRole.BROKER);
   });
 

@@ -205,6 +205,8 @@ export class HearingVerdictOrchestratorService {
       },
       requesterId,
       requesterRole,
+      undefined,
+      { hearingId },
     );
 
     try {

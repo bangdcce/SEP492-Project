@@ -938,8 +938,8 @@ const QuestionItem = memo(function QuestionItem({
 /* ─── Verdict timeline event ─── */
 
 const RESULT_LABELS: Record<string, string> = {
-  WIN_CLIENT: "In Favor of Client",
-  WIN_FREELANCER: "In Favor of Freelancer",
+  WIN_CLIENT: "In Favor of Raiser",
+  WIN_FREELANCER: "In Favor of Defendant",
   SPLIT: "Split Resolution",
 };
 
@@ -951,7 +951,7 @@ const VerdictTimelineItem = memo(function VerdictTimelineItem({
   const label = RESULT_LABELS[item.verdictResult] ?? item.verdictResult;
   return (
     <div className="my-4 flex items-center gap-3">
-      <div className="flex-1 h-px bg-gradient-to-r from-transparent via-amber-300 to-transparent" />
+      <div className="flex-1 h-px bg-linear-to-r from-transparent via-amber-300 to-transparent" />
       <div className="inline-flex items-center gap-2 rounded-full border border-amber-300 bg-amber-50 px-4 py-1.5 shadow-sm">
         <Scale className="h-4 w-4 text-amber-700" />
         <span className="text-xs font-semibold text-amber-900">
@@ -963,7 +963,7 @@ const VerdictTimelineItem = memo(function VerdictTimelineItem({
           </span>
         )}
       </div>
-      <div className="flex-1 h-px bg-gradient-to-r from-transparent via-amber-300 to-transparent" />
+      <div className="flex-1 h-px bg-linear-to-r from-transparent via-amber-300 to-transparent" />
     </div>
   );
 });
