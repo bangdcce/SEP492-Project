@@ -9,7 +9,10 @@ export class HearingReminderScheduler {
 
   constructor(private readonly hearingService: HearingService) {}
 
-  @Cron(CronExpression.EVERY_MINUTE, { name: 'hearing-reminder-dispatch' })
+  @Cron(CronExpression.EVERY_MINUTE, {
+    name: 'hearing-reminder-dispatch',
+    timeZone: 'Asia/Ho_Chi_Minh',
+  })
   async dispatchDueHearingReminders(): Promise<void> {
     if (
       !isBackgroundTaskEnabled(process.env, 'HEARING_REMINDER_CRON_ENABLED', {

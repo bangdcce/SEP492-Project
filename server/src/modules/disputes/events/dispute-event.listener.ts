@@ -774,35 +774,64 @@ export class DisputeEventListener {
     verdictId?: string;
     appealDeadline?: Date;
     issuedBy?: string;
+    adjudicatorId?: string;
+    hearingId?: string;
   }): Promise<void> {
     if (!payload?.disputeId) {
       return;
+    }
+
+    let targetHearingId = String(payload.hearingId || '').trim() || null;
+
+    if (targetHearingId) {
+      const explicitHearing = await this.hearingRepo.findOne({
+        where: { id: targetHearingId, disputeId: payload.disputeId },
+        select: ['id'],
+      });
+      targetHearingId = explicitHearing?.id || null;
+    }
+
+    if (!targetHearingId) {
+      const activeHearing = await this.hearingRepo.findOne({
+        where: {
+          disputeId: payload.disputeId,
+          status: In([HearingStatus.IN_PROGRESS, HearingStatus.PAUSED, HearingStatus.SCHEDULED]),
+        },
+        order: { createdAt: 'DESC' },
+        select: ['id'],
+      });
+      targetHearingId = activeHearing?.id || null;
+    }
+
+    if (!targetHearingId) {
+      const latestHearing = await this.hearingRepo.findOne({
+        where: { disputeId: payload.disputeId },
+        order: { createdAt: 'DESC' },
+        select: ['id'],
+      });
+      targetHearingId = latestHearing?.id || null;
     }
 
     const verdictPayload = {
       disputeId: payload.disputeId,
       verdictId: payload.verdictId,
       appealDeadline: payload.appealDeadline,
+      hearingId: targetHearingId,
       serverTimestamp: this.toIsoString(),
     };
 
-    // Emit to hearing room so participants in the hearing see it in real-time
-    const activeHearing = await this.hearingRepo.findOne({
-      where: { disputeId: payload.disputeId },
-      order: { createdAt: 'DESC' },
-      select: ['id'],
-    });
-    if (activeHearing) {
-      this.gateway.emitHearingEvent(activeHearing.id, 'VERDICT_ISSUED', verdictPayload);
+    if (targetHearingId) {
+      this.gateway.emitHearingEvent(targetHearingId, 'VERDICT_ISSUED', verdictPayload);
     }
 
     this.gateway.emitDisputeEvent(payload.disputeId, 'VERDICT_ISSUED', verdictPayload);
     this.gateway.emitStaffDashboardEvent('VERDICT_ISSUED', verdictPayload);
 
     await this.appendLedger(payload.disputeId, 'VERDICT_ISSUED', {
-      actorId: payload.issuedBy || null,
+      actorId: payload.issuedBy || payload.adjudicatorId || null,
       metadata: {
         verdictId: payload.verdictId || null,
+        hearingId: targetHearingId,
         appealDeadline: payload.appealDeadline ? this.toIsoString(payload.appealDeadline) : null,
       },
     });

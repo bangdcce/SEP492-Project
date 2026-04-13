@@ -21,8 +21,8 @@ interface PreviousVerdictBannerProps {
 }
 
 const RESULT_LABEL: Record<string, string> = {
-  WIN_CLIENT: "Ruled in favour of Client",
-  WIN_FREELANCER: "Ruled in favour of Freelancer",
+  WIN_CLIENT: "Ruled in favour of Raiser",
+  WIN_FREELANCER: "Ruled in favour of Defendant",
   SPLIT: "Split / Partial award",
 };
 
