@@ -107,7 +107,7 @@ describe('AuthService profile flows', () => {
 
     expect(userRepository.findOne).toHaveBeenCalledWith({
       where: { id: 'user-1' },
-      relations: ['profile'],
+      relations: ['profile', 'staffApplication'],
     });
     expect(result).toEqual(
       expect.objectContaining({
