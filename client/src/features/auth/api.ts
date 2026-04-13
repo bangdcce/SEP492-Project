@@ -44,6 +44,17 @@ export const signUp = async (data: SignUpRequest): Promise<SignUpResponse> => {
 };
 
 /**
+ * Sign up new staff user with multipart CV + manual KYC submission
+ */
+export const signUpStaff = async (data: FormData): Promise<SignUpResponse> => {
+  return await apiClient.post<SignUpResponse>("/auth/register/staff", data, {
+    headers: {
+      "Content-Type": "multipart/form-data",
+    },
+  });
+};
+
+/**
  * Request OTP for password reset
  */
 export const forgotPassword = async (

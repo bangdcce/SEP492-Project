@@ -5,10 +5,28 @@ import { ProjectStatus } from '../../database/entities/project.entity';
 import { StaffApplicationEntity, StaffApplicationStatus } from '../../database/entities/staff-application.entity';
 import { UserEntity, UserRole, UserStatus } from '../../database/entities/user.entity';
 import { AuthService } from './auth.service';
+import { uploadEncryptedFile } from '../../common/utils/supabase-storage.util';
 
 jest.mock('bcryptjs', () => ({
   hash: jest.fn(),
   compare: jest.fn(),
+}));
+
+jest.mock('../../config/supabase.config', () => ({
+  supabaseClient: {
+    storage: {
+      from: jest.fn(() => ({
+        upload: jest.fn().mockResolvedValue({ data: {}, error: null }),
+        getPublicUrl: jest.fn(() => ({
+          data: { publicUrl: 'https://files.example.com/cvs/user-1/cv.pdf' },
+        })),
+      })),
+    },
+  },
+}));
+
+jest.mock('../../common/utils/supabase-storage.util', () => ({
+  uploadEncryptedFile: jest.fn(),
 }));
 
 const createRepositoryMock = () => ({
@@ -296,89 +314,16 @@ describe('AuthService.register', () => {
     expect(result.role).toBe(UserRole.BROKER);
   });
 
-  it('creates a pending staff application and reuses the taxonomy selections for staff signup', async () => {
-    const domainRepository = {
-      save: jest.fn().mockResolvedValue(undefined),
-    };
-    const skillRepository = {
-      save: jest.fn().mockResolvedValue(undefined),
-    };
-    const staffApplicationRepository = {
-      create: jest.fn((data) => ({
-        id: 'staff-application-1',
-        ...data,
-      })),
-      save: jest.fn().mockResolvedValue({
-        id: 'staff-application-1',
-        userId: 'user-1',
-        status: StaffApplicationStatus.PENDING,
-      }),
-    };
+  it('rejects staff registrations on the legacy JSON endpoint', async () => {
+    await expect(
+      service.register(
+        createRegisterDto({
+          role: UserRole.STAFF,
+        }) as any,
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
 
-    userRepository.findOne.mockResolvedValue(null);
-    userRepository.manager.getRepository.mockImplementation((entityName: unknown) => {
-      if (entityName === StaffApplicationEntity) return staffApplicationRepository;
-      if (entityName === 'UserSkillDomainEntity') return domainRepository;
-      if (entityName === 'UserSkillEntity') return skillRepository;
-      throw new Error(`Unexpected repository request: ${String(entityName)}`);
-    });
-
-    const result = await service.register(
-      createRegisterDto({
-        role: UserRole.STAFF,
-        domainIds: ['domain-1'],
-        skillIds: ['skill-1', 'skill-2'],
-      }) as any,
-      '198.51.100.20',
-      'Firefox',
-    );
-
-    expect(staffApplicationRepository.create).toHaveBeenCalledWith({
-      userId: 'user-1',
-      status: StaffApplicationStatus.PENDING,
-    });
-    expect(staffApplicationRepository.save).toHaveBeenCalledWith({
-      id: 'staff-application-1',
-      userId: 'user-1',
-      status: StaffApplicationStatus.PENDING,
-    });
-    expect(domainRepository.save).toHaveBeenCalledWith([{ userId: 'user-1', domainId: 'domain-1' }]);
-    expect(skillRepository.save).toHaveBeenCalledWith([
-      {
-        userId: 'user-1',
-        skillId: 'skill-1',
-        priority: 'SECONDARY',
-        verificationStatus: 'SELF_DECLARED',
-      },
-      {
-        userId: 'user-1',
-        skillId: 'skill-2',
-        priority: 'SECONDARY',
-        verificationStatus: 'SELF_DECLARED',
-      },
-    ]);
-    expect(auditLogsService.logCustom).toHaveBeenCalledWith(
-      'STAFF_APPLICATION_SUBMITTED',
-      'StaffApplication',
-      'staff-application-1',
-      expect.objectContaining({
-        applicationId: 'staff-application-1',
-        userId: 'user-1',
-        email: 'new.user@gmail.com',
-      }),
-      undefined,
-      'user-1',
-    );
-    expect(result).toEqual(
-      expect.objectContaining({
-        role: UserRole.STAFF,
-        isVerified: false,
-        isEmailVerified: false,
-        staffApprovalStatus: StaffApplicationStatus.PENDING,
-        staffApplicationReviewedAt: null,
-        staffRejectionReason: null,
-      }),
-    );
+    expect(userRepository.findOne).not.toHaveBeenCalled();
   });
 
   it('throws a conflict when the email is already registered', async () => {
@@ -446,7 +391,7 @@ describe('AuthService.register', () => {
       }) as any,
     );
 
-    expect(userRepository.manager.getRepository).toHaveBeenCalledTimes(2);
+    expect(userRepository.manager.getRepository).not.toHaveBeenCalled();
     expect(domainRepository.save).not.toHaveBeenCalled();
     expect(skillRepository.save).not.toHaveBeenCalled();
     expect(result.role).toBe(UserRole.BROKER);
@@ -493,6 +438,295 @@ describe('AuthService.register', () => {
       'user-1',
       'new.user@gmail.com',
     );
+  });
+});
+
+describe('AuthService.registerStaff', () => {
+  let service: AuthService;
+  let userRepository: ReturnType<typeof createRepositoryMock>;
+  let authSessionRepository: ReturnType<typeof createRepositoryMock>;
+  let profileRepository: ReturnType<typeof createRepositoryMock>;
+  let projectRepository: ReturnType<typeof createRepositoryMock>;
+  let walletRepository: ReturnType<typeof createRepositoryMock>;
+  let emailVerificationService: { sendVerificationEmail: jest.Mock };
+  let auditLogsService: { logRegistration: jest.Mock; logCustom: jest.Mock };
+  let captchaService: { verifyRecaptcha: jest.Mock };
+  let configService: { get: jest.Mock };
+  const mockedHash = bcrypt.hash as jest.MockedFunction<typeof bcrypt.hash>;
+  const mockedUploadEncryptedFile = uploadEncryptedFile as jest.MockedFunction<
+    typeof uploadEncryptedFile
+  >;
+
+  const createStaffFile = (overrides: Record<string, unknown> = {}) => ({
+    fieldname: 'file',
+    originalname: 'document.pdf',
+    encoding: '7bit',
+    mimetype: 'application/pdf',
+    size: 1024,
+    destination: '',
+    filename: '',
+    path: '',
+    buffer: Buffer.from('file'),
+    ...overrides,
+  });
+
+  const createStaffDto = (overrides: Record<string, unknown> = {}) => ({
+    email: 'staff.user@gmail.com',
+    password: 'securepass1',
+    fullName: 'Staff User',
+    phoneNumber: '0987654321',
+    recaptchaToken: 'captcha-token',
+    acceptTerms: true,
+    acceptPrivacy: true,
+    fullNameOnDocument: 'Staff User',
+    documentType: 'CCCD',
+    documentNumber: '0123456789',
+    dateOfBirth: '1990-01-01',
+    address: '123 Example Street',
+    ...overrides,
+  });
+
+  const createSavedUser = (overrides: Partial<UserEntity> = {}) => {
+    const user = Object.assign(new UserEntity(), {
+      id: 'user-1',
+      email: 'staff.user@gmail.com',
+      passwordHash: 'hashed-password',
+      fullName: 'Staff User',
+      phoneNumber: '0987654321',
+      role: UserRole.STAFF,
+      timeZone: 'UTC',
+      isVerified: false,
+      currentTrustScore: 2.5,
+      totalProjectsFinished: 0,
+      totalProjectsCancelled: 0,
+      totalDisputesLost: 0,
+      totalLateProjects: 0,
+      createdAt: new Date('2026-04-13T00:00:00.000Z'),
+      updatedAt: new Date('2026-04-13T00:00:00.000Z'),
+    });
+
+    Object.entries(overrides).forEach(([key, value]) => {
+      if (value !== undefined) {
+        (user as Record<string, unknown>)[key] = value;
+      }
+    });
+
+    return user;
+  };
+
+  beforeEach(() => {
+    userRepository = createRepositoryMock();
+    authSessionRepository = createRepositoryMock();
+    profileRepository = createRepositoryMock();
+    projectRepository = createRepositoryMock();
+    walletRepository = createRepositoryMock();
+    emailVerificationService = {
+      sendVerificationEmail: jest.fn().mockResolvedValue(undefined),
+    };
+    auditLogsService = {
+      logRegistration: jest.fn().mockResolvedValue(undefined),
+      logCustom: jest.fn().mockResolvedValue(undefined),
+    };
+    captchaService = {
+      verifyRecaptcha: jest.fn().mockResolvedValue(true),
+    };
+    configService = {
+      get: jest.fn().mockImplementation((key: string) =>
+        key === 'RECAPTCHA_ENABLED' ? 'true' : undefined,
+      ),
+    };
+
+    mockedHash.mockReset();
+    mockedHash.mockResolvedValue('hashed-password' as never);
+    mockedUploadEncryptedFile.mockReset();
+    mockedUploadEncryptedFile
+      .mockResolvedValueOnce('kyc/user-1/id-front.jpg.encrypted')
+      .mockResolvedValueOnce('kyc/user-1/id-back.jpg.encrypted')
+      .mockResolvedValueOnce('kyc/user-1/selfie.jpg.encrypted');
+
+    userRepository.save.mockImplementation(async (entity: Partial<UserEntity>) =>
+      createSavedUser(entity),
+    );
+    profileRepository.save.mockImplementation(async (entity: Record<string, unknown>) => entity);
+
+    const staffApplicationRepository = {
+      create: jest.fn((data) => ({
+        id: 'staff-application-1',
+        createdAt: new Date('2026-04-13T01:00:00.000Z'),
+        ...data,
+      })),
+      save: jest.fn().mockImplementation(async (entity: Record<string, unknown>) => entity),
+    };
+
+    userRepository.manager.getRepository.mockImplementation((entityName: unknown) => {
+      if (entityName === StaffApplicationEntity) {
+        return staffApplicationRepository;
+      }
+      throw new Error(`Unexpected repository request: ${String(entityName)}`);
+    });
+
+    service = new AuthService(
+      userRepository as any,
+      authSessionRepository as any,
+      profileRepository as any,
+      projectRepository as any,
+      walletRepository as any,
+      {} as any,
+      configService as any,
+      {} as any,
+      emailVerificationService as any,
+      auditLogsService as any,
+      captchaService as any,
+    );
+  });
+
+  it('creates a pending staff application with CV and manual KYC snapshot', async () => {
+    userRepository.findOne.mockResolvedValue(null);
+
+    const result = await service.registerStaff(
+      createStaffDto() as any,
+      {
+        cv: createStaffFile({
+          originalname: 'resume.pdf',
+          mimetype: 'application/pdf',
+          size: 2048,
+        }) as any,
+        idCardFront: createStaffFile({
+          originalname: 'front.jpg',
+          mimetype: 'image/jpeg',
+        }) as any,
+        idCardBack: createStaffFile({
+          originalname: 'back.jpg',
+          mimetype: 'image/jpeg',
+        }) as any,
+        selfie: createStaffFile({
+          originalname: 'selfie.jpg',
+          mimetype: 'image/jpeg',
+        }) as any,
+      },
+      '203.0.113.10',
+      'Firefox',
+    );
+
+    expect(captchaService.verifyRecaptcha).toHaveBeenCalledWith('captcha-token');
+    expect(profileRepository.save).toHaveBeenCalledWith({
+      userId: 'user-1',
+      cvUrl: 'https://files.example.com/cvs/user-1/cv.pdf',
+    });
+    expect(mockedUploadEncryptedFile).toHaveBeenNthCalledWith(
+      1,
+      expect.any(Buffer),
+      'user-1',
+      'id-front',
+      'image/jpeg',
+    );
+    expect(userRepository.manager.getRepository).toHaveBeenCalledWith(StaffApplicationEntity);
+    expect(auditLogsService.logCustom).toHaveBeenCalledWith(
+      'STAFF_APPLICATION_SUBMITTED',
+      'StaffApplication',
+      'staff-application-1',
+      expect.objectContaining({
+        applicationId: 'staff-application-1',
+        userId: 'user-1',
+        cvStorageKey: expect.stringContaining('cvs/user-1/'),
+        documentType: 'CCCD',
+      }),
+      undefined,
+      'user-1',
+    );
+    expect(result).toEqual(
+      expect.objectContaining({
+        role: UserRole.STAFF,
+        cvUrl: 'https://files.example.com/cvs/user-1/cv.pdf',
+        staffApprovalStatus: StaffApplicationStatus.PENDING,
+      }),
+    );
+  });
+
+  it('rejects duplicate email addresses before creating the account', async () => {
+    userRepository.findOne.mockResolvedValue({ id: 'existing-user' });
+
+    await expect(
+      service.registerStaff(
+        createStaffDto() as any,
+        {
+          cv: createStaffFile() as any,
+          idCardFront: createStaffFile({ mimetype: 'image/jpeg' }) as any,
+          idCardBack: createStaffFile({ mimetype: 'image/jpeg' }) as any,
+          selfie: createStaffFile({ mimetype: 'image/jpeg' }) as any,
+        },
+      ),
+    ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('rejects when captcha verification fails', async () => {
+    userRepository.findOne.mockResolvedValue(null);
+    captchaService.verifyRecaptcha.mockResolvedValueOnce(false);
+
+    await expect(
+      service.registerStaff(
+        createStaffDto() as any,
+        {
+          cv: createStaffFile() as any,
+          idCardFront: createStaffFile({ mimetype: 'image/jpeg' }) as any,
+          idCardBack: createStaffFile({ mimetype: 'image/jpeg' }) as any,
+          selfie: createStaffFile({ mimetype: 'image/jpeg' }) as any,
+        },
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('rejects when the CV file is missing', async () => {
+    await expect(
+      service.registerStaff(createStaffDto() as any, {
+        idCardFront: createStaffFile({ mimetype: 'image/jpeg' }) as any,
+        idCardBack: createStaffFile({ mimetype: 'image/jpeg' }) as any,
+        selfie: createStaffFile({ mimetype: 'image/jpeg' }) as any,
+      }),
+    ).rejects.toThrow('CV is required');
+  });
+
+  it('rejects invalid CV mime types', async () => {
+    await expect(
+      service.registerStaff(createStaffDto() as any, {
+        cv: createStaffFile({ originalname: 'resume.txt', mimetype: 'text/plain' }) as any,
+        idCardFront: createStaffFile({ mimetype: 'image/jpeg' }) as any,
+        idCardBack: createStaffFile({ mimetype: 'image/jpeg' }) as any,
+        selfie: createStaffFile({ mimetype: 'image/jpeg' }) as any,
+      }),
+    ).rejects.toThrow('Only PDF and DOCX files are allowed');
+  });
+
+  it('rejects CV uploads larger than 5MB', async () => {
+    await expect(
+      service.registerStaff(createStaffDto() as any, {
+        cv: createStaffFile({ size: 6 * 1024 * 1024 }) as any,
+        idCardFront: createStaffFile({ mimetype: 'image/jpeg' }) as any,
+        idCardBack: createStaffFile({ mimetype: 'image/jpeg' }) as any,
+        selfie: createStaffFile({ mimetype: 'image/jpeg' }) as any,
+      }),
+    ).rejects.toThrow('File size must not exceed 5MB');
+  });
+
+  it('rejects when one or more KYC images are missing', async () => {
+    await expect(
+      service.registerStaff(createStaffDto() as any, {
+        cv: createStaffFile() as any,
+        idCardFront: createStaffFile({ mimetype: 'image/jpeg' }) as any,
+        selfie: createStaffFile({ mimetype: 'image/jpeg' }) as any,
+      }),
+    ).rejects.toThrow('ID card back image is required');
+  });
+
+  it('rejects invalid KYC image mime types', async () => {
+    await expect(
+      service.registerStaff(createStaffDto() as any, {
+        cv: createStaffFile() as any,
+        idCardFront: createStaffFile({ mimetype: 'application/pdf' }) as any,
+        idCardBack: createStaffFile({ mimetype: 'image/jpeg' }) as any,
+        selfie: createStaffFile({ mimetype: 'image/jpeg' }) as any,
+      }),
+    ).rejects.toThrow('Only image files are allowed for idCardFront');
   });
 });
 

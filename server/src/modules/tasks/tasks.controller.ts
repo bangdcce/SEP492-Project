@@ -171,6 +171,12 @@ export class TasksController {
     return { success: true };
   }
 
+  @Delete(':id')
+  async deleteTask(@Param('id') id: string, @Req() req: AuthenticatedRequest) {
+    await this.tasksService.deleteTask(id, req.user?.id, req.user?.role);
+    return { success: true };
+  }
+
   @Patch(':id/status')
   async updateStatus(
     @Param('id') id: string,
@@ -189,7 +195,12 @@ export class TasksController {
       throw new BadRequestException('Invalid status');
     }
 
-    return this.tasksService.updateStatus(id, status as KanbanStatus, req.user?.id);
+    return this.tasksService.updateStatus(
+      id,
+      status as KanbanStatus,
+      req.user?.id,
+      req.user?.role,
+    );
   }
 
   @Post(':id/submissions')
@@ -273,7 +284,7 @@ export class TasksController {
     @Req() req: AuthenticatedRequest,
   ) {
     this.logger.log(`Update Task ${id} requested by user: ${req.user?.id || 'ANONYMOUS'}`);
-    return this.tasksService.updateTask(id, body, req.user?.id);
+    return this.tasksService.updateTask(id, body, req.user?.id, req.user?.role);
   }
 
   @Post()

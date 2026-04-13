@@ -22,6 +22,7 @@ describe('TasksController', () => {
       addComment: jest.fn(),
       updateComment: jest.fn(),
       deleteComment: jest.fn(),
+      deleteTask: jest.fn(),
       submitWork: jest.fn(),
       createTask: jest.fn(),
       reviewSubmission: jest.fn(),
@@ -304,7 +305,7 @@ describe('TasksController', () => {
     it('UC59-SUBMITWORK-UTCID02 rejects unauthenticated submission attempts before reaching the service', async () => {
       const dto = { content: 'Fallback submission' };
 
-      await expect(controller.submitWork('task-1', dto as any, {} as any)).rejects.toThrow(
+      expect(() => controller.submitWork('task-1', dto as any, {} as any)).toThrow(
         new ForbiddenException('Authentication required'),
       );
       expect(tasksService.submitWork).not.toHaveBeenCalled();
@@ -334,11 +335,11 @@ describe('TasksController', () => {
     it('UC59-SUBMITWORK-UTCID04 rejects non-freelancer roles from submitting work', async () => {
       const dto = { content: 'Attempting restricted submission' };
 
-      await expect(
+      expect(() =>
         controller.submitWork('task-1', dto as any, {
           user: { id: 'broker-1', role: UserRole.BROKER },
         } as any),
-      ).rejects.toThrow(
+      ).toThrow(
         new ForbiddenException('Only freelancers can submit work for tasks.'),
       );
       expect(tasksService.submitWork).not.toHaveBeenCalled();
@@ -393,6 +394,48 @@ describe('TasksController', () => {
         new ForbiddenException('Only brokers can create tasks in project workspace.'),
       );
       expect(tasksService.createTask).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('deleteTask', () => {
+    it('passes task id and broker context to the service', async () => {
+      tasksService.deleteTask.mockResolvedValue(undefined);
+
+      await expect(
+        controller.deleteTask('task-1', {
+          user: { id: 'broker-1', role: UserRole.BROKER },
+        } as any),
+      ).resolves.toEqual({ success: true });
+
+      expect(tasksService.deleteTask).toHaveBeenCalledWith(
+        'task-1',
+        'broker-1',
+        UserRole.BROKER,
+      );
+    });
+  });
+
+  describe('updateTask', () => {
+    it('forwards actor id and role so the service can enforce subtask DONE permissions', async () => {
+      const updatedTask = { id: 'subtask-1', status: 'DONE' };
+      tasksService.updateTask = jest.fn().mockResolvedValue(updatedTask);
+
+      await expect(
+        controller.updateTask(
+          'subtask-1',
+          { status: 'DONE' } as any,
+          {
+            user: { id: 'broker-1', role: UserRole.BROKER },
+          } as any,
+        ),
+      ).resolves.toEqual(updatedTask);
+
+      expect(tasksService.updateTask).toHaveBeenCalledWith(
+        'subtask-1',
+        { status: 'DONE' },
+        'broker-1',
+        UserRole.BROKER,
+      );
     });
   });
 

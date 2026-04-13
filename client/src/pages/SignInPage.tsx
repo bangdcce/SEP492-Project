@@ -8,6 +8,7 @@ import { Eye, EyeOff, ArrowLeft } from "lucide-react";
 import { toast } from "sonner";
 import { ROUTES, STORAGE_KEYS } from "@/constants";
 import { signIn } from "@/features/auth";
+import { resolveRoleHome } from "@/shared/auth/role-home";
 import { setStoredItem } from "@/shared/utils/storage";
 
 export interface SignInPageProps {
@@ -34,36 +35,6 @@ export function SignInPage({
   const validateEmail = (email: string): boolean => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     return emailRegex.test(email);
-  };
-
-  const resolvePostLoginRoute = (user?: {
-    role?: string;
-    isVerified?: boolean;
-    staffApprovalStatus?: "PENDING" | "APPROVED" | "REJECTED" | null;
-  }) => {
-    const userRole = user?.role?.toUpperCase();
-
-    if (userRole === "ADMIN") {
-      return ROUTES.ADMIN_DASHBOARD;
-    }
-    if (userRole === "CLIENT") {
-      return ROUTES.CLIENT_DASHBOARD;
-    }
-    if (userRole === "FREELANCER") {
-      return ROUTES.FREELANCER_DASHBOARD;
-    }
-    if (userRole === "BROKER") {
-      return ROUTES.BROKER_DASHBOARD;
-    }
-    if (userRole === "STAFF") {
-      const isApproved =
-        user?.staffApprovalStatus === "APPROVED" ||
-        (!user?.staffApprovalStatus && user?.isVerified === true);
-      return isApproved
-        ? ROUTES.STAFF_DASHBOARD
-        : ROUTES.STAFF_APPLICATION_STATUS;
-    }
-    return ROUTES.CLIENT_DASHBOARD;
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -120,7 +91,7 @@ export function SignInPage({
       if (onSignInSuccess) {
         onSignInSuccess();
       } else {
-        const targetRoute = resolvePostLoginRoute(loginData.user);
+        const targetRoute = resolveRoleHome(loginData.user);
 
         // Force a full navigation after cookie-based login so the app bootstraps
         // from a clean authenticated state and avoids race conditions with guards.

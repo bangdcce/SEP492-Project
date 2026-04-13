@@ -61,6 +61,7 @@ import {
   buildBoardMeta,
   createEmptyBoard,
   moveTaskInBoard,
+  removeTaskFromBoard,
   upsertTaskInBoard,
 } from "./board-state";
 import { CreateDisputeModal } from "@/features/disputes/components/wizard/CreateDisputeModal";
@@ -1463,13 +1464,35 @@ export function ProjectWorkspace() {
     [upsertTaskIntoBoard],
   );
 
+  const handleTaskDelete = useCallback((taskId: string) => {
+    setBoard((prevBoard) => removeTaskFromBoard(prevBoard, taskId));
+    setIsTaskDetailOpen(false);
+    setSelectedTaskId(null);
+  }, []);
+
   const handleTaskRealtimeEvent = useCallback(
     (event: ProjectTaskRealtimeEvent) => {
-      if (!event?.task?.id) {
+      if (!event) {
         return;
       }
 
-      upsertTaskIntoBoard(event.task);
+      if (event.action === "DELETED") {
+        if (!event.taskId) {
+          return;
+        }
+
+        setBoard((prevBoard) => removeTaskFromBoard(prevBoard, event.taskId!));
+        if (selectedTaskId === event.taskId) {
+          setIsTaskDetailOpen(false);
+          setSelectedTaskId(null);
+        }
+      } else {
+        if (!event.task?.id) {
+          return;
+        }
+
+        upsertTaskIntoBoard(event.task);
+      }
 
       if (
         event.milestoneId &&
@@ -1505,7 +1528,7 @@ export function ProjectWorkspace() {
         });
       }
     },
-    [upsertTaskIntoBoard],
+    [selectedTaskId, upsertTaskIntoBoard],
   );
 
   useEffect(() => {
@@ -1533,14 +1556,23 @@ export function ProjectWorkspace() {
       }
 
       const event = payload as Partial<ProjectTaskRealtimeEvent>;
-      if (event.projectId !== projectId || !event.task) {
+      if (
+        event.projectId !== projectId ||
+        (event.action === "DELETED" ? !event.taskId : !event.task)
+      ) {
         return;
       }
 
       handleTaskRealtimeEvent({
-        action: event.action === "CREATED" ? "CREATED" : "UPDATED",
+        action:
+          event.action === "CREATED"
+            ? "CREATED"
+            : event.action === "DELETED"
+              ? "DELETED"
+              : "UPDATED",
         projectId: event.projectId,
         task: event.task,
+        taskId: event.taskId,
         milestoneId: event.milestoneId ?? null,
         milestoneProgress:
           typeof event.milestoneProgress === "number"
@@ -2850,6 +2882,7 @@ export function ProjectWorkspace() {
         taskMutationLockReason={selectedTaskMutationReason}
         onClose={handleCloseTaskDetail}
         onUpdate={handleTaskUpdate}
+        onDelete={handleTaskDelete}
       />
 
       {project && disputeMilestone && currentUser?.id && (

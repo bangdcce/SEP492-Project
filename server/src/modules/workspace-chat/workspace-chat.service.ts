@@ -2,6 +2,8 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  InternalServerErrorException,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -9,6 +11,7 @@ import { Repository } from 'typeorm';
 import {
   ProjectEntity,
   TaskEntity,
+  UserEntity,
   UserRole,
   WorkspaceMessageAttachment,
   WorkspaceMessageEditHistoryEntry,
@@ -17,6 +20,9 @@ import {
 } from 'src/database/entities';
 import { ProjectStaffInviteStatus } from 'src/database/entities/project.entity';
 import { WorkspaceChatRealtimeBridge } from './workspace-chat.realtime';
+import { AuditLogsService } from '../audit-logs/audit-logs.service';
+import { EmailService } from '../auth/email.service';
+import { MulterFile } from 'src/common/types/multer.type';
 
 const OFF_PLATFORM_RISK_RULES = [
   { flag: 'MOMO', pattern: /\bmomo\b/i },
@@ -103,6 +109,8 @@ export interface WorkspaceChatMessage {
 
 @Injectable()
 export class WorkspaceChatService {
+  private readonly logger = new Logger(WorkspaceChatService.name);
+
   constructor(
     @InjectRepository(WorkspaceMessageEntity)
     private readonly workspaceMessageRepo: Repository<WorkspaceMessageEntity>,
@@ -110,12 +118,14 @@ export class WorkspaceChatService {
     private readonly projectRepo: Repository<ProjectEntity>,
     @InjectRepository(TaskEntity)
     private readonly taskRepo: Repository<TaskEntity>,
+    private readonly auditLogsService: AuditLogsService,
+    private readonly emailService: EmailService,
   ) {}
 
   private async getProjectAccessContext(projectId: string): Promise<ProjectEntity> {
     const project = await this.projectRepo.findOne({
       where: { id: projectId },
-      select: ['id', 'clientId', 'brokerId', 'freelancerId', 'staffId', 'staffInviteStatus'],
+      select: ['id', 'title', 'clientId', 'brokerId', 'freelancerId', 'staffId', 'staffInviteStatus'],
     });
 
     if (!project) {
@@ -157,6 +167,110 @@ export class WorkspaceChatService {
     if (!canRead) {
       throw new ForbiddenException('You do not have access to this project chat');
     }
+  }
+
+  async emailChatExport(
+    projectId: string,
+    requester: Pick<UserEntity, 'id' | 'email' | 'fullName'>,
+    exportFile?: MulterFile,
+  ): Promise<{ message: string; recipientEmail: string; fileName: string }> {
+    const recipientEmail = requester.email?.trim();
+    if (!recipientEmail || !this.isValidEmail(recipientEmail)) {
+      throw new BadRequestException('Authenticated user does not have a valid email address');
+    }
+
+    if (!exportFile?.buffer?.length) {
+      throw new BadRequestException('Export file is required');
+    }
+
+    if (!this.isSupportedExportFile(exportFile)) {
+      throw new BadRequestException('Only XLSX workspace chat exports can be emailed');
+    }
+
+    const project = await this.getReadableProjectContext(projectId, requester.id);
+    const fileName = exportFile.originalname?.trim() || `WorkspaceChat_${projectId}.xlsx`;
+
+    this.logger.log(
+      `Workspace chat export email requested (${JSON.stringify({
+        userId: requester.id,
+        email: recipientEmail,
+        projectId,
+        fileName,
+      })})`,
+    );
+
+    try {
+      await this.emailService.sendWorkspaceChatExportEmail({
+        email: recipientEmail,
+        recipientName: requester.fullName,
+        projectTitle: project.title,
+        fileName,
+        fileBuffer: exportFile.buffer,
+        mimeType:
+          exportFile.mimetype ||
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        exportedAt: new Date(),
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(
+        `Workspace chat export email failed (${JSON.stringify({
+          userId: requester.id,
+          email: recipientEmail,
+          projectId,
+          fileName,
+          error: message,
+        })})`,
+        error instanceof Error ? error.stack : undefined,
+      );
+      this.auditLogsService
+        .logCustom(
+          'WORKSPACE_CHAT_EXPORT_EMAIL_FAILED',
+          'Project',
+          projectId,
+          {
+            userId: requester.id,
+            email: recipientEmail,
+            projectId,
+            fileName,
+            error: message,
+          },
+          undefined,
+          requester.id,
+        )
+        .catch(() => {});
+      throw new InternalServerErrorException('Failed to email chat export');
+    }
+
+    this.logger.log(
+      `Workspace chat export email sent (${JSON.stringify({
+        userId: requester.id,
+        email: recipientEmail,
+        projectId,
+        fileName,
+      })})`,
+    );
+    this.auditLogsService
+      .logCustom(
+        'WORKSPACE_CHAT_EXPORT_EMAIL_SENT',
+        'Project',
+        projectId,
+        {
+          userId: requester.id,
+          email: recipientEmail,
+          projectId,
+          fileName,
+        },
+        undefined,
+        requester.id,
+      )
+      .catch(() => {});
+
+    return {
+      message: 'Your chat log export has been emailed to you.',
+      recipientEmail,
+      fileName,
+    };
   }
 
   async saveMessage(
@@ -439,6 +553,35 @@ export class WorkspaceChatService {
     if (!project) {
       throw new NotFoundException('Project not found');
     }
+  }
+
+  private async getReadableProjectContext(projectId: string, userId: string): Promise<ProjectEntity> {
+    const project = await this.getProjectAccessContext(projectId);
+
+    const canRead =
+      this.isProjectParticipant(project, userId) || this.isAcceptedSupervisingStaff(project, userId);
+
+    if (!canRead) {
+      throw new ForbiddenException('You do not have access to this project chat');
+    }
+
+    return project;
+  }
+
+  private isSupportedExportFile(file: MulterFile): boolean {
+    const normalizedMimeType = `${file.mimetype || ''}`.trim().toLowerCase();
+    const normalizedName = `${file.originalname || ''}`.trim().toLowerCase();
+    return (
+      normalizedName.endsWith('.xlsx') &&
+      (normalizedMimeType ===
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+        normalizedMimeType === 'application/octet-stream' ||
+        normalizedMimeType === '')
+    );
+  }
+
+  private isValidEmail(email: string): boolean {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
   }
 
   private async persistMessage(data: {

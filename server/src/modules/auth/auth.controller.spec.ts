@@ -39,6 +39,21 @@ const registerDto = {
   acceptPrivacy: true,
 };
 
+const registerStaffDto = {
+  email: 'staff.user@gmail.com',
+  password: 'securepass1',
+  fullName: 'Staff User',
+  phoneNumber: '0987654321',
+  recaptchaToken: 'captcha-token',
+  acceptTerms: true,
+  acceptPrivacy: true,
+  fullNameOnDocument: 'Staff User',
+  documentType: 'CCCD',
+  documentNumber: '0123456789',
+  dateOfBirth: '1990-01-01',
+  address: '123 Example Street',
+};
+
 const loginDto = {
   email: 'member@gmail.com',
   password: 'SecurePass123!',
@@ -225,6 +240,7 @@ describe('AuthController.register', () => {
   beforeEach(() => {
     authService = {
       register: jest.fn().mockResolvedValue(authResponse),
+      registerStaff: jest.fn().mockResolvedValue(authResponse),
       login: jest.fn(),
     };
 
@@ -271,6 +287,58 @@ describe('AuthController.register', () => {
         },
       } as any),
     ).rejects.toBeInstanceOf(ConflictException);
+  });
+});
+
+describe('AuthController.registerStaff', () => {
+  let controller: AuthController;
+  let authService: Record<string, jest.Mock>;
+
+  beforeEach(() => {
+    authService = {
+      register: jest.fn(),
+      registerStaff: jest.fn().mockResolvedValue(authResponse),
+      login: jest.fn(),
+    };
+
+    controller = new AuthController(
+      authService as any,
+      {} as any,
+      {
+        get: jest.fn(),
+      } as any,
+    );
+  });
+
+  it('passes multipart files, ip, and user agent to the service and wraps the response payload', async () => {
+    const result = await controller.registerStaff(
+      registerStaffDto as any,
+      {
+        cv: [{ originalname: 'resume.pdf' }],
+        idCardFront: [{ originalname: 'front.jpg' }],
+        idCardBack: [{ originalname: 'back.jpg' }],
+        selfie: [{ originalname: 'selfie.jpg' }],
+      } as any,
+      '127.0.0.1',
+      {
+        headers: {
+          'user-agent': 'Mozilla/5.0',
+        },
+      } as any,
+    );
+
+    expect(authService.registerStaff).toHaveBeenCalledWith(
+      registerStaffDto,
+      {
+        cv: { originalname: 'resume.pdf' },
+        idCardFront: { originalname: 'front.jpg' },
+        idCardBack: { originalname: 'back.jpg' },
+        selfie: { originalname: 'selfie.jpg' },
+      },
+      '127.0.0.1',
+      'Mozilla/5.0',
+    );
+    expect(result.data).toBe(authResponse);
   });
 });
 

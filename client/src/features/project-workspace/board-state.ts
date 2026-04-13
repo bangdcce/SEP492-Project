@@ -77,6 +77,18 @@ export const upsertTaskInBoard = (board: KanbanBoard, incomingTask: Task): Kanba
   };
 };
 
+export const removeTaskFromBoard = (board: KanbanBoard, taskId: string): KanbanBoard => {
+  const location = findTaskLocation(board, taskId);
+  if (!location) {
+    return board;
+  }
+
+  return {
+    ...board,
+    [location.columnKey]: board[location.columnKey].filter((task) => task.id !== taskId),
+  };
+};
+
 export const moveTaskInBoard = (
   board: KanbanBoard,
   params: {

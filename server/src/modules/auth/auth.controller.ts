@@ -14,7 +14,10 @@
   Query,
   UnauthorizedException,
   Logger,
+  UseInterceptors,
+  UploadedFiles,
 } from '@nestjs/common';
+import { FileFieldsInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
 import {
   ApiTags,
@@ -27,6 +30,7 @@ import {
   ApiConflictResponse,
   ApiOkResponse,
   ApiQuery,
+  ApiConsumes,
 } from '@nestjs/swagger';
 import type { Request } from 'express';
 import { AuthGuard } from '@nestjs/passport';
@@ -40,6 +44,7 @@ import { JwtAuthGuard } from './guards';
 import {
   LoginDto,
   RegisterDto,
+  RegisterStaffDto,
   AuthResponseDto,
   LoginResponseDto,
   RefreshTokenResponseDto,
@@ -56,10 +61,18 @@ import {
 } from './dto';
 import { UserEntity, UserRole } from '../../database/entities/user.entity';
 import { StaffApplicationStatus } from '../../database/entities/staff-application.entity';
+import { MulterFile } from '../../common/types/multer.type';
 
 // Extend Express Request to include user
 interface AuthRequest extends Request {
   user: UserEntity;
+}
+
+interface StaffRegisterUploadMap {
+  cv?: MulterFile[];
+  idCardFront?: MulterFile[];
+  idCardBack?: MulterFile[];
+  selfie?: MulterFile[];
 }
 
 // Google OAuth profile from Passport
@@ -121,6 +134,106 @@ export class AuthController {
   }> {
     const userAgent = req.headers['user-agent'] || 'Unknown Device';
     const user = await this.authService.register(registerDto, ip, userAgent);
+
+    return {
+      message: 'Registration completed successfully. Please check your email to verify the account.',
+      data: user,
+    };
+  }
+
+  @Post('register/staff')
+  @HttpCode(HttpStatus.CREATED)
+  @UseInterceptors(
+    FileFieldsInterceptor([
+      { name: 'cv', maxCount: 1 },
+      { name: 'idCardFront', maxCount: 1 },
+      { name: 'idCardBack', maxCount: 1 },
+      { name: 'selfie', maxCount: 1 },
+    ]),
+  )
+  @Throttle({ default: { limit: 3, ttl: 60000 } })
+  @ApiOperation({
+    summary: 'Register a new staff account',
+    description:
+      'Create a STAFF account via multipart/form-data with CV upload and manual KYC submission. This endpoint performs reCAPTCHA validation manually after multipart parsing.',
+  })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: [
+        'email',
+        'password',
+        'fullName',
+        'phoneNumber',
+        'acceptTerms',
+        'acceptPrivacy',
+        'fullNameOnDocument',
+        'documentType',
+        'documentNumber',
+        'dateOfBirth',
+        'address',
+        'cv',
+        'idCardFront',
+        'idCardBack',
+        'selfie',
+      ],
+      properties: {
+        email: { type: 'string', format: 'email' },
+        password: { type: 'string' },
+        fullName: { type: 'string' },
+        phoneNumber: { type: 'string' },
+        recaptchaToken: { type: 'string' },
+        acceptTerms: { type: 'boolean' },
+        acceptPrivacy: { type: 'boolean' },
+        fullNameOnDocument: { type: 'string' },
+        documentType: { type: 'string', enum: ['CCCD', 'PASSPORT', 'DRIVER_LICENSE'] },
+        documentNumber: { type: 'string' },
+        dateOfBirth: { type: 'string', format: 'date' },
+        address: { type: 'string' },
+        cv: { type: 'string', format: 'binary' },
+        idCardFront: { type: 'string', format: 'binary' },
+        idCardBack: { type: 'string', format: 'binary' },
+        selfie: { type: 'string', format: 'binary' },
+      },
+    },
+  })
+  @ApiResponse({
+    status: HttpStatus.CREATED,
+    description: 'Registration completed successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        message: { type: 'string', example: 'Registration completed successfully' },
+        data: { $ref: '#/components/schemas/AuthResponseDto' },
+      },
+    },
+  })
+  @ApiBadRequestResponse({
+    description: 'Invalid input data, file validation failure, or CAPTCHA verification failed',
+  })
+  @ApiConflictResponse({ description: 'Email already in use' })
+  async registerStaff(
+    @Body(ValidationPipe) registerDto: RegisterStaffDto,
+    @UploadedFiles() files: StaffRegisterUploadMap,
+    @Ip() ip: string,
+    @Req() req: Request,
+  ): Promise<{
+    message: string;
+    data: AuthResponseDto;
+  }> {
+    const userAgent = req.headers['user-agent'] || 'Unknown Device';
+    const user = await this.authService.registerStaff(
+      registerDto,
+      {
+        cv: files?.cv?.[0],
+        idCardFront: files?.idCardFront?.[0],
+        idCardBack: files?.idCardBack?.[0],
+        selfie: files?.selfie?.[0],
+      },
+      ip,
+      userAgent,
+    );
 
     return {
       message: 'Registration completed successfully. Please check your email to verify the account.',

@@ -4,6 +4,7 @@ import {
   ConflictException,
   BadRequestException,
   Logger,
+  Optional,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
@@ -11,6 +12,7 @@ import { Repository, LessThan, MoreThan, In, Not, IsNull, DeepPartial } from 'ty
 import { InjectRepository } from '@nestjs/typeorm';
 import { createHash, randomBytes, randomUUID } from 'crypto';
 import * as bcrypt from 'bcryptjs';
+import * as path from 'path';
 import { UserEntity, UserRole, UserStatus } from '../../database/entities/user.entity';
 import { AuthSessionEntity } from '../../database/entities/auth-session.entity';
 import { ProfileEntity } from '../../database/entities/profile.entity';
@@ -24,9 +26,11 @@ import { SkillDomainEntity } from '../../database/entities/skill-domain.entity';
 import { SkillEntity, SkillCategory } from '../../database/entities/skill.entity';
 import { EmailService } from './email.service';
 import { EmailVerificationService } from './email-verification.service';
+import { CaptchaService } from './captcha.service';
 import {
   LoginDto,
   RegisterDto,
+  RegisterStaffDto,
   AuthResponseDto,
   LoginResponseDto,
   LogoutResponseDto,
@@ -44,6 +48,21 @@ import {
 import { JwtPayload } from './strategies/jwt.strategy';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import { normalizeAuthEmail } from './utils/email.utils';
+import { supabaseClient } from '../../config/supabase.config';
+import { uploadEncryptedFile } from '../../common/utils/supabase-storage.util';
+import { MulterFile } from '../../common/types/multer.type';
+
+interface StaffRegistrationFiles {
+  cv?: MulterFile;
+  idCardFront?: MulterFile;
+  idCardBack?: MulterFile;
+  selfie?: MulterFile;
+}
+
+interface UploadedCvAsset {
+  storageKey: string;
+  publicUrl: string;
+}
 
 @Injectable()
 export class AuthService {
@@ -68,6 +87,7 @@ export class AuthService {
     private emailService: EmailService,
     private emailVerificationService: EmailVerificationService,
     private auditLogsService: AuditLogsService, // Inject AuditLogsService
+    @Optional() private captchaService?: CaptchaService,
   ) {}
 
   async register(
@@ -86,6 +106,11 @@ export class AuthService {
       acceptTerms,
       acceptPrivacy,
     } = registerDto;
+
+    if (role === UserRole.STAFF) {
+      throw new BadRequestException('Staff registrations must use /auth/register/staff');
+    }
+
     const normalizedEmail = normalizeAuthEmail(email);
 
     // Check whether the email already exists.
@@ -128,33 +153,6 @@ export class AuthService {
 
     const savedUser = await this.userRepository.save(newUser);
 
-    if (role === UserRole.STAFF) {
-      const staffApplicationRepository =
-        this.userRepository.manager.getRepository(StaffApplicationEntity);
-
-      const staffApplication = await staffApplicationRepository.save(
-        staffApplicationRepository.create({
-          userId: savedUser.id,
-          status: StaffApplicationStatus.PENDING,
-        }),
-      );
-
-      this.auditLogsService
-        .logCustom(
-          'STAFF_APPLICATION_SUBMITTED',
-          'StaffApplication',
-          staffApplication.id,
-          {
-            applicationId: staffApplication.id,
-            userId: savedUser.id,
-            email: savedUser.email,
-          },
-          undefined,
-          savedUser.id,
-        )
-        .catch(() => {});
-    }
-
     const parsedDomains = this.parseTaggedSelections(domainIds, this.customDomainPrefix);
     const parsedSkills = this.parseTaggedSelections(skillIds, this.customSkillPrefix);
     let selectedDomainCount = parsedDomains.ids.length;
@@ -162,76 +160,79 @@ export class AuthService {
 
     // Save role-specific domains/skills, including free-text "Other" values.
     if (
-      (role === UserRole.BROKER || role === UserRole.FREELANCER || role === UserRole.STAFF) &&
+      (role === UserRole.BROKER || role === UserRole.FREELANCER) &&
       (parsedDomains.ids.length > 0 || parsedSkills.ids.length > 0 || parsedDomains.custom.length > 0 || parsedSkills.custom.length > 0)
     ) {
       const userSkillDomainRepo =
         this.userRepository.manager.getRepository('UserSkillDomainEntity');
       const userSkillRepo = this.userRepository.manager.getRepository('UserSkillEntity');
-      const skillDomainRepo = this.userRepository.manager.getRepository(SkillDomainEntity);
-      const skillRepo = this.userRepository.manager.getRepository(SkillEntity);
 
       const selectedDomainIds = new Set(parsedDomains.ids);
       const selectedSkillIds = new Set(parsedSkills.ids);
       const normalizedCustomDomains = this.normalizeCustomEntries(parsedDomains.custom);
       const normalizedCustomSkills = this.normalizeCustomEntries(parsedSkills.custom);
 
-      for (const domainName of normalizedCustomDomains) {
-        let domain = await skillDomainRepo
-          .createQueryBuilder('domain')
-          .where('LOWER(domain.name) = LOWER(:name)', { name: domainName })
-          .getOne();
+      if (normalizedCustomDomains.length > 0) {
+        const skillDomainRepo = this.userRepository.manager.getRepository(SkillDomainEntity);
 
-        if (!domain) {
-          domain = await skillDomainRepo.save(
-            skillDomainRepo.create({
-              name: domainName,
-              slug: this.toSafeSlug(domainName, 'custom-domain'),
-              description: 'User-added during registration',
-              isActive: true,
-              sortOrder: 9999,
-            }),
-          );
+        for (const domainName of normalizedCustomDomains) {
+          let domain = await skillDomainRepo
+            .createQueryBuilder('domain')
+            .where('LOWER(domain.name) = LOWER(:name)', { name: domainName })
+            .getOne();
+
+          if (!domain) {
+            domain = await skillDomainRepo.save(
+              skillDomainRepo.create({
+                name: domainName,
+                slug: this.toSafeSlug(domainName, 'custom-domain'),
+                description: 'User-added during registration',
+                isActive: true,
+                sortOrder: 9999,
+              }),
+            );
+          }
+
+          selectedDomainIds.add(domain.id);
         }
-
-        selectedDomainIds.add(domain.id);
       }
 
-      for (const skillName of normalizedCustomSkills) {
-        let skill = await skillRepo
-          .createQueryBuilder('skill')
-          .where('LOWER(skill.name) = LOWER(:name)', { name: skillName })
-          .getOne();
+      if (normalizedCustomSkills.length > 0) {
+        const skillRepo = this.userRepository.manager.getRepository(SkillEntity);
 
-        if (!skill) {
-          skill = await skillRepo.save(
-            skillRepo.create({
-              name: skillName,
-              slug: this.toSafeSlug(skillName, 'custom-skill'),
-              category: SkillCategory.OTHER,
-              description: 'User-added during registration',
-              isActive: true,
-              sortOrder: 9999,
-              forFreelancer: role === UserRole.FREELANCER,
-              forBroker: role === UserRole.BROKER,
-              forStaff: role === UserRole.STAFF,
-            }),
-          );
-        } else {
-          const needsRoleFlagUpdate =
-            (role === UserRole.FREELANCER && !skill.forFreelancer) ||
-            (role === UserRole.BROKER && !skill.forBroker) ||
-            (role === UserRole.STAFF && !skill.forStaff);
+        for (const skillName of normalizedCustomSkills) {
+          let skill = await skillRepo
+            .createQueryBuilder('skill')
+            .where('LOWER(skill.name) = LOWER(:name)', { name: skillName })
+            .getOne();
 
-          if (needsRoleFlagUpdate) {
-            if (role === UserRole.FREELANCER) skill.forFreelancer = true;
-            if (role === UserRole.BROKER) skill.forBroker = true;
-            if (role === UserRole.STAFF) skill.forStaff = true;
-            await skillRepo.save(skill);
+          if (!skill) {
+            skill = await skillRepo.save(
+              skillRepo.create({
+                name: skillName,
+                slug: this.toSafeSlug(skillName, 'custom-skill'),
+                category: SkillCategory.OTHER,
+                description: 'User-added during registration',
+                isActive: true,
+                sortOrder: 9999,
+                forFreelancer: role === UserRole.FREELANCER,
+                forBroker: role === UserRole.BROKER,
+              }),
+            );
+          } else {
+            const needsRoleFlagUpdate =
+              (role === UserRole.FREELANCER && !skill.forFreelancer) ||
+              (role === UserRole.BROKER && !skill.forBroker);
+
+            if (needsRoleFlagUpdate) {
+              if (role === UserRole.FREELANCER) skill.forFreelancer = true;
+              if (role === UserRole.BROKER) skill.forBroker = true;
+              await skillRepo.save(skill);
+            }
           }
-        }
 
-        selectedSkillIds.add(skill.id);
+          selectedSkillIds.add(skill.id);
+        }
       }
 
       // Save domains.
@@ -278,6 +279,140 @@ export class AuthService {
       .catch(() => {});
 
     // Return public user data without any password fields.
+    return this.mapToAuthResponse(savedUser);
+  }
+
+  async registerStaff(
+    registerDto: RegisterStaffDto,
+    files: StaffRegistrationFiles,
+    ipAddress?: string,
+    userAgent?: string,
+  ): Promise<AuthResponseDto> {
+    this.validateStaffRegistrationFiles(files);
+    await this.validateStaffRecaptcha(registerDto.recaptchaToken);
+
+    const normalizedEmail = normalizeAuthEmail(registerDto.email);
+    const existingUser = await this.userRepository.findOne({
+      where: { email: normalizedEmail },
+      select: ['id', 'email', 'passwordHash', 'fullName', 'role', 'phoneNumber', 'isVerified'],
+    });
+
+    if (existingUser) {
+      throw new ConflictException('Email already in use');
+    }
+
+    if (!registerDto.acceptTerms || !registerDto.acceptPrivacy) {
+      throw new ConflictException(
+        'You must accept the Terms of Service and Privacy Policy',
+      );
+    }
+
+    const saltRounds = 12;
+    const passwordHash = await bcrypt.hash(registerDto.password, saltRounds);
+    const now = new Date();
+
+    const newUser = this.userRepository.create({
+      email: normalizedEmail,
+      passwordHash,
+      fullName: registerDto.fullName,
+      phoneNumber: registerDto.phoneNumber,
+      role: UserRole.STAFF,
+      isVerified: false,
+      currentTrustScore: 2.5,
+      termsAcceptedAt: now,
+      privacyAcceptedAt: now,
+      registrationIp: ipAddress,
+      registrationUserAgent: userAgent,
+    } as DeepPartial<UserEntity>);
+
+    const savedUser = await this.userRepository.save(newUser);
+
+    const cvAsset = await this.uploadStaffCv(savedUser.id, files.cv!);
+    const [idCardFrontStorageKey, idCardBackStorageKey, selfieStorageKey] = await Promise.all([
+      uploadEncryptedFile(
+        files.idCardFront!.buffer,
+        savedUser.id,
+        'id-front',
+        files.idCardFront!.mimetype,
+      ),
+      uploadEncryptedFile(
+        files.idCardBack!.buffer,
+        savedUser.id,
+        'id-back',
+        files.idCardBack!.mimetype,
+      ),
+      uploadEncryptedFile(
+        files.selfie!.buffer,
+        savedUser.id,
+        'selfie',
+        files.selfie!.mimetype,
+      ),
+    ]);
+
+    const profile = await this.profileRepository.save({
+      userId: savedUser.id,
+      cvUrl: cvAsset.publicUrl,
+    } as DeepPartial<ProfileEntity>);
+
+    const staffApplicationRepository =
+      this.userRepository.manager.getRepository(StaffApplicationEntity);
+    const staffApplication = await staffApplicationRepository.save(
+      staffApplicationRepository.create({
+        userId: savedUser.id,
+        status: StaffApplicationStatus.PENDING,
+        cvStorageKey: cvAsset.storageKey,
+        cvOriginalFilename: this.limitLength(files.cv!.originalname, 255),
+        cvMimeType: files.cv!.mimetype,
+        cvSize: files.cv!.size,
+        fullNameOnDocument: registerDto.fullNameOnDocument,
+        documentType: registerDto.documentType,
+        documentNumber: registerDto.documentNumber,
+        dateOfBirth: new Date(registerDto.dateOfBirth),
+        address: registerDto.address,
+        idCardFrontStorageKey,
+        idCardBackStorageKey,
+        selfieStorageKey,
+      }),
+    );
+
+    try {
+      await this.emailVerificationService.sendVerificationEmail(savedUser.id, savedUser.email);
+    } catch (error) {
+      // Don't fail registration if email fails, user can resend later.
+    }
+
+    this.auditLogsService
+      .logCustom(
+        'STAFF_APPLICATION_SUBMITTED',
+        'StaffApplication',
+        staffApplication.id,
+        {
+          applicationId: staffApplication.id,
+          userId: savedUser.id,
+          email: savedUser.email,
+          cvStorageKey: staffApplication.cvStorageKey,
+          documentType: staffApplication.documentType,
+          submittedAt: staffApplication.createdAt,
+        },
+        undefined,
+        savedUser.id,
+      )
+      .catch(() => {});
+
+    this.auditLogsService
+      .logRegistration(savedUser.id, {
+        role: savedUser.role,
+        email: savedUser.email,
+        ipAddress,
+        userAgent,
+        domainCount: 0,
+        skillCount: 0,
+      })
+      .catch(() => {});
+
+    savedUser.profile = profile;
+    savedUser.staffApplication = staffApplication;
+
     return this.mapToAuthResponse(savedUser);
   }
 
@@ -343,6 +478,105 @@ export class AuthService {
       .slice(0, 60);
     const suffix = randomUUID().slice(0, 8);
     return `${normalized || fallbackPrefix}-${suffix}`;
+  }
+
+  private validateStaffRegistrationFiles(files: StaffRegistrationFiles): void {
+    const cv = files.cv;
+    if (!cv) {
+      throw new BadRequestException('CV is required');
+    }
+
+    const allowedCvMimeTypes = [
+      'application/pdf',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    ];
+    if (!allowedCvMimeTypes.includes(cv.mimetype)) {
+      throw new BadRequestException('Only PDF and DOCX files are allowed');
+    }
+
+    const maxCvSize = 5 * 1024 * 1024;
+    if (cv.size > maxCvSize) {
+      throw new BadRequestException('File size must not exceed 5MB');
+    }
+
+    const requiredImages: Array<[keyof StaffRegistrationFiles, string]> = [
+      ['idCardFront', 'ID card front image is required'],
+      ['idCardBack', 'ID card back image is required'],
+      ['selfie', 'Selfie image is required'],
+    ];
+
+    requiredImages.forEach(([field, message]) => {
+      if (!files[field]) {
+        throw new BadRequestException(message);
+      }
+    });
+
+    requiredImages.forEach(([field]) => {
+      const file = files[field];
+      if (file && !file.mimetype.startsWith('image/')) {
+        throw new BadRequestException(`Only image files are allowed for ${field}`);
+      }
+    });
+  }
+
+  private async validateStaffRecaptcha(recaptchaToken?: string): Promise<void> {
+    const captchaEnabled = this.configService.get<string>('RECAPTCHA_ENABLED') === 'true';
+    if (!captchaEnabled) {
+      return;
+    }
+
+    if (!recaptchaToken) {
+      throw new BadRequestException('Vui lòng hoàn thành reCAPTCHA');
+    }
+
+    if (!this.captchaService) {
+      throw new BadRequestException('reCAPTCHA verification is currently unavailable');
+    }
+
+    const isValid = await this.captchaService.verifyRecaptcha(recaptchaToken);
+    if (!isValid) {
+      throw new BadRequestException('reCAPTCHA verification failed. Please try again.');
+    }
+  }
+
+  private async uploadStaffCv(userId: string, file: MulterFile): Promise<UploadedCvAsset> {
+    try {
+      const extension =
+        path.extname(file.originalname) ||
+        (file.mimetype === 'application/pdf' ? '.pdf' : '.docx');
+      const filename = `cv-${Date.now()}-${randomUUID().slice(0, 8)}${extension}`;
+      const storageKey = `cvs/${userId}/${filename}`;
+
+      const { error } = await supabaseClient.storage.from('cvs').upload(storageKey, file.buffer, {
+        contentType: file.mimetype,
+        cacheControl: '3600',
+        upsert: false,
+      });
+
+      if (error) {
+        throw new Error(error.message);
+      }
+
+      const { data: urlData } = supabaseClient.storage.from('cvs').getPublicUrl(storageKey);
+
+      return {
+        storageKey,
+        publicUrl: urlData.publicUrl,
+      };
+    } catch (error) {
+      this.logger.error(
+        `Failed to upload staff CV for user ${userId}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
+      throw new BadRequestException('Failed to upload CV');
+    }
+  }
+
+  private limitLength(value: string | undefined | null, maxLength: number): string | null {
+    if (!value) {
+      return null;
+    }
+
+    return value.slice(0, maxLength);
   }
 
   async login(
