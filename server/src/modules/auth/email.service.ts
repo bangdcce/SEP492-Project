@@ -6,7 +6,7 @@ import { AuditLogsService } from '../audit-logs/audit-logs.service';
 @Injectable()
 export class EmailService {
   private readonly logger = new Logger(EmailService.name);
-  private transporter: nodemailer.Transporter;
+  private transporter?: nodemailer.Transporter;
 
   constructor(
     private configService: ConfigService,
@@ -19,8 +19,9 @@ export class EmailService {
     const smtpHost = this.configService.get('SMTP_HOST');
     const smtpUser = this.configService.get('SMTP_USER');
     const smtpPass = this.configService.get('SMTP_PASS');
+    const normalizedSmtpPass = smtpPass?.replace(/\s+/g, '');
 
-    if (!smtpUser || !smtpPass) {
+    if (!smtpUser || !normalizedSmtpPass) {
       this.logger.warn(
         'Email credentials not configured (SMTP_USER/SMTP_PASS missing). OTP will only log to console.',
       );
@@ -33,7 +34,7 @@ export class EmailService {
       secure: this.configService.get('SMTP_SECURE') === 'true',
       auth: {
         user: smtpUser,
-        pass: smtpPass,
+        pass: normalizedSmtpPass,
       },
     });
 
@@ -46,8 +47,10 @@ export class EmailService {
 
   async sendOTP(email: string, otp: string): Promise<void> {
     const appName = this.configService.get<string>('APP_NAME', 'InterDev');
-    const fromEmail = this.configService.get('FROM_EMAIL') || this.configService.get('SMTP_USER');
-    const fromName = this.configService.get('FROM_NAME', appName);
+    const rawFromEmail = this.configService.get('FROM_EMAIL') || this.configService.get('SMTP_USER');
+    const configuredFromName = this.configService.get<string>('FROM_NAME', appName);
+    const { fromEmail, detectedName } = this.parseFromAddress(rawFromEmail);
+    const fromName = configuredFromName || detectedName || appName;
 
     this.logger.log('\n===== EMAIL OTP =====');
     this.logger.log(`To: ${email}`);
@@ -103,8 +106,10 @@ export class EmailService {
     body: string;
   }): Promise<void> {
     const appName = this.configService.get<string>('APP_NAME', 'InterDev');
-    const fromEmail = this.configService.get('FROM_EMAIL') || this.configService.get('SMTP_USER');
-    const fromName = this.configService.get('FROM_NAME', appName);
+    const rawFromEmail = this.configService.get('FROM_EMAIL') || this.configService.get('SMTP_USER');
+    const configuredFromName = this.configService.get<string>('FROM_NAME', appName);
+    const { fromEmail, detectedName } = this.parseFromAddress(rawFromEmail);
+    const fromName = configuredFromName || detectedName || appName;
 
     if (!this.transporter) {
       this.logger.warn(
@@ -214,5 +219,23 @@ export class EmailService {
       return `${localPart[0]}***@${domain}`;
     }
     return `${localPart.substring(0, 2)}***@${domain}`;
+  }
+
+  private parseFromAddress(rawValue?: string): { fromEmail: string; detectedName: string | null } {
+    const fallbackEmail = this.configService.get<string>('SMTP_USER', 'no-reply@localhost');
+    const value = `${rawValue || ''}`.trim();
+
+    if (!value) {
+      return { fromEmail: fallbackEmail, detectedName: null };
+    }
+
+    const angleMatch = value.match(/^(.*)<([^>]+)>$/);
+    if (angleMatch) {
+      const detectedName = angleMatch[1].trim().replace(/^"|"$/g, '') || null;
+      const fromEmail = angleMatch[2].trim();
+      return { fromEmail: fromEmail || fallbackEmail, detectedName };
+    }
+
+    return { fromEmail: value, detectedName: null };
   }
 }
