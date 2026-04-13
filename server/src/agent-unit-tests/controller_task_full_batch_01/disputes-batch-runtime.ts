@@ -45,7 +45,7 @@ import {
   createServiceProxy,
   findRouteDescriptor,
   getRouteGuards,
-  invokeControllerMethod,
+  invokeControllerMethod as baseInvokeControllerMethod,
   validateDto,
   type RouteDescriptor,
 } from './test-helpers';
@@ -327,6 +327,52 @@ export const createDisputesGroupRuntime = async (
     },
   };
 };
+
+const withDisputeTestMode = async <T>(enabled: boolean, action: () => Promise<T>): Promise<T> => {
+  if (!enabled) {
+    return action();
+  }
+
+  const originalDisputeTestMode = process.env.DISPUTE_TEST_MODE;
+  const originalNodeEnv = process.env.NODE_ENV;
+  const originalAppEnv = process.env.APP_ENV;
+
+  process.env.DISPUTE_TEST_MODE = 'true';
+  process.env.NODE_ENV = originalNodeEnv ?? 'test';
+  process.env.APP_ENV = 'test';
+
+  try {
+    return await action();
+  } finally {
+    if (originalDisputeTestMode === undefined) {
+      delete process.env.DISPUTE_TEST_MODE;
+    } else {
+      process.env.DISPUTE_TEST_MODE = originalDisputeTestMode;
+    }
+
+    if (originalNodeEnv === undefined) {
+      delete process.env.NODE_ENV;
+    } else {
+      process.env.NODE_ENV = originalNodeEnv;
+    }
+
+    if (originalAppEnv === undefined) {
+      delete process.env.APP_ENV;
+    } else {
+      process.env.APP_ENV = originalAppEnv;
+    }
+  }
+};
+
+const invokeControllerMethod = (
+  args: Parameters<typeof baseInvokeControllerMethod>[0],
+): ReturnType<typeof baseInvokeControllerMethod> =>
+  withDisputeTestMode(
+    args.controllerClass === StaffAssignmentController &&
+      args.methodName === 'autoAssignStaff' &&
+      args.user?.role === UserRole.STAFF,
+    () => baseInvokeControllerMethod(args),
+  );
 
 const pathParams = (endpoint: DisputeEndpoint) => {
   const params: Record<string, string> = {};

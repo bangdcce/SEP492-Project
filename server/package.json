@@ -74,11 +74,11 @@
     "decimal.js": "^10.6.0",
     "dotenv": "^17.2.3",
     "event-emitter": "^0.3.5",
-    "file-type": "^16.5.4",
+    "file-type": "^22.0.1",
     "helmet": "^8.1.0",
     "ioredis": "^5.8.1",
     "keyv": "^5.5.5",
-    "nodemailer": "^7.0.12",
+    "nodemailer": "^8.0.5",
     "passport": "^0.7.0",
     "passport-google-oauth20": "^2.0.0",
     "passport-jwt": "^4.0.1",
@@ -99,7 +99,7 @@
     "@nestjs/cli": "^11.0.14",
     "@nestjs/schematics": "^11.0.0",
     "@nestjs/testing": "^11.0.1",
-    "@swc/cli": "^0.7.9",
+    "@swc/cli": "^0.8.1",
     "@swc/core": "^1.15.7",
     "@types/archiver": "^7.0.0",
     "@types/compression": "^1.8.1",
@@ -148,7 +148,8 @@
     ],
     "coverageDirectory": "../coverage",
     "moduleNameMapper": {
-      "^src/(.*)$": "<rootDir>/$1"
+      "^src/(.*)$": "<rootDir>/$1",
+      "^file-type$": "<rootDir>/../test/mocks/file-type.ts"
     },
     "testEnvironment": "node"
   },
