@@ -14,6 +14,7 @@ import {
   toTrustNormalized100,
   toTrustRaw5,
 } from "../matchDisplay";
+import { extractCandidateReasoning } from "../matchReasoning";
 
 type RequestFreelancerMarketPanelProps = {
   currentPhase: number;
@@ -52,6 +53,14 @@ export function RequestFreelancerMarketPanel({
   canLoadMore,
   isLoadingMore,
 }: RequestFreelancerMarketPanelProps) {
+  const getFreelancerReasoning = (candidate: RequestMatchCandidate) => {
+    return extractCandidateReasoning(candidate.reasoning, [
+      candidate.id,
+      candidate.candidateId,
+      candidate.userId,
+    ]);
+  };
+
   const statusTone = (status?: string | null) => {
     const normalized = String(status || "").toUpperCase();
     if (normalized === "ACCEPTED")
@@ -181,6 +190,7 @@ export function RequestFreelancerMarketPanel({
                   {freelancerMatches.map((match) => {
                     const matchId =
                       match.userId || match.candidateId || match.id;
+                    const reasoning = getFreelancerReasoning(match);
                     const normalizedTrust = toTrustNormalized100(
                       match.normalizedTrust,
                       match.trustScore,
@@ -287,40 +297,11 @@ export function RequestFreelancerMarketPanel({
                                   Current skills: {topSkills.join(", ")}
                                 </p>
                               ) : null}
-                              {match.reasoning
-                                ? (() => {
-                                    let text = match.reasoning;
-                                    try {
-                                      if (
-                                        typeof match.reasoning === "string" &&
-                                        match.reasoning.trim().startsWith("[")
-                                      ) {
-                                        const arr = JSON.parse(match.reasoning);
-                                        const matchUserId =
-                                          match.userId ||
-                                          match.candidateId ||
-                                          match.id;
-                                        const found = arr.find(
-                                          (item: any) =>
-                                            item.id === matchUserId,
-                                        );
-                                        if (found && found.reasoning) {
-                                          text = found.reasoning;
-                                        } else {
-                                          text = "";
-                                        }
-                                      }
-                                    } catch {
-                                      text = match.reasoning;
-                                    }
-
-                                    return text ? (
-                                      <p className="line-clamp-2 text-xs italic text-muted-foreground">
-                                        {text}
-                                      </p>
-                                    ) : null;
-                                  })()
-                                : null}
+                              {reasoning ? (
+                                <p className="line-clamp-2 text-xs italic text-muted-foreground">
+                                  {reasoning}
+                                </p>
+                              ) : null}
                             </div>
                           </div>
                           <div className="flex shrink-0 gap-2 self-start md:ml-4 md:self-center">

@@ -482,7 +482,7 @@ export default function ProjectRequestDetailsPage() {
     setIsInviteModalOpen(true);
   };
 
-  const handleLoadMoreFreelancers = useCallback(() => {
+  const handleLoadMoreFreelancers = () => {
     if (
       !id ||
       freelancerMatchesLoading ||
@@ -498,15 +498,7 @@ export default function ProjectRequestDetailsPage() {
       append: true,
       showToast: false,
     });
-  }, [
-    fetchFreelancerMatches,
-    freelancerHasMoreMatches,
-    freelancerMatchMode,
-    freelancerMatchPage,
-    freelancerMatchesLoading,
-    freelancerMatchesLoadingMore,
-    id,
-  ]);
+  };
 
   const nextAction = (() => {
     if (user?.role !== "BROKER") {
