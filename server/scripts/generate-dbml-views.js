@@ -148,7 +148,7 @@ function formatDefaultValue(rawDefault) {
       return `default: \`${normalized}\``;
     } catch (_) {
       const fnText = String(rawDefault).replace(/\s+/g, ' ').trim();
-      return `default: '${fnText.replace(/'/g, "\\'")}'`;
+      return `default: '${escapeSingleQuoted(fnText)}'`;
     }
   }
 
@@ -166,16 +166,24 @@ function formatDefaultValue(rawDefault) {
     if (expressionLike) {
       return `default: \`${v.replace(/`/g, '')}\``;
     }
-    return `default: '${v.replace(/'/g, "\\'")}'`;
+    return `default: '${escapeSingleQuoted(v)}'`;
   }
 
-  return `default: '${JSON.stringify(rawDefault).replace(/'/g, "\\'")}'`;
+  return `default: '${escapeSingleQuoted(JSON.stringify(rawDefault))}'`;
 }
 
 function quoteEnumValue(v) {
   const value = String(v);
   if (/^[A-Za-z0-9_]+$/.test(value)) return value;
-  return `"${value.replace(/"/g, '\\"')}"`;
+  return `"${escapeDoubleQuoted(value)}"`;
+}
+
+function escapeSingleQuoted(value) {
+  return String(value).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+}
+
+function escapeDoubleQuoted(value) {
+  return String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
 }
 
 function loadEntities() {
@@ -503,7 +511,7 @@ function main() {
     const colExpr = cols.length === 1 ? cols[0] : `(${cols.join(', ')})`;
     const settings = [];
     if (idx.unique) settings.push('unique');
-    if (idx.name) settings.push(`name: '${String(idx.name).replace(/'/g, "\\'")}'`);
+    if (idx.name) settings.push(`name: '${escapeSingleQuoted(idx.name)}'`);
     const line = settings.length > 0 ? `${colExpr} [${settings.join(', ')}]` : colExpr;
     addIndexLine(tableName, line);
   }
@@ -563,7 +571,7 @@ function main() {
 
   // TableGroups.
   for (const g of groups) {
-    emittedLines.push(`TableGroup ${g.key} [note: '${g.note.replace(/'/g, "\\'")}'] {`);
+    emittedLines.push(`TableGroup ${g.key} [note: '${escapeSingleQuoted(g.note)}'] {`);
     for (const t of Array.from(new Set(g.tables)).sort((a, b) => a.localeCompare(b))) {
       emittedLines.push(`  ${t}`);
     }
@@ -646,7 +654,7 @@ function main() {
     }
     tabLines.push('');
 
-    tabLines.push(`TableGroup ${g.key} [note: '${g.note.replace(/'/g, "\\'")}'] {`);
+    tabLines.push(`TableGroup ${g.key} [note: '${escapeSingleQuoted(g.note)}'] {`);
     for (const t of tabTables) tabLines.push(`  ${t}`);
     tabLines.push('}');
     tabLines.push('');
