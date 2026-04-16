@@ -117,18 +117,7 @@ const WORKSPACE_TASK_PRIORITY_FILTER_OPTIONS: Array<{
   { value: "HIGH", label: "High" },
   { value: "URGENT", label: "Urgent" },
 ];
-const WARRANTY_WINDOW_DAYS = 30;
-const DISPUTE_PRE_DELIVERY_MILESTONE_STATUSES = new Set<string>([
-  "IN_PROGRESS",
-  "SUBMITTED",
-  "REVISIONS_REQUIRED",
-  "PENDING_STAFF_REVIEW",
-  "PENDING_CLIENT_APPROVAL",
-]);
-const DISPUTE_POST_DELIVERY_MILESTONE_STATUSES = new Set<string>([
-  "COMPLETED",
-  "PAID",
-]);
+const DISPUTE_PARTICIPANT_ROLES = new Set(["CLIENT", "BROKER", "FREELANCER"]);
 
 const normalizeMilestoneKey = (value?: string | null) =>
   value == null ? null : String(value);
@@ -173,15 +162,6 @@ const formatMilestoneRuntimeStatus = (status?: string | null) => {
     default:
       return status ?? "PENDING";
   }
-};
-
-const parseWorkspaceDate = (value?: string | null): Date | null => {
-  if (!value) return null;
-  const normalizedValue = /^\d{4}-\d{2}-\d{2}$/.test(value)
-    ? `${value}T00:00:00.000Z`
-    : value;
-  const parsed = new Date(normalizedValue);
-  return Number.isFinite(parsed.getTime()) ? parsed : null;
 };
 
 type ProjectWorkspaceMember = {
@@ -502,12 +482,12 @@ export function ProjectWorkspace() {
   const isProjectInteractionLocked = isProjectDisputed || isProjectCanceled;
 
   const currentRole = currentUser?.role?.toUpperCase();
+  const canCurrentUserRaiseDispute = DISPUTE_PARTICIPANT_ROLES.has(
+    currentRole ?? "",
+  );
   const billingRole = normalizeSupportedBillingRole(currentRole);
   const isBroker = currentRole === "BROKER";
   const isFreelancer = currentRole === "FREELANCER";
-  const isQuickRoleActionsEnabled =
-    import.meta.env.DEV ||
-    import.meta.env.VITE_ENABLE_TASK_AUTOFILL_TEST === "true";
   const isAssignedBroker = Boolean(
     isBroker && currentUser?.id && project?.brokerId === currentUser.id,
   );
@@ -630,38 +610,6 @@ export function ProjectWorkspace() {
     () => milestones.map((milestone) => milestone.id),
     [milestones],
   );
-
-  const canRaiseDisputeForMilestone = useCallback((milestone?: Milestone | null) => {
-    if (!milestone?.status) {
-      return false;
-    }
-
-    const normalizedStatus = milestone.status.toUpperCase();
-
-    if (DISPUTE_PRE_DELIVERY_MILESTONE_STATUSES.has(normalizedStatus)) {
-      return true;
-    }
-
-    if (!DISPUTE_POST_DELIVERY_MILESTONE_STATUSES.has(normalizedStatus)) {
-      return false;
-    }
-
-    if (normalizedStatus !== "PAID") {
-      return true;
-    }
-
-    const paidReferenceDate =
-      parseWorkspaceDate(milestone.escrow?.releasedAt) ||
-      parseWorkspaceDate(milestone.dueDate);
-    if (!paidReferenceDate) {
-      return true;
-    }
-
-    const warrantyDeadline = new Date(paidReferenceDate);
-    warrantyDeadline.setDate(warrantyDeadline.getDate() + WARRANTY_WINDOW_DAYS);
-
-    return Date.now() <= warrantyDeadline.getTime();
-  }, []);
 
   const specFeatureOptions = useMemo<SpecFeatureOption[]>(() => {
     const features = contractDetail?.project?.request?.spec?.features;
@@ -1009,6 +957,26 @@ export function ProjectWorkspace() {
     return null;
   }, [activeTasks]);
   const activeMilestoneStatus = activeMilestone?.status?.toUpperCase() ?? null;
+  const activeMilestoneDisputePolicy = activeMilestone?.disputePolicy ?? null;
+  const canOpenActiveMilestoneDispute = Boolean(
+    activeMilestone &&
+      activeMilestoneDisputePolicy?.canRaise &&
+      canCurrentUserRaiseDispute &&
+      !isProjectDisputed,
+  );
+  const activeMilestoneDisputeMessage = useMemo(() => {
+    if (isProjectDisputed) {
+      return "This project already has an active dispute. Continue from the dispute workspace instead of opening a new one here.";
+    }
+    if (!canCurrentUserRaiseDispute) {
+      return "Only project participants can open a milestone dispute.";
+    }
+    return activeMilestoneDisputePolicy?.reason ?? null;
+  }, [
+    activeMilestoneDisputePolicy?.reason,
+    canCurrentUserRaiseDispute,
+    isProjectDisputed,
+  ]);
   const projectInteractionLockReason = useMemo(() => {
     if (!isProjectInteractionLocked) {
       return null;
@@ -1923,6 +1891,23 @@ export function ProjectWorkspace() {
       toast.error("Milestone not found.");
       return;
     }
+    if (!canCurrentUserRaiseDispute) {
+      toast.error("Only project participants can open a dispute.");
+      return;
+    }
+    if (isProjectDisputed) {
+      toast.error(
+        "This project already has an active dispute. Continue in the dispute workspace instead.",
+      );
+      return;
+    }
+    if (!milestone.disputePolicy?.canRaise) {
+      toast.error(
+        milestone.disputePolicy?.reason ||
+          "Dispute is not available for this milestone.",
+      );
+      return;
+    }
     setDisputeMilestone(milestone);
     setIsDisputeModalOpen(true);
   };
@@ -2374,7 +2359,6 @@ export function ProjectWorkspace() {
                 onApprove={handleApproveMilestone}
                 onRequestReview={handleRequestMilestoneReview}
                 onReviewerDecision={handleBrokerReviewMilestone}
-                onRaiseDispute={handleRaiseDispute}
                 canApprove={canApproveMilestone}
                 currency={project?.currency ?? "USD"}
               />
@@ -2400,18 +2384,53 @@ export function ProjectWorkspace() {
               currentUserId={currentUser?.id}
               currentUserRole={currentRole}
               pathname={location.pathname}
-              milestoneTitle={activeMilestone?.title}
-              canRaiseDispute={
-                Boolean(activeMilestone) &&
-                !isProjectDisputed &&
-                canRaiseDisputeForMilestone(activeMilestone)
-              }
-              onRaiseDispute={
-                activeMilestone
-                  ? () => handleRaiseDispute(activeMilestone.id)
-                  : undefined
-              }
             />
+          ) : null}
+
+          {activeMilestone ? (
+            <section className="rounded-[1.8rem] border border-red-200 bg-linear-to-br from-red-50 via-white to-rose-50 p-5 shadow-sm">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                <div className="space-y-2">
+                  <div className="inline-flex items-center rounded-full border border-red-200 bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-red-700">
+                    Milestone Dispute
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-semibold text-slate-950">
+                      Report a serious delivery issue
+                    </h3>
+                    <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">
+                      Use dispute for quality, deadline, communication, or payment
+                      problems tied to <span className="font-medium">{activeMilestone.title}</span>.
+                    </p>
+                    {activeMilestoneDisputePolicy?.warrantyEndsAt ? (
+                      <p className="mt-2 text-xs text-slate-500">
+                        Warranty window ends on{" "}
+                        {new Date(
+                          activeMilestoneDisputePolicy.warrantyEndsAt,
+                        ).toLocaleDateString("en-GB")}
+                        .
+                      </p>
+                    ) : null}
+                  </div>
+                </div>
+
+                {canOpenActiveMilestoneDispute ? (
+                  <button
+                    type="button"
+                    data-testid={`raise-dispute-${activeMilestone.id}`}
+                    onClick={() => handleRaiseDispute(activeMilestone.id)}
+                    className="inline-flex items-center justify-center rounded-xl border border-red-300 bg-white px-4 py-2 text-sm font-semibold text-red-700 transition-colors hover:bg-red-100"
+                  >
+                    Raise Dispute
+                  </button>
+                ) : (
+                  <div className="rounded-2xl border border-white bg-white/80 px-4 py-3 text-sm text-slate-600 shadow-sm">
+                    {activeMilestoneDisputeMessage ||
+                      "Dispute is not available for this milestone right now."}
+                  </div>
+                )}
+              </div>
+            </section>
           ) : null}
 
           {viewMode !== "summary" && (
@@ -2436,16 +2455,6 @@ export function ProjectWorkspace() {
                 </div>
                 <div className="flex items-center gap-2 text-sm text-slate-700">
                   <span>{activeProgress}%</span>
-                  {canRaiseDisputeForMilestone(activeMilestone) && (
-                    <button
-                      type="button"
-                      data-testid={`raise-dispute-${activeMilestone.id}`}
-                      onClick={() => handleRaiseDispute(activeMilestone.id)}
-                      className="ml-2 rounded-full border border-red-200 bg-red-50 px-3 py-1 text-xs font-semibold text-red-700 hover:border-red-300 hover:bg-red-100"
-                    >
-                      Raise Dispute
-                    </button>
-                  )}
                 </div>
               </div>
               {activeMilestone.description ? (
@@ -2894,6 +2903,7 @@ export function ProjectWorkspace() {
           milestoneTitle={disputeMilestone.title}
           milestoneStatus={disputeMilestone.status}
           projectTitle={project.title ?? "Project"}
+          disputePolicy={disputeMilestone.disputePolicy ?? null}
           currentUserId={currentUser.id}
           projectMembers={projectMembers}
         />

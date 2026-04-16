@@ -1,5 +1,6 @@
 import { X } from "lucide-react";
 import { CreateDisputeWizard } from "./CreateDisputeWizard";
+import type { MilestoneDisputePolicy } from "@/features/project-workspace/types";
 
 interface CreateDisputeModalProps {
   isOpen: boolean;
@@ -9,6 +10,7 @@ interface CreateDisputeModalProps {
   milestoneTitle: string;
   milestoneStatus: string;
   projectTitle: string;
+  disputePolicy?: MilestoneDisputePolicy | null;
   currentUserId: string;
   projectMembers: Array<{
     id: string;
@@ -25,6 +27,7 @@ export const CreateDisputeModal = ({
   projectId,
   milestoneTitle,
   milestoneStatus,
+  disputePolicy,
   currentUserId,
   projectMembers,
 }: CreateDisputeModalProps) => {
@@ -80,6 +83,7 @@ export const CreateDisputeModal = ({
                 milestoneId={milestoneId}
                 projectId={projectId}
                 milestoneStatus={milestoneStatus}
+                disputePolicy={disputePolicy}
                 currentUserId={currentUserId}
                 projectMembers={projectMembers}
               />

@@ -19,6 +19,7 @@ import {
   DisputeStatus,
 } from "../../../staff/types/staff.types";
 import type { CreateDisputeDto } from "../../types/dispute.dto";
+import type { MilestoneDisputePolicy } from "@/features/project-workspace/types";
 import { STORAGE_KEYS } from "@/constants";
 import { getStoredJson } from "@/shared/utils/storage";
 import { resolveRoleBasePath } from "@/features/hearings/utils/hearingRouting";
@@ -32,6 +33,7 @@ interface CreateDisputeWizardProps {
   milestoneId: string;
   projectId: string;
   milestoneStatus: string;
+  disputePolicy?: MilestoneDisputePolicy | null;
   currentUserId: string;
   projectMembers: Array<{ id: string; name: string; role: string }>;
 }
@@ -57,18 +59,16 @@ const REPORT_REASONS = [
     title: "Payment Issue",
     desc: "Disagreement about payment amounts or release status.",
   },
-  {
-    id: DisputeCategory.OTHER,
-    title: "Other Issue",
-    desc: "Something else not listed here.",
-  },
 ];
+
+const PROJECT_PARTICIPANT_ROLES = new Set(["CLIENT", "BROKER", "FREELANCER"]);
 
 export const CreateDisputeWizard = ({
   onClose,
   milestoneId,
   projectId,
   milestoneStatus,
+  disputePolicy,
   currentUserId,
   projectMembers,
 }: CreateDisputeWizardProps) => {
@@ -93,39 +93,10 @@ export const CreateDisputeWizard = ({
     [milestoneStatus],
   );
 
-  const allowedCategories = useMemo(() => {
-    switch (normalizedStatus) {
-      case "SUBMITTED":
-      case "PENDING_STAFF_REVIEW":
-      case "PENDING_CLIENT_APPROVAL":
-      case "COMPLETED":
-      case "PAID":
-        return [
-          DisputeCategory.QUALITY,
-          DisputeCategory.DEADLINE,
-          DisputeCategory.COMMUNICATION,
-          DisputeCategory.PAYMENT,
-          DisputeCategory.OTHER,
-        ];
-      case "REVISIONS_REQUIRED":
-        return [
-          DisputeCategory.QUALITY,
-          DisputeCategory.DEADLINE,
-          DisputeCategory.COMMUNICATION,
-          DisputeCategory.PAYMENT,
-          DisputeCategory.OTHER,
-        ];
-      case "IN_PROGRESS":
-        return [
-          DisputeCategory.DEADLINE,
-          DisputeCategory.COMMUNICATION,
-          DisputeCategory.PAYMENT,
-          DisputeCategory.OTHER,
-        ];
-      default:
-        return [];
-    }
-  }, [normalizedStatus]);
+  const allowedCategories = useMemo(
+    () => disputePolicy?.allowedCategories ?? [],
+    [disputePolicy],
+  );
 
   const statusLabel = useMemo(() => {
     switch (normalizedStatus) {
@@ -146,12 +117,13 @@ export const CreateDisputeWizard = ({
     }
   }, [normalizedStatus, milestoneStatus]);
 
-  const isDisputeAllowed = allowedCategories.length > 0;
-
+  const policyReason = disputePolicy?.reason ?? null;
+  const warrantyEndsAt = disputePolicy?.warrantyEndsAt ?? null;
   const blockedCategories = useMemo(
-    () => new Set<DisputeCategory>([DisputeCategory.SCOPE_CHANGE]),
-    [],
+    () => disputePolicy?.blockedCategories ?? {},
+    [disputePolicy],
   );
+  const isDisputeAllowed = Boolean(disputePolicy?.canRaise);
 
   const roleBasePath = useMemo(() => {
     const user = getStoredJson<{ role?: string }>(STORAGE_KEYS.USER);
@@ -159,27 +131,39 @@ export const CreateDisputeWizard = ({
   }, []);
 
   const isCategoryAllowed = useCallback(
-    (category: DisputeCategory) =>
-      allowedCategories.includes(category) && !blockedCategories.has(category),
-    [allowedCategories, blockedCategories],
+    (category: DisputeCategory) => allowedCategories.includes(category),
+    [allowedCategories],
   );
 
-  const getCategoryHint = useCallback((category: DisputeCategory) => {
-    if (blockedCategories.has(category)) {
-      return "Use a Change Request for scope changes. Dispute is for serious issues only.";
-    }
-    if (category === DisputeCategory.QUALITY) {
-      return "Use this when delivered work does not match the agreed milestone outputs.";
-    }
-    if (normalizedStatus === "COMPLETED" || normalizedStatus === "PAID") {
-      return "Available during the post-delivery warranty window while evidence is still available.";
-    }
-    return "Available while the milestone is in progress or awaiting approval.";
-  }, [blockedCategories, normalizedStatus]);
+  const getCategoryHint = useCallback(
+    (category: DisputeCategory) => {
+      const blockedReason = blockedCategories[category];
+      if (blockedReason) {
+        return blockedReason;
+      }
+
+      if (category === DisputeCategory.QUALITY) {
+        return "Use this when delivered work does not match the agreed milestone outputs.";
+      }
+      if (category === DisputeCategory.DEADLINE) {
+        return "Use this when the milestone due date has already passed.";
+      }
+      if (normalizedStatus === "COMPLETED" || normalizedStatus === "PAID") {
+        return "Available during the post-delivery warranty window while evidence is still available.";
+      }
+      return "Available while the milestone is in progress or awaiting approval.";
+    },
+    [blockedCategories, normalizedStatus],
+  );
 
   // Filter out current user from defendant list
   const availableDefendants = useMemo(
-    () => projectMembers.filter((m) => m.id !== currentUserId),
+    () =>
+      projectMembers.filter(
+        (member) =>
+          member.id !== currentUserId &&
+          PROJECT_PARTICIPANT_ROLES.has(String(member.role || "").toUpperCase()),
+      ),
     [projectMembers, currentUserId],
   );
 
@@ -229,7 +213,7 @@ export const CreateDisputeWizard = ({
           setAddToExistingCase(false);
           setSelectedParentDisputeId("");
         }
-      } catch (error) {
+      } catch {
         if (!cancelled) {
           setExistingParentDisputes([]);
         }
@@ -285,7 +269,7 @@ export const CreateDisputeWizard = ({
 
   const handleSubmit = async () => {
     if (!isDisputeAllowed) {
-      toast.error("Dispute is not available for this milestone status.");
+      toast.error(policyReason || "Dispute is not available for this milestone.");
       return;
     }
     if (!selectedCategory || !selectedDefendant) {
@@ -297,7 +281,7 @@ export const CreateDisputeWizard = ({
       return;
     }
     if (!isCategoryAllowed(selectedCategory)) {
-      toast.error("Selected dispute category is not allowed for this milestone status.");
+      toast.error(getCategoryHint(selectedCategory));
       return;
     }
 
@@ -395,7 +379,13 @@ export const CreateDisputeWizard = ({
             {statusLabel}
             {!isDisputeAllowed && (
               <div className="mt-2 text-xs text-slate-500">
-                Disputes are not available for the current milestone status.
+                {policyReason || "Disputes are not available for the current milestone status."}
+              </div>
+            )}
+            {warrantyEndsAt && (
+              <div className="mt-2 text-xs text-slate-500">
+                Warranty window ends on{" "}
+                {new Date(warrantyEndsAt).toLocaleDateString("en-GB")}.
               </div>
             )}
           </div>
@@ -540,8 +530,7 @@ export const CreateDisputeWizard = ({
         <div className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-slate-900">
-              Describe the issue in detail{" "}
-              {selectedCategory === DisputeCategory.OTHER && "(Required)"}
+              Describe the issue in detail
             </label>
             <div className="mt-1">
               <textarea

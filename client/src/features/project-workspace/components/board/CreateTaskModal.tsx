@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Layers, CalendarDays, X } from "lucide-react";
 import { WorkspaceDatePicker } from "../shared/WorkspaceDatePicker";
+import { INTERNAL_DEV_TOOLS_ENABLED } from "@/shared/utils/internalTools";
 
 export type SpecFeatureOption = {
   id: string;
@@ -47,8 +48,6 @@ export function CreateTaskModal({
   onChangeStartDate,
   onChangeDueDate,
 }: CreateTaskModalProps) {
-  if (!open) return null;
-
   const featuresByComplexity = specFeatures.reduce((acc, feat) => {
     const key = feat.complexity || "UNSPECIFIED";
     if (!acc[key]) acc[key] = [];
@@ -58,9 +57,7 @@ export function CreateTaskModal({
 
   const selectedFeature = specFeatures.find((feature) => feature.id === specFeatureId);
   const hasSpecFeatures = specFeatures.length > 0;
-  const isTestAutofillEnabled =
-    import.meta.env.DEV ||
-    import.meta.env.VITE_ENABLE_TASK_AUTOFILL_TEST === "true";
+  const isTestAutofillEnabled = INTERNAL_DEV_TOOLS_ENABLED;
 
   const [isAutoFilling, setIsAutoFilling] = useState(false);
   const [demoStepIndex, setDemoStepIndex] = useState(0);
@@ -185,6 +182,8 @@ export function CreateTaskModal({
     LOW: "Low Complexity",
     UNSPECIFIED: "Unspecified",
   };
+
+  if (!open) return null;
 
   return (
     <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 px-4">

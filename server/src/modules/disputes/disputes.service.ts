@@ -148,6 +148,11 @@ import {
 } from './dispute-docket';
 import { DISPUTE_DISCLAIMER_SNAPSHOT, DISPUTE_DISCLAIMER_VERSION } from './dispute-legal';
 import { DISPUTE_FOLLOW_UP_ACTION_CATALOG } from './dispute-follow-up';
+import {
+  USER_RAISEABLE_DISPUTE_CATEGORIES,
+  isUserRaiseableDisputeCategory,
+  resolveMilestoneDisputePolicy,
+} from './dispute-milestone-policy';
 
 // Constants for deadlines
 const DEFAULT_RESPONSE_DEADLINE_DAYS = 7;
@@ -1493,6 +1498,47 @@ export class DisputesService {
       }));
   }
 
+  private getRootMilestoneDisputePolicy(
+    milestone: MilestoneEntity,
+    escrow: EscrowEntity,
+    now: Date,
+  ) {
+    return resolveMilestoneDisputePolicy({
+      milestoneStatus: milestone.status,
+      escrowStatus: escrow.status,
+      releasedAt: escrow.releasedAt,
+      dueDate: milestone.dueDate,
+      now,
+    });
+  }
+
+  private assertRootDisputeCreationAllowed(
+    disputeCategory: DisputeCategory,
+    milestone: MilestoneEntity,
+    escrow: EscrowEntity,
+    now: Date,
+  ): void {
+    if (!isUserRaiseableDisputeCategory(disputeCategory)) {
+      throw new BadRequestException(
+        `Unsupported dispute category. Allowed categories: ${USER_RAISEABLE_DISPUTE_CATEGORIES.join(', ')}.`,
+      );
+    }
+
+    const policy = this.getRootMilestoneDisputePolicy(milestone, escrow, now);
+    if (!policy.canRaise) {
+      throw new BadRequestException(
+        policy.reason ?? 'Dispute is not available for the selected milestone.',
+      );
+    }
+
+    if (!policy.allowedCategories.includes(disputeCategory)) {
+      throw new BadRequestException(
+        policy.blockedCategories[disputeCategory] ??
+          `Dispute category ${disputeCategory} is not allowed while the milestone is ${milestone.status}.`,
+      );
+    }
+  }
+
   async create(raisedBy: string, dto: CreateDisputeDto) {
     const {
       projectId,
@@ -1604,6 +1650,51 @@ export class DisputesService {
         }
       }
 
+      if (parentDisputeId) {
+        const allowedMilestoneStatuses = [
+          MilestoneStatus.COMPLETED,
+          MilestoneStatus.PAID,
+          MilestoneStatus.LOCKED,
+        ];
+        if (!allowedMilestoneStatuses.includes(milestone.status)) {
+          throw new BadRequestException(
+            `Milestone status "${milestone.status}" does not allow linking a new party into an existing dispute case.`,
+          );
+        }
+
+        const allowedEscrowStatuses = [
+          EscrowStatus.FUNDED,
+          EscrowStatus.DISPUTED,
+          EscrowStatus.RELEASED,
+        ];
+        if (!allowedEscrowStatuses.includes(escrow.status)) {
+          throw new BadRequestException('Escrow is not in valid state for dispute');
+        }
+      } else {
+        try {
+          this.assertRootDisputeCreationAllowed(disputeCategory, milestone, escrow, now);
+        } catch (error) {
+          if (canUseEligibilityBypass && error instanceof BadRequestException) {
+            const response = error.getResponse();
+            testBypassReason =
+              typeof response === 'string'
+                ? response
+                : Array.isArray((response as { message?: unknown }).message)
+                  ? String(
+                      (response as { message?: unknown[] }).message?.[0] ??
+                        'Dispute eligibility bypass applied.',
+                    )
+                  : String(
+                      (response as { message?: unknown }).message ??
+                        'Dispute eligibility bypass applied.',
+                    );
+          } else {
+            throw error;
+          }
+        }
+      }
+
+      if (process.env.NODE_ENV === "__legacy_disabled__") {
       const allowedMilestoneStatuses = parentDisputeId
         ? [MilestoneStatus.COMPLETED, MilestoneStatus.LOCKED]
         : this.getAllowedMilestoneStatusesForDispute(disputeCategory);
@@ -1645,6 +1736,8 @@ export class DisputesService {
         } else {
           throw new BadRequestException(eligibility.reason);
         }
+      }
+
       }
 
       const projectMember = [project.clientId, project.brokerId, project.freelancerId].filter(
@@ -2214,6 +2307,51 @@ export class DisputesService {
       }
     }
 
+    if (parentDisputeId) {
+      const allowedMilestoneStatuses = [
+        MilestoneStatus.COMPLETED,
+        MilestoneStatus.PAID,
+        MilestoneStatus.LOCKED,
+      ];
+      if (!allowedMilestoneStatuses.includes(milestone.status)) {
+        throw new BadRequestException(
+          `Milestone status "${milestone.status}" does not allow linking a new party into an existing dispute case.`,
+        );
+      }
+
+      const allowedEscrowStatuses = [
+        EscrowStatus.FUNDED,
+        EscrowStatus.DISPUTED,
+        EscrowStatus.RELEASED,
+      ];
+      if (!allowedEscrowStatuses.includes(escrow.status)) {
+        throw new BadRequestException('Escrow is not in valid state for dispute');
+      }
+    } else {
+      try {
+        this.assertRootDisputeCreationAllowed(disputeCategory, milestone, escrow, now);
+      } catch (error) {
+        if (canUseEligibilityBypass && error instanceof BadRequestException) {
+          const response = error.getResponse();
+          testBypassReason =
+            typeof response === 'string'
+              ? response
+              : Array.isArray((response as { message?: unknown }).message)
+                ? String(
+                    (response as { message?: unknown[] }).message?.[0] ??
+                      'Dispute eligibility bypass applied.',
+                  )
+                : String(
+                    (response as { message?: unknown }).message ??
+                      'Dispute eligibility bypass applied.',
+                  );
+        } else {
+          throw error;
+        }
+      }
+    }
+
+    if (process.env.NODE_ENV === "__legacy_disabled__") {
     const allowedMilestoneStatuses = parentDisputeId
       ? [MilestoneStatus.COMPLETED, MilestoneStatus.LOCKED]
       : this.getAllowedMilestoneStatusesForDispute(disputeCategory);
@@ -2254,6 +2392,8 @@ export class DisputesService {
       } else {
         throw new BadRequestException(eligibility.reason);
       }
+    }
+
     }
 
     const projectMember = [project.clientId, project.brokerId, project.freelancerId].filter(

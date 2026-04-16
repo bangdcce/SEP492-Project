@@ -29,6 +29,7 @@ import { Badge } from "@/shared/components/ui/badge";
 import { cn } from "@/shared/components/ui/utils";
 import { toast } from "sonner";
 import { getApiErrorDetails } from "@/shared/utils/apiError";
+import { INTERNAL_DEV_TOOLS_ENABLED } from "@/shared/utils/internalTools";
 import type {
   HearingStatementContentBlock,
   HearingStatementSummary,
@@ -581,10 +582,7 @@ export const StatementSubmissionDialog = memo(function StatementSubmissionDialog
   const [submitting, setSubmitting] = useState(false);
   const [savingDraft, setSavingDraft] = useState(false);
 
-  const sampleToolsEnabled = useMemo(() => {
-    const raw = (import.meta.env.VITE_DISPUTE_TEST_TOOLS || "").toLowerCase();
-    return import.meta.env.DEV || raw === "true" || raw === "1";
-  }, []);
+  const sampleToolsEnabled = INTERNAL_DEV_TOOLS_ENABLED;
 
   const restrictionsByType = useMemo(() => {
     const map = new Map<HearingStatementType, string | null>();
