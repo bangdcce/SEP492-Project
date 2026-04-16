@@ -2388,7 +2388,7 @@ export function ProjectWorkspace() {
           ) : null}
 
           {activeMilestone ? (
-            <section className="rounded-[1.8rem] border border-red-200 bg-linear-to-br from-red-50 via-white to-rose-50 p-5 shadow-sm">
+            <section className="rounded-[1.8rem] border border-red-200 bg-gradient-to-br from-red-50 via-white to-rose-50 p-5 shadow-sm">
               <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                 <div className="space-y-2">
                   <div className="inline-flex items-center rounded-full border border-red-200 bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-red-700">

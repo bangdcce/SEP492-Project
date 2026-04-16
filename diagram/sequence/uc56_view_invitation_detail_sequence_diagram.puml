@@ -70,7 +70,7 @@ activate DetailPage
 
 DetailPage -> DetailPage : 4. Show loading state
 
-DetailPage -> DiscoveryAPI : 5. Call getMyInvitations() because there is no direct GET by invitation id
+DetailPage -> DiscoveryAPI : 5. Call getMyInvitations() because there is no direct invitation-detail endpoint
 
 activate DiscoveryAPI
 
@@ -78,7 +78,7 @@ DiscoveryAPI -> ApiClient : 6. Forward HTTP request
 
 activate ApiClient
 
-ApiClient -> Controller : 7. Send GET "/project-requests/invitations/my"
+ApiClient -> Controller : 7. Load my invitation list
 
 activate Controller
 

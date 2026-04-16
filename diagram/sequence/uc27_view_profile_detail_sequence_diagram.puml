@@ -70,7 +70,7 @@ DiscoveryAPI -> ApiClient : 3. Forward HTTP request
 
 activate ApiClient
 
-ApiClient -> Controller : 4. Send GET "/discovery/users"
+ApiClient -> Controller : 4. Load discoverable user list
 
 activate Controller
 
@@ -110,7 +110,7 @@ ProfilePage -> DiscoveryAPI : 16. Request the selected partner profile
 
 DiscoveryAPI -> ApiClient : 17. Forward HTTP request
 
-ApiClient -> Controller : 18. Send GET "/discovery/profile/{userId}"
+ApiClient -> Controller : 18. Load profile details
 
 Controller -> JWTGuard : 19. Confirm the signed-in user identity
 

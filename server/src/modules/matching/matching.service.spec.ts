@@ -148,7 +148,7 @@ describe('MatchingService', () => {
       tagOverlapScore: 100 - index,
       matchedSkills: [`signal-${index + 1}`],
     }));
-    const aiRanked = tagged.slice(0, 10).map((candidate, index) => ({
+    const aiRanked = tagged.map((candidate, index) => ({
       ...candidate,
       aiRelevanceScore: 90 - index,
       reasoning: `AI reasoning ${index + 1}`,
@@ -169,6 +169,7 @@ describe('MatchingService', () => {
       role: 'FREELANCER',
       enableAi: true,
       topN: 2,
+      page: 2,
     });
 
     expect(aiRankerService.rank).toHaveBeenCalledWith(
@@ -182,7 +183,7 @@ describe('MatchingService', () => {
     );
     expect((aiRankerService.rank.mock.calls[0]?.[1] || []).length).toBe(10);
     expect(results).toHaveLength(2);
-    expect(results[0].matchScore).toBe(95);
-    expect(results[1].matchScore).toBe(94);
+    expect(results[0].matchScore).toBe(93);
+    expect(results[1].matchScore).toBe(92);
   });
 });

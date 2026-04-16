@@ -114,6 +114,29 @@ export interface RequestSlotSummary {
 export interface RequestCandidateProfileSummary {
   bio?: string | null;
   companyName?: string | null;
+  domains?: string[] | null;
+  portfolioLinks?: string[] | null;
+  profileSkills?: string[] | null;
+}
+
+export interface RequestCandidateSkillSummary {
+  name: string;
+  slug?: string | null;
+  aliases?: string[] | null;
+  domainId?: string | null;
+  domainName?: string | null;
+  domainSlug?: string | null;
+  isPrimary?: boolean;
+  yearsExp?: number | null;
+  completedProjectsCount?: number | null;
+  lastUsedAt?: string | Date | null;
+  verificationStatus?: string | null;
+}
+
+export interface RequestCandidateDomainSummary {
+  id?: string | null;
+  name: string;
+  slug?: string | null;
 }
 
 export interface RequestMatchCandidate {
@@ -129,6 +152,10 @@ export interface RequestMatchCandidate {
   normalizedTrust?: number | string | null;
   matchedSkills?: string[];
   reasoning?: string | null;
+  rawProfileSkills?: string[];
+  skills?: RequestCandidateSkillSummary[];
+  domains?: RequestCandidateDomainSummary[];
+  completedProjects?: number | null;
   candidateProfile?: RequestCandidateProfileSummary | null;
 }
 
@@ -201,7 +228,11 @@ export interface ProjectRequest {
   answers?: Array<{
     id?: string;
     valueText?: string | null;
-    question?: { id?: string; code?: string | null; label?: string | null } | null;
+    question?: {
+      id?: string;
+      code?: string | null;
+      label?: string | null;
+    } | null;
     option?: { id?: string; label?: string | null } | null;
   }>;
   createdAt: string;

@@ -78,7 +78,7 @@ SubscriptionAPI -> ApiClient : 6. Forward HTTP request
 
 activate ApiClient
 
-ApiClient -> Controller : 7. Send POST "/subscriptions/cancel"
+ApiClient -> Controller : 7. Cancel subscription
 
 activate Controller
 
@@ -126,7 +126,7 @@ Page -> SubscriptionAPI : 20. Reload getMySubscription() to refresh the overview
 
 SubscriptionAPI -> ApiClient : 21. Forward HTTP request
 
-ApiClient -> Controller : 22. Send GET "/subscriptions/me"
+ApiClient -> Controller : 22. Load current subscription
 
 Controller -> Service : 23. Load the updated subscription snapshot
 

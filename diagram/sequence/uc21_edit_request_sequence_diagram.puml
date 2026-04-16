@@ -78,7 +78,7 @@ WizardAPI -> ApiClient : 5. Forward HTTP request
 
 activate ApiClient
 
-ApiClient -> Controller : 6. Send GET "/project-requests/{requestId}"
+ApiClient -> Controller : 6. Load request details
 
 activate Controller
 
@@ -118,7 +118,7 @@ WizardPage -> WizardAPI : 19. Call updateRequest(requestId, payload)
 
 WizardAPI -> ApiClient : 20. Forward HTTP request
 
-ApiClient -> Controller : 21. Send PATCH "/project-requests/{requestId}"
+ApiClient -> Controller : 21. Update request visibility or details
 
 Controller -> JWTGuard : 22. Confirm the client is signed in
 

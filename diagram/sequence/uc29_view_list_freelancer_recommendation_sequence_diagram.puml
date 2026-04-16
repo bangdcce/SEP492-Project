@@ -68,7 +68,7 @@ WizardAPI -> ApiClient : 3. Forward HTTP request
 
 activate ApiClient
 
-ApiClient -> Controller : 4. Send GET "/project-requests/{requestId}"
+ApiClient -> Controller : 4. Load request details
 
 activate Controller
 

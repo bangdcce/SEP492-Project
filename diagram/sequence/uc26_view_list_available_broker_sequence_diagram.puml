@@ -76,7 +76,7 @@ alt [Client clicks "Search"]
 
     activate ApiClient
 
-    ApiClient -> MatchingController : 5. Send GET "/matching/{requestId}?role=BROKER&enableAi=false"
+    ApiClient -> MatchingController : 5. Call getMatches(requestId, BROKER, without AI)
 
     activate MatchingController
 
@@ -86,7 +86,7 @@ else [Client clicks "Get AI Suggestion"]
 
     WizardAPI -> ApiClient : 7. Forward HTTP request
 
-    ApiClient -> MatchingController : 8. Send GET "/matching/{requestId}?role=BROKER&enableAi=true"
+    ApiClient -> MatchingController : 8. Call getMatches(requestId, BROKER, with AI)
 
 end
 

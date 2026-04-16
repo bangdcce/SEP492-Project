@@ -74,7 +74,7 @@ WizardAPI -> ApiClient : 3. Forward HTTP request
 
 activate ApiClient
 
-ApiClient -> Controller : 4. Send GET "/project-requests/{requestId}"
+ApiClient -> Controller : 4. Load request details
 
 activate Controller
 
@@ -114,7 +114,7 @@ Page -> WizardAPI : 16. Call publishRequest(requestId)
 
 WizardAPI -> ApiClient : 17. Forward HTTP request
 
-ApiClient -> Controller : 18. Send POST "/project-requests/{requestId}/publish"
+ApiClient -> Controller : 18. Publish request to marketplace
 
 Controller -> JWTGuard : 19. Confirm the client is signed in
 

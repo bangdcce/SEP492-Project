@@ -40,7 +40,7 @@ Page -> RequestsAPI : 3. Request public request detail by id
 activate RequestsAPI
 RequestsAPI -> ApiClient : 4. Forward HTTP request
 activate ApiClient
-ApiClient -> Controller : 5. Send GET "/project-requests/{id}"
+ApiClient -> Controller : 5. Load public request details
 activate Controller
 Controller -> JWTGuard : 6. Confirm the user is signed in
 activate JWTGuard

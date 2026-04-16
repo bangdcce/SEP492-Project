@@ -74,7 +74,7 @@ WizardAPI -> ApiClient : 3. Forward HTTP request
 
 activate ApiClient
 
-ApiClient -> Controller : 4. Send GET "/project-requests/{requestId}"
+ApiClient -> Controller : 4. Load request details
 
 activate Controller
 
@@ -120,7 +120,7 @@ Page -> WizardAPI : 19. Call deleteRequest(requestId)
 
 WizardAPI -> ApiClient : 20. Forward HTTP request
 
-ApiClient -> Controller : 21. Send DELETE "/project-requests/{requestId}"
+ApiClient -> Controller : 21. Delete request
 
 Controller -> JWTGuard : 22. Confirm the client is signed in
 

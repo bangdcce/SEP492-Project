@@ -74,9 +74,23 @@ export class AiRankerService {
    * This reduces N API calls to just 1.
    */
   private buildBatchPrompt(input: AiRankerInput, candidates: TagScoreResult[]): string {
+    const formatLimitedList = (values: string[], limit: number, emptyLabel: string): string => {
+      const cleaned = values.map((value) => String(value || '').trim()).filter(Boolean);
+
+      if (cleaned.length === 0) {
+        return emptyLabel;
+      }
+
+      const visibleValues = cleaned.slice(0, limit);
+      return cleaned.length > limit
+        ? `${visibleValues.join(', ')} (+${cleaned.length - limit} more)`
+        : visibleValues.join(', ');
+    };
+
     const candidateBlocks = candidates
       .map((c, idx) => {
         const skillsList = c.skills
+          .slice(0, 6)
           .map(
             (s) =>
               `${s.name}${
@@ -86,19 +100,24 @@ export class AiRankerService {
               } skill-projects${s.lastUsedAt ? `, last used ${new Date(s.lastUsedAt).getFullYear()}` : ''})`,
           )
           .join(', ');
-        const domainList = c.domains.map((domain) => domain.name).join(', ');
-        const profileTags = c.rawProfileSkills.join(', ');
+        const domainList = formatLimitedList(
+          c.domains.map((domain) => domain.name),
+          4,
+          'No domains listed',
+        );
+        const profileTags = formatLimitedList(c.rawProfileSkills, 5, 'No profile tags listed');
+        const matchedSkills = formatLimitedList(c.matchedSkills, 5, 'None');
 
         return `CANDIDATE ${idx + 1} (id: "${c.candidateId}"):
 - Name: ${c.fullName}
 - Bio: ${c.bio || 'No bio provided'}
-- Domains: ${domainList || 'No domains listed'}
-- Profile Tags: ${profileTags || 'No profile tags listed'}
+- Domains: ${domainList}
+- Profile Tags: ${profileTags}
 - Skills: ${skillsList || 'No skills listed'}
 - Trust Score: ${c.trustScore}/5
 - Completed Projects: ${c.completedProjects}
 - Tag Overlap: ${c.tagOverlapScore}%
-- Matched Skills: ${c.matchedSkills.join(', ') || 'None'}`;
+- Matched Signals: ${matchedSkills}`;
       })
       .join('\n\n');
 
@@ -114,9 +133,15 @@ CANDIDATES TO EVALUATE:
 
 ${candidateBlocks}
 
-Respond ONLY with a valid JSON array (no markdown, no code fences). Each element must have "id", "score" (0-100), and "reasoning" (one sentence):
+SCORING PRIORITIES:
+- Reward direct overlap with required tech stack and concrete matched signals most heavily.
+- Reward relevant domain history, recent hands-on work, and stronger completed-project evidence.
+- Use trust score as a reliability signal, but do not let trust outweigh clear skill mismatch.
+- Penalize vague profiles or candidates with little evidence tied to the request.
+
+Respond ONLY with a valid JSON array (no markdown, no code fences). Each element must have "id", "score" (0-100), and "reasoning" (one short sentence, max 24 words, mention strongest fit and biggest gap):
 [
-  { "id": "candidate-uuid", "score": 85, "reasoning": "Strong match because..." },
+  { "id": "candidate-uuid", "score": 85, "reasoning": "Strong delivery history in X, but limited evidence for Y." },
   ...
 ]`;
   }
@@ -139,8 +164,7 @@ Respond ONLY with a valid JSON array (no markdown, no code fences). Each element
 
         aiMap.set(itemId, {
           score: (() => {
-            const parsedScore =
-              typeof item.score === 'number' ? item.score : Number(item.score);
+            const parsedScore = typeof item.score === 'number' ? item.score : Number(item.score);
 
             return Number.isFinite(parsedScore)
               ? Math.min(100, Math.max(0, Math.round(parsedScore)))
@@ -183,9 +207,7 @@ Respond ONLY with a valid JSON array (no markdown, no code fences). Each element
 
     const firstArrayIndex = cleaned.indexOf('[');
     const firstObjectIndex = cleaned.indexOf('{');
-    const firstIndexCandidates = [firstArrayIndex, firstObjectIndex].filter(
-      (value) => value >= 0,
-    );
+    const firstIndexCandidates = [firstArrayIndex, firstObjectIndex].filter((value) => value >= 0);
 
     if (firstIndexCandidates.length === 0) {
       return cleaned;

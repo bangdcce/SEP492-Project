@@ -70,7 +70,7 @@ DiscoveryAPI -> ApiClient : 4. Forward HTTP request
 
 activate ApiClient
 
-ApiClient -> Controller : 5. Send GET "/project-requests/invitations/my"
+ApiClient -> Controller : 5. Load my invitation list
 
 activate Controller
 

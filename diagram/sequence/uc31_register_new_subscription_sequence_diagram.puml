@@ -90,7 +90,7 @@ alt [No PayPal funding method is saved]
 
     activate ApiClient
 
-    ApiClient -> PaymentController : 7. Send POST "/payment-methods"
+    ApiClient -> PaymentController : 7. Save payment method
 
     activate PaymentController
 
@@ -134,7 +134,7 @@ activate SubscriptionAPI
 
 SubscriptionAPI -> ApiClient : 18. Forward HTTP request
 
-ApiClient -> SubscriptionController : 19. Send GET "/subscriptions/me" and GET "/subscriptions/plans"
+ApiClient -> SubscriptionController : 19. Load current subscription and available plans
 
 activate SubscriptionController
 
@@ -172,7 +172,7 @@ PayPalCheckout -> SubscriptionAPI : 31. Call getSubscriptionPayPalConfig(planId,
 
 SubscriptionAPI -> ApiClient : 32. Forward HTTP request
 
-ApiClient -> SubscriptionController : 33. Send GET "/subscriptions/paypal/config"
+ApiClient -> SubscriptionController : 33. Load PayPal configuration
 
 SubscriptionController -> JWTGuard : 34. Confirm the user is signed in
 
@@ -204,7 +204,7 @@ PayPalCheckout -> SubscriptionAPI : 44. Call createPayPalSubscriptionOrder()
 
 SubscriptionAPI -> ApiClient : 45. Forward HTTP request
 
-ApiClient -> SubscriptionController : 46. Send POST "/subscriptions/paypal/order"
+ApiClient -> SubscriptionController : 46. Create PayPal order
 
 SubscriptionController -> SubscriptionService : 47. Create a PayPal order for the chosen plan
 
@@ -226,7 +226,7 @@ PayPalCheckout -> SubscriptionAPI : 54. After approval, call subscribeToPlan(pla
 
 SubscriptionAPI -> ApiClient : 55. Forward HTTP request
 
-ApiClient -> SubscriptionController : 56. Send POST "/subscriptions/subscribe"
+ApiClient -> SubscriptionController : 56. Activate subscription
 
 SubscriptionController -> SubscriptionService : 57. Capture the approved PayPal order and activate premium
 
