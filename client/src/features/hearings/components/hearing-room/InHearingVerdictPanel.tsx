@@ -20,6 +20,7 @@ import {
   type DisputeRuleCatalogItem,
 } from "@/features/disputes/api";
 import { getApiErrorDetails } from "@/shared/utils/apiError";
+import { INTERNAL_DEV_TOOLS_ENABLED } from "@/shared/utils/internalTools";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -447,13 +448,15 @@ export const InHearingVerdictPanel = memo(function InHearingVerdictPanel({
                 Use canonical policy codes and follow-up actions only.
               </div>
             </div>
-            <button
-              type="button"
-              onClick={fillValidSample}
-              className="rounded-md border border-amber-300 bg-white px-3 py-1.5 text-xs font-medium text-amber-800 hover:bg-amber-100"
-            >
-              Fill Sample
-            </button>
+            {INTERNAL_DEV_TOOLS_ENABLED ? (
+              <button
+                type="button"
+                onClick={fillValidSample}
+                className="rounded-md border border-amber-300 bg-white px-3 py-1.5 text-xs font-medium text-amber-800 hover:bg-amber-100"
+              >
+                Fill Sample
+              </button>
+            ) : null}
           </div>
 
           <div className="grid gap-3 md:grid-cols-3">

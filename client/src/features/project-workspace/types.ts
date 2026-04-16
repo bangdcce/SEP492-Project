@@ -1,5 +1,6 @@
 import type { DeliverableType } from "@/features/project-specs/types";
 import type { MilestoneEscrowSummary } from "@/features/payments/types";
+import type { DisputeCategory } from "@/features/staff/types/staff.types";
 
 export type KanbanColumnKey = "TODO" | "IN_PROGRESS" | "IN_REVIEW" | "DONE";
 
@@ -242,6 +243,22 @@ export type Milestone = {
   totalTasks?: number;
   completedTasks?: number;
   escrow?: MilestoneEscrowSummary | null;
+  disputePolicy?: MilestoneDisputePolicy | null;
+};
+
+export type MilestoneDisputePhase =
+  | "PRE_DELIVERY"
+  | "REVIEW"
+  | "POST_DELIVERY"
+  | "CLOSED";
+
+export type MilestoneDisputePolicy = {
+  canRaise: boolean;
+  phase: MilestoneDisputePhase;
+  allowedCategories: DisputeCategory[];
+  blockedCategories: Partial<Record<DisputeCategory, string>>;
+  reason: string | null;
+  warrantyEndsAt: string | null;
 };
 
 export type KanbanBoard = Record<KanbanColumnKey, Task[]>;

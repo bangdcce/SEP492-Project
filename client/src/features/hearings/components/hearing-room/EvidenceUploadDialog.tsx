@@ -1,5 +1,5 @@
 import React, { memo, useCallback, useState } from "react";
-import { FileUp, AlertCircle, Loader2, Shield } from "lucide-react";
+import { FileUp, AlertCircle, Loader2 } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -74,7 +74,6 @@ export const EvidenceUploadDialog = memo(function EvidenceUploadDialog({
         </DialogHeader>
 
         <div className="space-y-4 py-2 overflow-x-hidden">
-          {/* File info */}
           {file && (
             <div
               className={[
@@ -106,11 +105,11 @@ export const EvidenceUploadDialog = memo(function EvidenceUploadDialog({
                 <div className="min-w-0 flex-1 space-y-2">
                   <div>
                     <p className="font-semibold text-slate-900">
-                      Uploading evidence and running security scan
+                      Uploading evidence
                     </p>
                     <p className="text-slate-600">
-                      The server confirms the upload only after the malware
-                      scan finishes. Large images can take a bit longer here.
+                      The server is storing the file and saving the evidence
+                      record. Large files can take a bit longer here.
                     </p>
                   </div>
                   <div className="h-2 overflow-hidden rounded-full bg-amber-100">
@@ -119,11 +118,11 @@ export const EvidenceUploadDialog = memo(function EvidenceUploadDialog({
                   <div className="grid gap-2 text-xs text-slate-500 sm:grid-cols-2">
                     <div className="flex items-center gap-2">
                       <Loader2 className="h-3.5 w-3.5 animate-spin text-amber-600" />
-                      <span>Storage upload and validation in progress</span>
+                      <span>Storage upload in progress</span>
                     </div>
                     <div className="flex items-center gap-2">
-                      <Shield className="h-3.5 w-3.5 text-emerald-600" />
-                      <span>Virus scan must finish before confirmation</span>
+                      <FileUp className="h-3.5 w-3.5 text-emerald-600" />
+                      <span>Waiting for server confirmation</span>
                     </div>
                   </div>
                 </div>
@@ -131,7 +130,6 @@ export const EvidenceUploadDialog = memo(function EvidenceUploadDialog({
             </div>
           )}
 
-          {/* Description */}
           <div className="space-y-1.5">
             <Label htmlFor="evi-desc" className="text-sm font-medium">
               Evidence description <span className="text-rose-500">*</span>
@@ -140,7 +138,7 @@ export const EvidenceUploadDialog = memo(function EvidenceUploadDialog({
               id="evi-desc"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="e.g., Screenshot of completed milestone #3 showing all deliverables were submitted on time…"
+              placeholder="e.g., Screenshot of completed milestone #3 showing all deliverables were submitted on time..."
               rows={3}
               className="text-sm"
               maxLength={500}
@@ -179,7 +177,7 @@ export const EvidenceUploadDialog = memo(function EvidenceUploadDialog({
               {loading ? (
                 <span className="inline-flex items-center gap-2">
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  Uploading and scanning…
+                  Uploading...
                 </span>
               ) : (
                 "Submit Evidence"

@@ -44,6 +44,7 @@ import { getStoredJson, setStoredJsonAuto } from "@/shared/utils/storage";
 import { DeleteAccountModal } from "@/shared/components/auth/DeleteAccountModal";
 import { apiClient } from "@/shared/api/client";
 import { Switch } from "@/shared/components/ui/switch";
+import { INTERNAL_DEV_TOOLS_ENABLED } from "@/shared/utils/internalTools";
 
 const MONTH_OPTIONS = [
   "Jan",
@@ -280,7 +281,11 @@ export default function ProfilePage() {
   }, [loadProfile, loadKycSummary, loadSigningCredentialStatus]);
 
   useEffect(() => {
-    if (!profile || !["STAFF", "ADMIN"].includes(profile.role)) {
+    if (
+      !INTERNAL_DEV_TOOLS_ENABLED ||
+      !profile ||
+      !["STAFF", "ADMIN"].includes(profile.role)
+    ) {
       setDisputeDevSettings(null);
       setDisputeDevTargetEmail("");
       return;
@@ -646,7 +651,9 @@ export default function ProfilePage() {
   );
   const hasPendingKycUpdate = !!kycSummary?.hasPendingUpdate;
   const hasRejectedKycUpdate = !!kycSummary?.hasRejectedUpdate;
-  const supportsDisputeDevMode = ["STAFF", "ADMIN"].includes(profile.role);
+  const supportsDisputeDevMode =
+    INTERNAL_DEV_TOOLS_ENABLED &&
+    ["STAFF", "ADMIN"].includes(profile.role);
   const updateSubmittedLabel = kycSummary?.updateSubmittedAt
     ? new Date(kycSummary.updateSubmittedAt).toLocaleDateString("en-US", {
         year: "numeric",

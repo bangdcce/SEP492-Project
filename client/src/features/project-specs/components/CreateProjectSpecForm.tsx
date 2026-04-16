@@ -51,6 +51,7 @@ import {
 
 import { DeliverableType } from "../types";
 import type { ClientFeatureDTO, CreateProjectSpecDTO } from "../types";
+import { INTERNAL_DEV_TOOLS_ENABLED } from "@/shared/utils/internalTools";
 
 // 笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏
 // CONSTANTS & HELPERS
@@ -1417,16 +1418,18 @@ export function CreateProjectSpecForm({
             Define the scope, features, and milestones for the freelancer-facing
             specification.
           </p>
-          <div className="pt-1">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={handleFillTestData}
-            >
-              Fill Test Data
-            </Button>
-          </div>
+          {INTERNAL_DEV_TOOLS_ENABLED ? (
+            <div className="pt-1">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleFillTestData}
+              >
+                Fill Test Data
+              </Button>
+            </div>
+          ) : null}
         </div>
 
         {form.formState.submitCount > 0 && !form.formState.isValid && (

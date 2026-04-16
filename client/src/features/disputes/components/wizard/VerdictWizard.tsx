@@ -8,6 +8,7 @@ import {
   type DisputeRuleCatalogItem,
 } from "../../api";
 import { toast } from "sonner";
+import { INTERNAL_DEV_TOOLS_ENABLED } from "@/shared/utils/internalTools";
 
 const FAULT_TYPES = [
   { value: "NON_DELIVERY", label: "Non-delivery" },
@@ -376,20 +377,22 @@ export const VerdictWizard = ({
                 {existingVerdictId ?? "Missing original verdict reference"}
               </p>
             </div>
-            <button
-              type="button"
-              data-testid="appeal-verdict-fill-sample"
-              onClick={fillAppealSample}
-              disabled={submitting || sampleFillPending}
-              className="inline-flex items-center gap-1.5 rounded-md border border-amber-300 bg-white px-3 py-1.5 text-xs font-medium text-amber-800 transition-colors hover:bg-amber-100"
-            >
-              {sampleFillPending ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <FlaskConical className="h-3.5 w-3.5" />
-              )}
-              {sampleFillPending ? "Loading sample..." : "Fill Sample"}
-            </button>
+            {INTERNAL_DEV_TOOLS_ENABLED ? (
+              <button
+                type="button"
+                data-testid="appeal-verdict-fill-sample"
+                onClick={fillAppealSample}
+                disabled={submitting || sampleFillPending}
+                className="inline-flex items-center gap-1.5 rounded-md border border-amber-300 bg-white px-3 py-1.5 text-xs font-medium text-amber-800 transition-colors hover:bg-amber-100"
+              >
+                {sampleFillPending ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <FlaskConical className="h-3.5 w-3.5" />
+                )}
+                {sampleFillPending ? "Loading sample..." : "Fill Sample"}
+              </button>
+            ) : null}
           </div>
           {appealContextText ? (
             <div>
