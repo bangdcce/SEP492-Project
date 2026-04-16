@@ -546,6 +546,159 @@ const describeClientTransactionBadge = (transaction: WalletTransaction) => {
   }
 };
 
+const parseTransactionMetadataNumber = (value: unknown) => {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === "string" && value.trim().length > 0) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  return null;
+};
+
+const getTransactionMetadataString = (
+  transaction: WalletTransaction,
+  key: string,
+) => {
+  const value = transaction.metadata?.[key];
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+};
+
+const getReleaseBreakdown = (transaction: WalletTransaction) => {
+  if (transaction.type !== "ESCROW_RELEASE" && transaction.type !== "FEE_DEDUCTION") {
+    return null;
+  }
+
+  const stage = getTransactionMetadataString(transaction, "stage");
+  const role = getTransactionMetadataString(transaction, "role");
+  const releaseAmount = parseTransactionMetadataNumber(transaction.metadata?.releaseAmount);
+  const developerAmount = parseTransactionMetadataNumber(transaction.metadata?.developerAmount);
+  const brokerAmount = parseTransactionMetadataNumber(transaction.metadata?.brokerAmount);
+  const platformFee = parseTransactionMetadataNumber(transaction.metadata?.platformFee);
+  const retainedBalanceAfterRelease = parseTransactionMetadataNumber(
+    transaction.metadata?.retainedBalanceAfterRelease,
+  );
+
+  if (
+    !stage
+    && !role
+    && releaseAmount === null
+    && developerAmount === null
+    && brokerAmount === null
+    && platformFee === null
+    && retainedBalanceAfterRelease === null
+  ) {
+    return null;
+  }
+
+  return {
+    stage,
+    role,
+    releaseAmount,
+    developerAmount,
+    brokerAmount,
+    platformFee,
+    retainedBalanceAfterRelease,
+  };
+};
+
+const describeReleaseStage = (stage: string | null) => {
+  switch (stage) {
+    case "release_full":
+      return "Full release";
+    case "release_payable_now":
+      return "Partial release";
+    case "release_retention":
+      return "Retention release";
+    default:
+      return "Escrow release";
+  }
+};
+
+const describeTransactionReleaseHighlight = (transaction: WalletTransaction) => {
+  const breakdown = getReleaseBreakdown(transaction);
+  if (!breakdown) {
+    return null;
+  }
+
+  const parts: string[] = [];
+
+  switch (breakdown.role) {
+    case "FREELANCER":
+      parts.push(
+        `You received ${formatCurrency(
+          breakdown.developerAmount ?? transaction.amount,
+          transaction.currency,
+        )}`,
+      );
+      break;
+    case "BROKER":
+      parts.push(
+        `Commission ${formatCurrency(
+          breakdown.brokerAmount ?? transaction.amount,
+          transaction.currency,
+        )}`,
+      );
+      break;
+    case "PLATFORM":
+      parts.push(
+        `Platform fee ${formatCurrency(
+          breakdown.platformFee ?? transaction.amount,
+          transaction.currency,
+        )}`,
+      );
+      break;
+    default:
+      parts.push(describeReleaseStage(breakdown.stage));
+      break;
+  }
+
+  if (breakdown.releaseAmount !== null) {
+    parts.push(`Total ${formatCurrency(breakdown.releaseAmount, transaction.currency)}`);
+  }
+
+  if (
+    breakdown.stage === "release_payable_now"
+    && breakdown.retainedBalanceAfterRelease !== null
+    && breakdown.retainedBalanceAfterRelease > 0
+  ) {
+    parts.push(
+      `Retained ${formatCurrency(
+        breakdown.retainedBalanceAfterRelease,
+        transaction.currency,
+      )} still locked`,
+    );
+  }
+
+  return parts.join(" · ");
+};
+
+const describeTransactionReleaseBreakdown = (transaction: WalletTransaction) => {
+  const breakdown = getReleaseBreakdown(transaction);
+  if (!breakdown) {
+    return null;
+  }
+
+  const splitParts: string[] = [];
+
+  if (breakdown.developerAmount !== null) {
+    splitParts.push(`Freelancer ${formatCurrency(breakdown.developerAmount, transaction.currency)}`);
+  }
+
+  if (breakdown.brokerAmount !== null) {
+    splitParts.push(`Broker ${formatCurrency(breakdown.brokerAmount, transaction.currency)}`);
+  }
+
+  if (breakdown.platformFee !== null) {
+    splitParts.push(`Fee ${formatCurrency(breakdown.platformFee, transaction.currency)}`);
+  }
+
+  return splitParts.length > 0 ? `Split: ${splitParts.join(" · ")}` : null;
+};
+
 const describeTransactionSource = (transaction: WalletTransaction) => {
   if (transaction.paymentMethod === "PAYPAL_ACCOUNT") {
     return "PayPal";
@@ -2128,6 +2281,8 @@ export default function BillingPage() {
                         const movementTitle = isClient
                           ? describeClientTransaction(transaction)
                           : describeTransaction(transaction);
+                        const movementHighlight = describeTransactionReleaseHighlight(transaction);
+                        const movementBreakdown = describeTransactionReleaseBreakdown(transaction);
                         const movementContext = isClient
                           ? describeClientTransactionContext(transaction)
                           : describeTransactionContext(transaction);
@@ -2142,10 +2297,20 @@ export default function BillingPage() {
                                 <Badge className={tone.badgeClassName}>
                                   {movementBadgeLabel}
                                 </Badge>
-                                <div className="min-w-0">
+                                <div className="min-w-0 space-y-1">
                                   <p className="break-words text-sm font-medium text-slate-900">
                                     {movementTitle}
                                   </p>
+                                  {movementHighlight ? (
+                                    <p className="break-words text-xs text-slate-500">
+                                      {movementHighlight}
+                                    </p>
+                                  ) : null}
+                                  {movementBreakdown ? (
+                                    <p className="break-words text-xs text-slate-400">
+                                      {movementBreakdown}
+                                    </p>
+                                  ) : null}
                                   <p className="text-xs text-slate-500">
                                     {describeTransactionStatus(transaction.status)} · {formatRelativeTime(transaction.createdAt)}
                                   </p>

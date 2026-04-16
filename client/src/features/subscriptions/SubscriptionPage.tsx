@@ -19,6 +19,7 @@ import {
   getBillingCycleLabel,
   PERK_LABELS,
   QUOTA_ACTION_LABELS,
+  SubscriptionStatus,
   type MySubscriptionResponse,
   type QuotaUsage,
 } from "./types";
@@ -130,6 +131,12 @@ export function SubscriptionPage() {
   );
   const isPremium = subscription?.isPremium || false;
   const currentSub = subscription?.subscription;
+  const isCancellationScheduled = Boolean(currentSub?.cancelAtPeriodEnd);
+  const canCancelSubscription =
+    isPremium &&
+    Boolean(currentSub) &&
+    !isCancellationScheduled &&
+    currentSub?.status === SubscriptionStatus.ACTIVE;
   const usage = subscription?.usage || {};
   const perks = subscription?.perks || {};
   const resolveQuotaLimit = useCallback(
@@ -195,6 +202,25 @@ export function SubscriptionPage() {
       setError(null);
       const response = await cancelSubscription({ reason: cancelReason || undefined });
       setSuccessMessage(response.message);
+      setSubscription((prev) => {
+        if (!prev?.subscription) {
+          return prev;
+        }
+
+        return {
+          ...prev,
+          subscription: {
+            ...prev.subscription,
+            status: response.data?.status
+              ? (response.data.status as SubscriptionStatus)
+              : prev.subscription.status,
+            cancelAtPeriodEnd:
+              response.data?.cancelAtPeriodEnd ?? prev.subscription.cancelAtPeriodEnd,
+            currentPeriodEnd:
+              response.data?.currentPeriodEnd ?? prev.subscription.currentPeriodEnd,
+          },
+        };
+      });
       setShowCancelModal(false);
       setCancelReason("");
       await fetchData();
@@ -272,12 +298,18 @@ export function SubscriptionPage() {
                   </CardTitle>
                   <CardDescription className="mt-1">
                     {isPremium
-                      ? "Your premium subscription is active."
+                      ? isCancellationScheduled
+                        ? "Your subscription is set to cancel at period end."
+                        : "Your premium subscription is active."
                       : "Upgrade to unlock higher limits and premium perks through PayPal checkout."}
                   </CardDescription>
                 </div>
                 <Badge variant={isPremium ? "default" : "secondary"}>
-                  {isPremium ? "Active Premium" : "Free Tier"}
+                  {isPremium
+                    ? isCancellationScheduled
+                      ? "Cancellation Scheduled"
+                      : "Active Premium"
+                    : "Free Tier"}
                 </Badge>
               </div>
             </CardHeader>
@@ -316,9 +348,19 @@ export function SubscriptionPage() {
             ) : null}
             <CardFooter>
               {isPremium ? (
-                <Button variant="destructive" onClick={() => setShowCancelModal(true)}>
-                  Cancel Subscription
-                </Button>
+                canCancelSubscription ? (
+                  <Button variant="destructive" onClick={() => setShowCancelModal(true)}>
+                    Cancel Subscription
+                  </Button>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    Premium access remains active until{" "}
+                    {currentSub?.currentPeriodEnd
+                      ? new Date(currentSub.currentPeriodEnd).toLocaleDateString("vi-VN")
+                      : "the end of your current billing period"}
+                    .
+                  </p>
+                )
               ) : (
                 <Button onClick={() => void handleUpgradeClick()} disabled={savingPayPalMethod}>
                   {savingPayPalMethod ? (

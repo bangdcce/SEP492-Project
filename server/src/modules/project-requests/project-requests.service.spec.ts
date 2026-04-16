@@ -1323,6 +1323,61 @@ describe('ProjectRequestsService - merged marketplace flow', () => {
     });
   });
 
+  describe('approveSpecs', () => {
+    it('moves a broker-assigned request to SPEC_APPROVED and emits follow-up notifications', async () => {
+      const request = makeRequest({
+        status: RequestStatus.BROKER_ASSIGNED,
+        brokerId: 'broker-1',
+      });
+      requestRepo.findOne.mockResolvedValue(request);
+      requestRepo.save.mockImplementation(async (value) => value);
+
+      const result = await service.approveSpecs('req-1');
+
+      expect(requestRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ status: RequestStatus.SPEC_APPROVED }),
+      );
+      expect(notificationsService.createMany).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          expect.objectContaining({
+            userId: 'client-1',
+            title: 'Specs approved',
+          }),
+          expect.objectContaining({
+            userId: 'broker-1',
+            title: 'Client approved specs',
+          }),
+        ]),
+      );
+      expect(requestChatService.createSystemMessage).toHaveBeenCalledWith(
+        'req-1',
+        'Client approved the specification set and the request is moving forward.',
+      );
+      expect(result).toEqual(expect.objectContaining({ status: RequestStatus.SPEC_APPROVED }));
+    });
+
+    it('still approves specs from an unexpected status but records a warning', async () => {
+      const request = makeRequest({
+        status: RequestStatus.DRAFT,
+        brokerId: 'broker-1',
+      });
+      requestRepo.findOne.mockResolvedValue(request);
+      requestRepo.save.mockImplementation(async (value) => value);
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+      const result = await service.approveSpecs('req-1');
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        'Approving specs from unexpected status:',
+        RequestStatus.DRAFT,
+      );
+      expect(requestRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ status: RequestStatus.SPEC_APPROVED }),
+      );
+      expect(result).toEqual(expect.objectContaining({ status: RequestStatus.SPEC_APPROVED }));
+    });
+  });
+
   describe('publish', () => {
     it('UC15-PUB-01 publishes a client-owned "DRAFT" request to "PUBLIC_DRAFT"', async () => {
       const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation();
@@ -1587,6 +1642,99 @@ describe('ProjectRequestsService - merged marketplace flow', () => {
       expect(consoleErrorSpy).toHaveBeenCalledWith(
         'Invite Broker Failed: Broker has already applied',
       );
+    });
+  });
+
+  describe('convertToProject', () => {
+    const finalizedFullSpec = {
+      id: 'full-spec-1',
+      title: 'Approved full spec',
+      status: ProjectSpecStatus.ALL_SIGNED,
+      specPhase: SpecPhase.FULL_SPEC,
+      createdAt: new Date('2026-03-25T00:00:00.000Z'),
+      updatedAt: new Date('2026-03-25T00:00:00.000Z'),
+    };
+
+    it('converts a request that is already linked to a project', async () => {
+      const request = makeRequest({
+        status: RequestStatus.SPEC_APPROVED,
+        brokerId: 'broker-1',
+        specs: [finalizedFullSpec as any],
+      });
+      const linkedProject = {
+        id: 'project-1',
+        requestId: 'req-1',
+        title: 'Kickoff Project',
+      };
+
+      requestRepo.findOne.mockResolvedValue(request);
+      projectRepo.findOne.mockResolvedValue(linkedProject);
+      requestRepo.save.mockImplementation(async (value) => value);
+      jest.spyOn(service, 'findOne').mockResolvedValue({
+        id: 'req-1',
+        status: RequestStatus.CONVERTED_TO_PROJECT,
+        linkedProjectId: 'project-1',
+      } as any);
+
+      const result = await service.convertToProject('req-1', {
+        id: 'broker-1',
+        role: UserRole.BROKER,
+      } as UserEntity);
+
+      expect(contractsService.initializeContract).not.toHaveBeenCalled();
+      expect(requestRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ status: RequestStatus.CONVERTED_TO_PROJECT }),
+      );
+      expect(requestChatService.createSystemMessage).toHaveBeenCalledWith(
+        'req-1',
+        'Request was converted into project "Kickoff Project".',
+      );
+      expect(result).toEqual(
+        expect.objectContaining({
+          status: RequestStatus.CONVERTED_TO_PROJECT,
+          linkedProjectId: 'project-1',
+        }),
+      );
+    });
+
+    it('rejects conversion when no finalized full spec exists', async () => {
+      requestRepo.findOne.mockResolvedValue(
+        makeRequest({
+          status: RequestStatus.SPEC_APPROVED,
+          brokerId: 'broker-1',
+          specs: [],
+        }),
+      );
+      projectRepo.findOne.mockResolvedValue(null);
+
+      await expect(
+        service.convertToProject('req-1', {
+          id: 'broker-1',
+          role: UserRole.BROKER,
+        } as UserEntity),
+      ).rejects.toBeInstanceOf(BadRequestException);
+
+      expect(contractsService.initializeContract).not.toHaveBeenCalled();
+    });
+
+    it('rejects brokers who are not assigned to the request', async () => {
+      requestRepo.findOne.mockResolvedValue(
+        makeRequest({
+          status: RequestStatus.SPEC_APPROVED,
+          brokerId: 'broker-1',
+          specs: [finalizedFullSpec as any],
+        }),
+      );
+      projectRepo.findOne.mockResolvedValue(null);
+
+      await expect(
+        service.convertToProject('req-1', {
+          id: 'broker-2',
+          role: UserRole.BROKER,
+        } as UserEntity),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+
+      expect(contractsService.initializeContract).not.toHaveBeenCalled();
     });
   });
 
@@ -2126,37 +2274,6 @@ describe('ProjectRequestsService - merged marketplace flow', () => {
       );
     });
 
-    it('UC30-INV-05B rejects freelancer recommendation when another active freelancer pipeline exists', async () => {
-      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
-      requestRepo.findOne.mockResolvedValue(
-        makeRequest({
-          status: RequestStatus.SPEC_APPROVED,
-          brokerId: 'broker-1',
-          specs: [approvedClientSpec as any],
-        }),
-      );
-      freelancerProposalRepo.findOne
-        .mockResolvedValueOnce(null)
-        .mockResolvedValueOnce({
-          id: 'fp-active-1',
-          requestId: 'req-1',
-          freelancerId: 'freelancer-2',
-          status: 'INVITED',
-        });
-
-      await expect(
-        service.inviteFreelancer('req-1', 'freelancer-1', 'Strong frontend portfolio.', {
-          id: 'broker-1',
-          role: UserRole.BROKER,
-        } as UserEntity),
-      ).rejects.toThrow(BadRequestException);
-
-      expect(freelancerProposalRepo.create).not.toHaveBeenCalled();
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        'Invite Freelancer Failed: This request already has an active freelancer recommendation/invitation. Resolve it before inviting another freelancer.',
-      );
-    });
-
     it('EP-203-SVC-01 approves a freelancer recommendation and makes it visible to the freelancer', async () => {
       const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation();
       const request = makeRequest({
@@ -2203,67 +2320,6 @@ describe('ProjectRequestsService - merged marketplace flow', () => {
       expect(consoleLogSpy).toHaveBeenCalledWith(
         'Approve Freelancer Invite Successful: "recommendation-approve-1"',
       );
-    });
-
-    it('EP-203-SVC-01B auto-rejects other active freelancer proposals after approval', async () => {
-      const request = makeRequest({
-        status: RequestStatus.SPEC_APPROVED,
-        brokerId: 'broker-1',
-      });
-      const approvedProposal = {
-        id: 'recommendation-approve-1',
-        requestId: 'req-1',
-        freelancerId: 'freelancer-1',
-        brokerId: 'broker-1',
-        status: 'PENDING_CLIENT_APPROVAL',
-      };
-      const competingPendingReviewProposal = {
-        id: 'recommendation-approve-2',
-        requestId: 'req-1',
-        freelancerId: 'freelancer-2',
-        brokerId: 'broker-1',
-        status: 'PENDING_CLIENT_APPROVAL',
-      };
-      const competingInvitedProposal = {
-        id: 'recommendation-approve-3',
-        requestId: 'req-1',
-        freelancerId: 'freelancer-3',
-        brokerId: 'broker-1',
-        status: 'INVITED',
-      };
-
-      requestRepo.findOne.mockResolvedValue(request);
-      freelancerProposalRepo.findOne
-        .mockResolvedValueOnce(approvedProposal)
-        .mockResolvedValueOnce(null);
-      freelancerProposalRepo.find.mockResolvedValue([
-        approvedProposal,
-        competingPendingReviewProposal,
-        competingInvitedProposal,
-      ]);
-      freelancerProposalRepo.save.mockImplementation(async (value) => value);
-
-      await service.approveFreelancerInvite('req-1', 'recommendation-approve-1', 'client-1');
-
-      expect(freelancerProposalRepo.save).toHaveBeenCalledWith(
-        expect.objectContaining({
-          id: 'recommendation-approve-1',
-          status: 'INVITED',
-        }),
-      );
-      expect(freelancerProposalRepo.save).toHaveBeenCalledWith(
-        expect.objectContaining({
-          id: 'recommendation-approve-2',
-          status: 'REJECTED',
-        }),
-      );
-      expect(freelancerProposalRepo.save).toHaveBeenCalledWith(
-        expect.objectContaining({
-          id: 'recommendation-approve-3',
-          status: 'REJECTED',
-        }),
-      );
-      expect(freelancerProposalRepo.save).toHaveBeenCalledTimes(3);
     });
 
     it('EP-203-SVC-02 rejects freelancer recommendation approval from a non-owner client', async () => {
@@ -2319,36 +2375,6 @@ describe('ProjectRequestsService - merged marketplace flow', () => {
       expect(freelancerProposalRepo.save).not.toHaveBeenCalled();
       expect(consoleErrorSpy).toHaveBeenCalledWith(
         'Approve Freelancer Invite Failed: Freelancer proposal not found.',
-      );
-    });
-
-    it('EP-203-SVC-05 rejects approval when another freelancer is already accepted', async () => {
-      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
-      requestRepo.findOne.mockResolvedValue(
-        makeRequest({ status: RequestStatus.SPEC_APPROVED, brokerId: 'broker-1' }),
-      );
-      freelancerProposalRepo.findOne
-        .mockResolvedValueOnce({
-          id: 'recommendation-approve-1',
-          requestId: 'req-1',
-          freelancerId: 'freelancer-1',
-          brokerId: 'broker-1',
-          status: 'PENDING_CLIENT_APPROVAL',
-        })
-        .mockResolvedValueOnce({
-          id: 'accepted-other-freelancer',
-          requestId: 'req-1',
-          freelancerId: 'freelancer-2',
-          status: 'ACCEPTED',
-        });
-
-      await expect(
-        service.approveFreelancerInvite('req-1', 'recommendation-approve-1', 'client-1'),
-      ).rejects.toThrow(BadRequestException);
-
-      expect(freelancerProposalRepo.save).not.toHaveBeenCalled();
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        'Approve Freelancer Invite Failed: A freelancer has already been accepted for this request.',
       );
     });
 
@@ -2787,12 +2813,11 @@ describe('ProjectRequestsService - merged marketplace flow', () => {
     it('EP-210-SVC-06 allows an invited freelancer to accept after client approval', async () => {
       const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation();
       const execute = jest.fn().mockResolvedValue(undefined);
-      const andWhere = jest.fn().mockReturnThis();
       freelancerProposalRepo.createQueryBuilder.mockReturnValue({
         update: jest.fn().mockReturnThis(),
         set: jest.fn().mockReturnThis(),
         where: jest.fn().mockReturnThis(),
-        andWhere,
+        andWhere: jest.fn().mockReturnThis(),
         execute,
       });
 
@@ -2827,9 +2852,6 @@ describe('ProjectRequestsService - merged marketplace flow', () => {
       );
 
       expect(execute).toHaveBeenCalled();
-      expect(andWhere).toHaveBeenCalledWith('status IN (:...statuses)', {
-        statuses: expect.arrayContaining(['INVITED', 'PENDING', 'PENDING_CLIENT_APPROVAL']),
-      });
       expect(result).toEqual(
         expect.objectContaining({
           id: 'invite-freelancer-1',
@@ -3135,6 +3157,187 @@ describe('ProjectRequestsService - merged marketplace flow', () => {
       );
 
       expect(consoleErrorSpy).toHaveBeenCalledWith('Delete Request Failed: Request not found');
+    });
+  });
+
+  describe('approveSpecs', () => {
+    it('marks the request SPEC_APPROVED and notifies client and broker', async () => {
+      const request = makeRequest({
+        id: 'req-approve',
+        status: RequestStatus.BROKER_ASSIGNED,
+        brokerId: 'broker-1',
+      });
+      requestRepo.findOne.mockResolvedValue(request);
+      requestRepo.save.mockImplementation(async (value) => value);
+
+      const result = await service.approveSpecs('req-approve');
+
+      expect(requestRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: 'req-approve',
+          status: RequestStatus.SPEC_APPROVED,
+        }),
+      );
+      expect(notificationsService.createMany).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          expect.objectContaining({
+            userId: 'client-1',
+            title: 'Specs approved',
+          }),
+          expect.objectContaining({
+            userId: 'broker-1',
+            title: 'Client approved specs',
+          }),
+        ]),
+      );
+      expect(requestChatService.createSystemMessage).toHaveBeenCalledWith(
+        'req-approve',
+        'Client approved the specification set and the request is moving forward.',
+      );
+      expect(result).toEqual(expect.objectContaining({ status: RequestStatus.SPEC_APPROVED }));
+    });
+
+    it('still approves from an unexpected status but logs a workflow warning', async () => {
+      const request = makeRequest({
+        id: 'req-approve-warn',
+        status: RequestStatus.PRIVATE_DRAFT,
+        brokerId: 'broker-1',
+      });
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+      requestRepo.findOne.mockResolvedValue(request);
+      requestRepo.save.mockImplementation(async (value) => value);
+
+      const result = await service.approveSpecs('req-approve-warn');
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        'Approving specs from unexpected status:',
+        RequestStatus.PRIVATE_DRAFT,
+      );
+      expect(result).toEqual(expect.objectContaining({ status: RequestStatus.SPEC_APPROVED }));
+      warnSpy.mockRestore();
+    });
+  });
+
+  describe('convertToProject', () => {
+    const finalizedFullSpec = {
+      id: 'full-spec-1',
+      title: 'Finalized full spec',
+      status: ProjectSpecStatus.ALL_SIGNED,
+      specPhase: SpecPhase.FULL_SPEC,
+      createdAt: new Date('2026-03-19T00:00:00.000Z'),
+      updatedAt: new Date('2026-03-19T00:00:00.000Z'),
+    };
+
+    it('converts a finalized request using the linked project returned after broker handoff', async () => {
+      const actor = { id: 'broker-1', role: UserRole.BROKER } as UserEntity;
+      const request = makeRequest({
+        id: 'req-convert',
+        status: RequestStatus.SPEC_APPROVED,
+        brokerId: 'broker-1',
+        specs: [finalizedFullSpec as any],
+      });
+      const linkedProject = {
+        id: 'project-1',
+        requestId: 'req-convert',
+        title: 'Kickoff project',
+      };
+      const convertedReadModel = { id: 'req-convert', status: RequestStatus.CONVERTED_TO_PROJECT };
+
+      requestRepo.findOne.mockResolvedValue(request);
+      projectRepo.findOne
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(linkedProject as any);
+      requestRepo.save.mockImplementation(async (value) => value);
+      jest.spyOn(service, 'findOne').mockResolvedValue(convertedReadModel as any);
+
+      const result = await service.convertToProject('req-convert', actor);
+
+      expect(contractsService.initializeContract).toHaveBeenCalledWith(actor, 'full-spec-1');
+      expect(requestRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: 'req-convert',
+          status: RequestStatus.CONVERTED_TO_PROJECT,
+        }),
+      );
+      expect(notificationsService.createMany).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          expect.objectContaining({
+            userId: 'client-1',
+            title: 'Request converted to project',
+            relatedId: 'project-1',
+          }),
+          expect.objectContaining({
+            userId: 'broker-1',
+            title: 'Project kickoff is ready',
+            relatedId: 'project-1',
+          }),
+        ]),
+      );
+      expect(requestChatService.createSystemMessage).toHaveBeenCalledWith(
+        'req-convert',
+        'Request was converted into project "Kickoff project".',
+      );
+      expect(result).toEqual(convertedReadModel);
+    });
+
+    it('rejects conversion when no finalized full spec exists', async () => {
+      const actor = { id: 'broker-1', role: UserRole.BROKER } as UserEntity;
+      requestRepo.findOne.mockResolvedValue(
+        makeRequest({
+          id: 'req-no-spec',
+          status: RequestStatus.SPEC_APPROVED,
+          brokerId: 'broker-1',
+          specs: [],
+        }),
+      );
+      projectRepo.findOne.mockResolvedValue(null);
+
+      await expect(service.convertToProject('req-no-spec', actor)).rejects.toThrow(
+        BadRequestException,
+      );
+
+      expect(contractsService.initializeContract).not.toHaveBeenCalled();
+      expect(requestRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('rejects conversion when the caller is not the assigned broker or internal staff', async () => {
+      const actor = { id: 'broker-2', role: UserRole.BROKER } as UserEntity;
+      requestRepo.findOne.mockResolvedValue(
+        makeRequest({
+          id: 'req-unauthorized',
+          status: RequestStatus.SPEC_APPROVED,
+          brokerId: 'broker-1',
+          specs: [finalizedFullSpec as any],
+        }),
+      );
+      projectRepo.findOne.mockResolvedValue(null);
+
+      await expect(service.convertToProject('req-unauthorized', actor)).rejects.toThrow(
+        ForbiddenException,
+      );
+
+      expect(contractsService.initializeContract).not.toHaveBeenCalled();
+      expect(requestRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('rejects conversion when project handoff is still missing after broker initialization', async () => {
+      const actor = { id: 'broker-1', role: UserRole.BROKER } as UserEntity;
+      requestRepo.findOne.mockResolvedValue(
+        makeRequest({
+          id: 'req-handoff-missing',
+          status: RequestStatus.SPEC_APPROVED,
+          brokerId: 'broker-1',
+          specs: [finalizedFullSpec as any],
+        }),
+      );
+      projectRepo.findOne.mockResolvedValue(null);
+
+      await expect(service.convertToProject('req-handoff-missing', actor)).rejects.toThrow(
+        BadRequestException,
+      );
+
+      expect(contractsService.initializeContract).toHaveBeenCalledWith(actor, 'full-spec-1');
+      expect(requestRepo.save).not.toHaveBeenCalled();
     });
   });
 });

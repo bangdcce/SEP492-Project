@@ -138,4 +138,22 @@
   body {
     @apply bg-background text-foreground;
   }
+
+  input,
+  textarea,
+  select {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  textarea {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    white-space: pre-wrap;
+  }
+
+  form :is(label, p) {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
 }

@@ -63,6 +63,7 @@ import {
   createTask,
   deleteWorkspaceChatMessage,
   editWorkspaceChatMessage,
+  emailWorkspaceChatExport,
   fetchTaskSubmissions,
   fetchWorkspaceChatMessages,
   reviewSubmission,
@@ -83,6 +84,10 @@ import {
 } from "@/shared/realtime/socket";
 import { getApiErrorDetails } from "@/shared/utils/apiError";
 import { getStoredJson } from "@/shared/utils/storage";
+import {
+  emailWorkspaceChatExportFile,
+  WORKSPACE_CHAT_EXPORT_EMAIL_SUCCESS_MESSAGE,
+} from "../../chat-export-email";
 
 interface WorkspaceChatDrawerProps {
   isOpen?: boolean;
@@ -2511,92 +2516,93 @@ export function WorkspaceChatDrawer({
       return;
     }
 
-    const exportedAt = new Date();
-    const exporterRole = resolvedCurrentUserRole || "UNKNOWN";
-    const exporterMember = resolvedCurrentUserId
-      ? projectMembers.find((member) => member.id === resolvedCurrentUserId)
-      : undefined;
-    const exportedBy = exporterMember
-      ? `${exporterMember.fullName} (${exporterMember.role})`
-      : resolvedCurrentUserId
-        ? `${resolvedCurrentUserId} (${exporterRole})`
-        : "Unknown user";
+    try {
+      const exportedAt = new Date();
+      const exporterRole = resolvedCurrentUserRole || "UNKNOWN";
+      const exporterMember = resolvedCurrentUserId
+        ? projectMembers.find((member) => member.id === resolvedCurrentUserId)
+        : undefined;
+      const exportedBy = exporterMember
+        ? `${exporterMember.fullName} (${exporterMember.role})`
+        : resolvedCurrentUserId
+          ? `${resolvedCurrentUserId} (${exporterRole})`
+          : "Unknown user";
 
-    const exportMessages = visibleMessages;
-    const totalMessages = exportMessages.length;
-    const systemMessages = exportMessages.filter((message) => isSystemMessage(message)).length;
-    const userMessages = totalMessages - systemMessages;
-    const userConversationMessages = exportMessages.filter((message) => !isSystemMessage(message));
-    const systemEventMessages = exportMessages.filter((message) => isSystemMessage(message));
-    const totalAttachments = exportMessages.reduce(
-      (total, message) => total + message.attachments.length,
-      0,
-    );
-    const timezoneName = Intl.DateTimeFormat().resolvedOptions().timeZone || "Local timezone";
-    const timezoneLabel = `${timezoneName} (${formatAuditTimestamp(exportedAt.toISOString()).split(" ").at(-1) || "UTC"})`;
+      const exportMessages = visibleMessages;
+      const totalMessages = exportMessages.length;
+      const systemMessages = exportMessages.filter((message) => isSystemMessage(message)).length;
+      const userMessages = totalMessages - systemMessages;
+      const userConversationMessages = exportMessages.filter((message) => !isSystemMessage(message));
+      const systemEventMessages = exportMessages.filter((message) => isSystemMessage(message));
+      const totalAttachments = exportMessages.reduce(
+        (total, message) => total + message.attachments.length,
+        0,
+      );
+      const timezoneName = Intl.DateTimeFormat().resolvedOptions().timeZone || "Local timezone";
+      const timezoneLabel = `${timezoneName} (${formatAuditTimestamp(exportedAt.toISOString()).split(" ").at(-1) || "UTC"})`;
 
-    const timestampRange = exportMessages.reduce(
-      (range, message) => {
-        const timestamp = new Date(message.createdAt).getTime();
-        if (Number.isNaN(timestamp)) {
-          return range;
+      const timestampRange = exportMessages.reduce(
+        (range, message) => {
+          const timestamp = new Date(message.createdAt).getTime();
+          if (Number.isNaN(timestamp)) {
+            return range;
+          }
+
+          return {
+            earliest: range.earliest == null ? timestamp : Math.min(range.earliest, timestamp),
+            latest: range.latest == null ? timestamp : Math.max(range.latest, timestamp),
+          };
+        },
+        { earliest: null as number | null, latest: null as number | null },
+      );
+
+      const participantsById = new Map<
+        string,
+        { id: string; fullName: string; role: string | null }
+      >();
+      for (const member of projectMembers) {
+        participantsById.set(member.id, {
+          id: member.id,
+          fullName: member.fullName,
+          role: member.role,
+        });
+      }
+      for (const message of exportMessages) {
+        if (!message.senderId) {
+          continue;
         }
-
-        return {
-          earliest: range.earliest == null ? timestamp : Math.min(range.earliest, timestamp),
-          latest: range.latest == null ? timestamp : Math.max(range.latest, timestamp),
-        };
-      },
-      { earliest: null as number | null, latest: null as number | null },
-    );
-
-    const participantsById = new Map<
-      string,
-      { id: string; fullName: string; role: string | null }
-    >();
-    for (const member of projectMembers) {
-      participantsById.set(member.id, {
-        id: member.id,
-        fullName: member.fullName,
-        role: member.role,
-      });
-    }
-    for (const message of exportMessages) {
-      if (!message.senderId) {
-        continue;
+        if (participantsById.has(message.senderId)) {
+          continue;
+        }
+        participantsById.set(message.senderId, {
+          id: message.senderId,
+          fullName:
+            message.sender?.fullName?.trim() || `User ${message.senderId.slice(0, 8)}`,
+          role: message.sender?.role || null,
+        });
       }
-      if (participantsById.has(message.senderId)) {
-        continue;
-      }
-      participantsById.set(message.senderId, {
-        id: message.senderId,
-        fullName:
-          message.sender?.fullName?.trim() || `User ${message.senderId.slice(0, 8)}`,
-        role: message.sender?.role || null,
-      });
-    }
 
-    const participants = Array.from(participantsById.values());
-    const participantCount = participants.length;
-    const participantNames =
-      participants.length === 0
-        ? "N/A"
-        : participants
-            .map((participant) => participant.fullName)
-            .sort((left, right) => left.localeCompare(right))
-            .join(", ");
+      const participants = Array.from(participantsById.values());
+      const participantCount = participants.length;
+      const participantNames =
+        participants.length === 0
+          ? "N/A"
+          : participants
+              .map((participant) => participant.fullName)
+              .sort((left, right) => left.localeCompare(right))
+              .join(", ");
 
-    const userRoleCountMap = participants.reduce<Record<string, number>>((counts, participant) => {
-      const normalizedRole = String(participant.role || "OTHER").toUpperCase();
-      counts[normalizedRole] = (counts[normalizedRole] ?? 0) + 1;
-      return counts;
-    }, {});
-    const participantsByRoleSummary = Object.entries(userRoleCountMap)
-      .sort(([leftRole], [rightRole]) => leftRole.localeCompare(rightRole))
-      .map(([role, count]) => `${role}: ${count}`)
-      .join(" | ");
+      const userRoleCountMap = participants.reduce<Record<string, number>>((counts, participant) => {
+        const normalizedRole = String(participant.role || "OTHER").toUpperCase();
+        counts[normalizedRole] = (counts[normalizedRole] ?? 0) + 1;
+        return counts;
+      }, {});
+      const participantsByRoleSummary = Object.entries(userRoleCountMap)
+        .sort(([leftRole], [rightRole]) => leftRole.localeCompare(rightRole))
+        .map(([role, count]) => `${role}: ${count}`)
+        .join(" | ");
 
-    const styleHeaderRow = (sheet: ReturnType<Workbook["addWorksheet"]>, rowNumber: number, color: string) => {
+      const styleHeaderRow = (sheet: ReturnType<Workbook["addWorksheet"]>, rowNumber: number, color: string) => {
       const row = sheet.getRow(rowNumber);
       row.font = { name: "Arial", size: 11, bold: true, color: { argb: "FFFFFFFF" } };
       row.fill = { type: "pattern", pattern: "solid", fgColor: { argb: color } };
@@ -3037,23 +3043,24 @@ export function WorkspaceChatDrawer({
       exportedAt,
     )}_record.xlsx`;
 
-    const workbookBuffer = await workbook.xlsx.writeBuffer();
-    const workbookBlob = new Blob([workbookBuffer], {
-      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    });
-    const downloadUrl = URL.createObjectURL(workbookBlob);
-    const downloadLink = document.createElement("a");
-    downloadLink.href = downloadUrl;
-    downloadLink.download = fileName;
-    document.body.appendChild(downloadLink);
-    downloadLink.click();
-    document.body.removeChild(downloadLink);
-    URL.revokeObjectURL(downloadUrl);
+      const workbookBuffer = await workbook.xlsx.writeBuffer();
+      const successMessage = await emailWorkspaceChatExportFile(
+        {
+          projectId,
+          fileName,
+          workbookBuffer,
+        },
+        {
+          sendExport: emailWorkspaceChatExport,
+        },
+      );
 
-    toast.success(
-      `Exported ${totalMessages} message${totalMessages === 1 ? "" : "s"} to ${fileName}.`,
-    );
+      toast.success(successMessage || WORKSPACE_CHAT_EXPORT_EMAIL_SUCCESS_MESSAGE);
+    } catch (error) {
+      toast.error(getApiErrorDetails(error).message || "Failed to email the chat log export.");
+    }
   }, [
+    emailWorkspaceChatExport,
     isSearchActive,
     normalizedSearchQuery,
     projectId,

@@ -150,6 +150,15 @@ export type WorkspaceChatMutationResponse = {
   data: WorkspaceChatMessage;
 };
 
+export type WorkspaceChatExportEmailResponse = {
+  success: boolean;
+  message: string;
+  data: {
+    recipientEmail: string;
+    fileName: string;
+  };
+};
+
 export type TaskSubmission = {
   id: string;
   taskId: string;
@@ -250,9 +259,10 @@ export type TaskStatusUpdateResult = {
 };
 
 export type ProjectTaskRealtimeEvent = {
-  action: "CREATED" | "UPDATED";
+  action: "CREATED" | "UPDATED" | "DELETED";
   projectId: string;
-  task: Task;
+  task?: Task | null;
+  taskId?: string;
   milestoneId?: string | null;
   milestoneProgress?: number;
   totalTasks?: number;

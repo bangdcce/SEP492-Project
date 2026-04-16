@@ -11,17 +11,31 @@ export interface StaffApplicationUser {
   isVerified: boolean;
   isEmailVerified: boolean;
   createdAt: string;
-  domains?: Array<{
-    id: string;
-    name: string;
-    slug: string;
-  }>;
-  skills?: Array<{
-    id: string;
-    name: string;
-    slug: string;
-    category: string;
-  }>;
+}
+
+export interface StaffApplicationSubmissionSummary {
+  submittedAt: string;
+  documentType: string | null;
+  maskedDocumentNumber: string | null;
+  hasCv: boolean;
+  hasKyc: boolean;
+  reviewedAt: string | null;
+  rejectionReason: string | null;
+}
+
+export interface StaffApplicationCvSummary {
+  originalFilename: string | null;
+  mimeType: string | null;
+  size: number | null;
+  hasFile: boolean;
+}
+
+export interface StaffApplicationManualKycSummary {
+  fullNameOnDocument: string | null;
+  documentType: string | null;
+  documentNumber: string | null;
+  dateOfBirth: string | null;
+  address: string | null;
 }
 
 export interface StaffApplicationRecord {
@@ -36,7 +50,32 @@ export interface StaffApplicationRecord {
     email: string;
     fullName: string;
   } | null;
+  submissionSummary: StaffApplicationSubmissionSummary;
+  cv: StaffApplicationCvSummary;
+  manualKyc: StaffApplicationManualKycSummary | null;
   user: StaffApplicationUser | null;
+}
+
+export interface StaffApplicationReviewAssets {
+  id: string;
+  status: StaffApplicationStatus;
+  cv: {
+    url: string | null;
+    originalFilename: string | null;
+    mimeType: string | null;
+    size: number | null;
+  };
+  manualKyc: StaffApplicationManualKycSummary;
+  previews: {
+    idCardFrontUrl: string | null;
+    idCardBackUrl: string | null;
+    selfieUrl: string | null;
+  };
+  watermarkInfo: {
+    reviewedBy: string;
+    reviewedAt: string;
+    warning: string;
+  };
 }
 
 export interface StaffApplicationListResponse {
@@ -86,6 +125,14 @@ export const getStaffApplicationById = async (
   id: string,
 ): Promise<StaffApplicationRecord> => {
   return apiClient.get<StaffApplicationRecord>(`/staff-applications/${id}`);
+};
+
+export const getStaffApplicationReviewAssets = async (
+  id: string,
+): Promise<StaffApplicationReviewAssets> => {
+  return apiClient.get<StaffApplicationReviewAssets>(
+    `/staff-applications/${id}/review-assets`,
+  );
 };
 
 export const approveStaffApplication = async (

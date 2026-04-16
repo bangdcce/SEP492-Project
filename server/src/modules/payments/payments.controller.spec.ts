@@ -98,6 +98,28 @@ describe('PaymentsController', () => {
     expect(result.success).toBe(true);
   });
 
+  it('propagates funding service errors after header validation succeeds', async () => {
+    const error = new Error('funding failed');
+    milestoneFundingService.fundMilestone.mockRejectedValue(error);
+
+    await expect(
+      controller.fundMilestone(
+        { id: 'client-1' } as never,
+        'milestone-1',
+        { paymentMethodId: 'method-1', gateway: FundingGateway.INTERNAL_SANDBOX },
+        'idem-1',
+      ),
+    ).rejects.toThrow(error);
+
+    expect(milestoneFundingService.fundMilestone).toHaveBeenCalledWith({
+      milestoneId: 'milestone-1',
+      payerId: 'client-1',
+      paymentMethodId: 'method-1',
+      gateway: FundingGateway.INTERNAL_SANDBOX,
+      idempotencyKey: 'idem-1',
+    });
+  });
+
   it('returns the PayPal sandbox config', async () => {
     payPalCheckoutService.getSdkConfigForUser.mockResolvedValue({
       clientId: 'client-id',

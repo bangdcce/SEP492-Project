@@ -17,14 +17,13 @@ import { IsNotDisposableEmail } from '../../../common/validators/disposable-emai
 /**
  * Allowed user roles for self-registration
  *
- * ADMIN and STAFF roles are excluded from self-registration for security reasons.
- * These roles should only be assigned by existing administrators.
+ * STAFF uses a dedicated multipart endpoint so this DTO only covers the JSON
+ * self-registration flow for roles that still use /auth/register.
  */
 export type RegisterableRole =
   | UserRole.CLIENT
   | UserRole.BROKER
-  | UserRole.FREELANCER
-  | UserRole.STAFF;
+  | UserRole.FREELANCER;
 
 /**
  * Object containing only the registerable roles for validation
@@ -33,7 +32,6 @@ export const REGISTERABLE_ROLES = {
   CLIENT: UserRole.CLIENT,
   BROKER: UserRole.BROKER,
   FREELANCER: UserRole.FREELANCER,
-  STAFF: UserRole.STAFF,
 } as const;
 
 export class RegisterDto {
@@ -90,11 +88,11 @@ export class RegisterDto {
   phoneNumber!: string;
 
   @ApiProperty({
-    description: 'User role in the system (only CLIENT, BROKER, FREELANCER, STAFF allowed)',
+    description: 'User role in the system (only CLIENT, BROKER, FREELANCER allowed)',
     enum: REGISTERABLE_ROLES,
     example: UserRole.CLIENT,
   })
-  @IsEnum(REGISTERABLE_ROLES, { message: 'Role must be CLIENT, BROKER, FREELANCER, or STAFF' })
+  @IsEnum(REGISTERABLE_ROLES, { message: 'Role must be CLIENT, BROKER, or FREELANCER' })
   @IsNotEmpty({ message: 'Role is required' })
   role!: RegisterableRole;
 
@@ -107,7 +105,7 @@ export class RegisterDto {
   recaptchaToken?: string;
 
   @ApiPropertyOptional({
-    description: 'Domain IDs (UUIDs) for BROKER, FREELANCER, and STAFF',
+    description: 'Domain IDs (UUIDs) for BROKER and FREELANCER',
     example: ['uuid-1', 'uuid-2'],
     type: [String],
   })
@@ -117,7 +115,7 @@ export class RegisterDto {
   domainIds?: string[];
 
   @ApiPropertyOptional({
-    description: 'Skill IDs (UUIDs) for BROKER, FREELANCER, and STAFF',
+    description: 'Skill IDs (UUIDs) for BROKER and FREELANCER',
     example: ['uuid-1', 'uuid-2', 'uuid-3'],
     type: [String],
   })

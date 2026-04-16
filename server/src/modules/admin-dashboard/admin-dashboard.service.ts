@@ -826,7 +826,7 @@ export class AdminDashboardService {
         summary: `${input.overdueCriticalDisputes} high-priority dispute(s) passed their resolution deadline.`,
         metricValue: input.overdueCriticalDisputes,
         thresholdLabel: `>= ${ADMIN_RISK_CONFIG.overdueDisputeHigh} overdue high/critical disputes`,
-        actionUrl: '/staff/caseload',
+        actionUrl: '/admin/disputes',
         reason:
           'High and critical disputes past SLA indicate escalation risk and require immediate staffing attention.',
       });
@@ -840,7 +840,7 @@ export class AdminDashboardService {
         summary: `${input.autoClosedHearings} hearing(s) were system-closed after timeout in the selected range.`,
         metricValue: input.autoClosedHearings,
         thresholdLabel: `>= ${ADMIN_RISK_CONFIG.autoCloseIncidentHigh} auto-closed hearings`,
-        actionUrl: '/staff/hearings',
+        actionUrl: '/admin/hearings',
         reason:
           'Repeated auto-closure means hearings are overrunning without manual resolution, extension, or verdict control.',
       });
@@ -858,7 +858,7 @@ export class AdminDashboardService {
         summary: `${totalFollowUpRisk} follow-up scheduling incident(s) need review (${input.followUpSchedulingFailures} failures, ${input.followUpManualRequired} manual-required).`,
         metricValue: totalFollowUpRisk,
         thresholdLabel: `>= ${ADMIN_RISK_CONFIG.followUpSchedulingFailureHigh} scheduling incident`,
-        actionUrl: '/staff/hearings',
+        actionUrl: '/admin/hearings',
         reason:
           'If unresolved disputes do not receive timely follow-up hearings, the case backlog and appeal exposure both increase.',
       });
@@ -900,7 +900,7 @@ export class AdminDashboardService {
         summary: `${overloadedCount} overloaded staff member(s) and ${backlogPendingCases} pending dispute case(s) are pressuring the queue.`,
         metricValue: backlogPendingCases,
         thresholdLabel: `utilization >= ${ASSIGNMENT_CONFIG.OVERLOADED_THRESHOLD}% or backlog spike`,
-        actionUrl: '/staff/caseload',
+        actionUrl: '/admin/disputes',
         reason:
           'Capacity pressure raises the probability of delayed hearings, rushed reviews, and missed SLA windows.',
       });

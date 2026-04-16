@@ -313,6 +313,22 @@ describe('EscrowReleaseService', () => {
     expect(platformWallet.totalEarned).toBe(5);
     expect(escrow.status).toBe(EscrowStatus.RELEASED);
     expect(escrow.clientApproved).toBe(true);
+    expect(transactionRepository.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        walletId: 'wallet-freelancer',
+        metadata: expect.objectContaining({
+          milestoneId: 'milestone-1',
+          milestoneTitle: 'Kickoff',
+          stage: 'release_full',
+          releaseAmount: 100,
+          developerAmount: 85,
+          brokerAmount: 10,
+          platformFee: 5,
+          recipientAmount: 85,
+          role: 'FREELANCER',
+        }),
+      }),
+    );
   });
 
   it('releases only payable-now amount and keeps retention funded in escrow', async () => {

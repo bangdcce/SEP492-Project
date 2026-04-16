@@ -17,6 +17,10 @@ const createRepositoryMock = () => ({
   count: jest.fn(),
 });
 
+const createEmailServiceMock = () => ({
+  sendPlatformNotification: jest.fn(),
+});
+
 const createQueryBuilderMock = () => {
   const builder = {
     andWhere: jest.fn(),
@@ -43,6 +47,7 @@ describe('UsersService.getAllUsers', () => {
   let projectRepo: ReturnType<typeof createRepositoryMock>;
   let projectRequestRepo: ReturnType<typeof createRepositoryMock>;
   let projectRequestProposalRepo: ReturnType<typeof createRepositoryMock>;
+  let emailService: ReturnType<typeof createEmailServiceMock>;
   let queryBuilder: ReturnType<typeof createQueryBuilderMock>;
 
   beforeEach(() => {
@@ -53,6 +58,7 @@ describe('UsersService.getAllUsers', () => {
     projectRepo = createRepositoryMock();
     projectRequestRepo = createRepositoryMock();
     projectRequestProposalRepo = createRepositoryMock();
+    emailService = createEmailServiceMock();
     queryBuilder = createQueryBuilderMock();
 
     userRepo.createQueryBuilder.mockReturnValue(queryBuilder);
@@ -65,6 +71,7 @@ describe('UsersService.getAllUsers', () => {
       projectRepo as any,
       projectRequestRepo as any,
       projectRequestProposalRepo as any,
+      emailService as any,
     );
   });
 
@@ -153,6 +160,7 @@ describe('UsersService.getUserDetail', () => {
   let projectRepo: ReturnType<typeof createRepositoryMock>;
   let projectRequestRepo: ReturnType<typeof createRepositoryMock>;
   let projectRequestProposalRepo: ReturnType<typeof createRepositoryMock>;
+  let emailService: ReturnType<typeof createEmailServiceMock>;
 
   beforeEach(() => {
     userRepo = createRepositoryMock();
@@ -162,6 +170,7 @@ describe('UsersService.getUserDetail', () => {
     projectRepo = createRepositoryMock();
     projectRequestRepo = createRepositoryMock();
     projectRequestProposalRepo = createRepositoryMock();
+    emailService = createEmailServiceMock();
 
     service = new UsersService(
       userRepo as any,
@@ -171,6 +180,7 @@ describe('UsersService.getUserDetail', () => {
       projectRepo as any,
       projectRequestRepo as any,
       projectRequestProposalRepo as any,
+      emailService as any,
     );
   });
 
@@ -270,6 +280,7 @@ describe('UsersService.banUser', () => {
   let projectRepo: ReturnType<typeof createRepositoryMock>;
   let projectRequestRepo: ReturnType<typeof createRepositoryMock>;
   let projectRequestProposalRepo: ReturnType<typeof createRepositoryMock>;
+  let emailService: ReturnType<typeof createEmailServiceMock>;
 
   beforeEach(() => {
     userRepo = createRepositoryMock();
@@ -279,6 +290,7 @@ describe('UsersService.banUser', () => {
     projectRepo = createRepositoryMock();
     projectRequestRepo = createRepositoryMock();
     projectRequestProposalRepo = createRepositoryMock();
+    emailService = createEmailServiceMock();
 
     service = new UsersService(
       userRepo as any,
@@ -288,12 +300,15 @@ describe('UsersService.banUser', () => {
       projectRepo as any,
       projectRequestRepo as any,
       projectRequestProposalRepo as any,
+      emailService as any,
     );
   });
 
   it('marks the user as banned, stores the reason, and records the acting admin', async () => {
     const user = {
       id: 'user-1',
+      email: 'member@gmail.com',
+      fullName: 'Member User',
       isBanned: false,
       banReason: null,
       bannedAt: null,
@@ -311,6 +326,12 @@ describe('UsersService.banUser', () => {
     expect(user.bannedBy).toBe('admin-1');
     expect(user.bannedAt).toBeInstanceOf(Date);
     expect(userRepo.save).toHaveBeenCalledWith(user);
+    expect(emailService.sendPlatformNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        email: user.email,
+        title: 'Your account was banned',
+      }),
+    );
     expect(result).toEqual({
       message: 'User banned successfully',
       user,
@@ -346,6 +367,7 @@ describe('UsersService.unbanUser', () => {
   let projectRepo: ReturnType<typeof createRepositoryMock>;
   let projectRequestRepo: ReturnType<typeof createRepositoryMock>;
   let projectRequestProposalRepo: ReturnType<typeof createRepositoryMock>;
+  let emailService: ReturnType<typeof createEmailServiceMock>;
 
   beforeEach(() => {
     userRepo = createRepositoryMock();
@@ -355,6 +377,7 @@ describe('UsersService.unbanUser', () => {
     projectRepo = createRepositoryMock();
     projectRequestRepo = createRepositoryMock();
     projectRequestProposalRepo = createRepositoryMock();
+    emailService = createEmailServiceMock();
 
     service = new UsersService(
       userRepo as any,
@@ -364,12 +387,15 @@ describe('UsersService.unbanUser', () => {
       projectRepo as any,
       projectRequestRepo as any,
       projectRequestProposalRepo as any,
+      emailService as any,
     );
   });
 
   it('clears ban metadata and returns the updated user when unban succeeds', async () => {
     const user = {
       id: 'user-1',
+      email: 'member@gmail.com',
+      fullName: 'Member User',
       isBanned: true,
       banReason: 'Multiple violations',
       bannedAt: new Date('2026-03-30T01:00:00.000Z'),
@@ -387,6 +413,12 @@ describe('UsersService.unbanUser', () => {
     expect(user.bannedAt).toBeNull();
     expect(user.bannedBy).toBeNull();
     expect(userRepo.save).toHaveBeenCalledWith(user);
+    expect(emailService.sendPlatformNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        email: user.email,
+        title: 'Your account was unbanned',
+      }),
+    );
     expect(result).toEqual({
       message: 'User unbanned successfully',
       user,

@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import Decimal from 'decimal.js';
-import { Between, EntityManager, Repository } from 'typeorm';
+import { Between, EntityManager, In, Repository } from 'typeorm';
 import {
   EscrowEntity,
   EscrowStatus,
@@ -161,13 +161,14 @@ export class WalletService {
       skip: (safePage - 1) * safeLimit,
       take: safeLimit,
     });
+    const enrichedItems = await this.enrichReleaseTransactions(items);
 
     return {
       wallet: await this.buildWalletSnapshot(
         wallet,
         typeof user === 'string' ? undefined : user.role,
       ),
-      items: items.map((item) => this.toWalletTransaction(item)),
+      items: enrichedItems.map((item) => this.toWalletTransaction(item)),
       total,
       page: safePage,
       limit: safeLimit,
@@ -431,6 +432,108 @@ export class WalletService {
       email: user.email,
       role: user.role,
     };
+  }
+
+  private async enrichReleaseTransactions(
+    transactions: TransactionEntity[],
+  ): Promise<TransactionEntity[]> {
+    const relatedReleaseIds = Array.from(
+      new Set(
+        transactions
+          .filter((transaction) => this.needsReleaseMetadataEnrichment(transaction))
+          .map((transaction) => transaction.relatedTransactionId)
+          .filter((value): value is string => typeof value === 'string' && value.length > 0),
+      ),
+    );
+
+    if (relatedReleaseIds.length === 0) {
+      return transactions;
+    }
+
+    const relatedTransactions = await this.transactionRepository.findBy({
+      id: In(relatedReleaseIds),
+    });
+    const relatedTransactionMap = new Map(
+      relatedTransactions.map((transaction) => [transaction.id, transaction]),
+    );
+
+    return transactions.map((transaction) => {
+      if (!this.needsReleaseMetadataEnrichment(transaction) || !transaction.relatedTransactionId) {
+        return transaction;
+      }
+
+      const relatedTransaction = relatedTransactionMap.get(transaction.relatedTransactionId);
+      if (!relatedTransaction) {
+        return transaction;
+      }
+
+      const metadata = this.mergeReleaseMetadata(transaction.metadata, relatedTransaction.metadata);
+      return metadata === transaction.metadata
+        ? transaction
+        : {
+            ...transaction,
+            metadata,
+          };
+    });
+  }
+
+  private needsReleaseMetadataEnrichment(transaction: TransactionEntity): boolean {
+    return (
+      (transaction.type === TransactionType.ESCROW_RELEASE
+        || transaction.type === TransactionType.FEE_DEDUCTION)
+      && typeof transaction.relatedTransactionId === 'string'
+      && transaction.relatedTransactionId.length > 0
+    );
+  }
+
+  private mergeReleaseMetadata(
+    current: TransactionEntity['metadata'],
+    source: TransactionEntity['metadata'],
+  ): Record<string, unknown> | null {
+    const currentMetadata = this.asMetadataRecord(current);
+    const sourceMetadata = this.asMetadataRecord(source);
+
+    if (!sourceMetadata) {
+      return currentMetadata;
+    }
+
+    const releaseKeys = [
+      'milestoneId',
+      'milestoneTitle',
+      'projectId',
+      'releasedBy',
+      'stage',
+      'reason',
+      'releaseAmount',
+      'developerAmount',
+      'brokerAmount',
+      'platformFee',
+      'escrowFundedBalanceBeforeRelease',
+      'retainedBalanceAfterRelease',
+      'releaseTransactionIds',
+    ] as const;
+
+    const nextMetadata = currentMetadata ? { ...currentMetadata } : {};
+    let changed = false;
+
+    for (const key of releaseKeys) {
+      if (nextMetadata[key] === undefined && sourceMetadata[key] !== undefined) {
+        nextMetadata[key] = sourceMetadata[key];
+        changed = true;
+      }
+    }
+
+    return changed ? nextMetadata : currentMetadata;
+  }
+
+  private asMetadataRecord(
+    value: TransactionEntity['metadata'],
+  ): Record<string, unknown> | null {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return null;
+    }
+
+    return value as Record<string, unknown>;
   }
 
   private async resolveAwaitingReleaseAmount(

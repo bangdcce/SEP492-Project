@@ -63,6 +63,7 @@ import {
   fetchTaskHistory,
   fetchTaskLinks,
   createTaskLink,
+  deleteTask,
   deleteTaskLink,
   fetchSubtasks,
   createSubtask,
@@ -76,6 +77,7 @@ import {
   getSubmissionEvidenceUrl,
   getSubmissionPreviewText,
 } from "../../utils";
+import { getSubmissionApprovalDialogCopy } from "../../submission-review-flow";
 import { STORAGE_KEYS } from "@/constants";
 import { getStoredJson } from "@/shared/utils/storage";
 import { toast } from "sonner";
@@ -106,6 +108,7 @@ type TaskDetailModalProps = {
   allowTaskStatusEditing?: boolean;
   onClose: () => void;
   onUpdate?: (updatedTask: Task) => void;
+  onDelete?: (taskId: string) => void;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -279,6 +282,7 @@ export function TaskDetailModal({
   allowTaskStatusEditing = false,
   onClose,
   onUpdate,
+  onDelete,
 }: TaskDetailModalProps) {
   const [task, setTask] = useState<Task | null>(initialTask);
   const [activeTab, setActiveTab] = useState<"all" | "comments" | "history">("all");
@@ -294,6 +298,8 @@ export function TaskDetailModal({
   const [updatingCommentId, setUpdatingCommentId] = useState<string | null>(null);
   const [commentPendingDelete, setCommentPendingDelete] = useState<TaskComment | null>(null);
   const [deletingCommentId, setDeletingCommentId] = useState<string | null>(null);
+  const [isDeleteTaskDialogOpen, setIsDeleteTaskDialogOpen] = useState(false);
+  const [isDeletingTask, setIsDeletingTask] = useState(false);
   const [visibleHistoryCount, setVisibleHistoryCount] = useState(5);
 
   // Web Links State
@@ -346,6 +352,10 @@ export function TaskDetailModal({
     canReviewSubmissions && (canBrokerReview || canClientReview),
   );
   const isFreelancer = currentUserRole === "FREELANCER";
+  const isBroker = currentUserRole === "BROKER";
+  const canDeleteTask = Boolean(
+    task && isBroker && task.status !== "DONE" && task.status !== "IN_REVIEW",
+  );
   const isInteractionLocked = !allowTaskMutations;
   const canManageSubtasks = allowTaskMutations && !isFreelancer;
   const subtaskPermissionMessage = isFreelancer
@@ -611,6 +621,9 @@ export function TaskDetailModal({
     latestApprovedSubmission
   );
   const canTransitionTaskToDone = Boolean(latestApprovedSubmission);
+  const approveDialogCopy = getSubmissionApprovalDialogCopy(
+    approveDialogSubmission?.status,
+  );
   const visibleStatusOptions = STATUS_OPTIONS.filter(
     (option) =>
       option.value !== "DONE" ||
@@ -875,6 +888,26 @@ export function TaskDetailModal({
     }
   };
 
+  const handleDeleteTask = async () => {
+    if (!task || !isBroker) {
+      return;
+    }
+
+    setIsDeletingTask(true);
+    try {
+      await deleteTask(task.id);
+      toast.success("Task deleted successfully.");
+      onDelete?.(task.id);
+      setIsDeleteTaskDialogOpen(false);
+      onClose();
+    } catch (error) {
+      console.error("Failed to delete task:", error);
+      toast.error("Failed to delete task. Please try again.");
+    } finally {
+      setIsDeletingTask(false);
+    }
+  };
+
   const handleCreateSubtask = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!task) return;
@@ -964,6 +997,20 @@ export function TaskDetailModal({
 
     const current = subtasks.find((subtask) => subtask.id === subtaskId);
     if (!current || current.status === newStatus) return;
+
+    if (isFreelancer) {
+      const message = "Freelancers are not allowed to change subtask status.";
+      setSubtaskError(message);
+      toast.warning(message);
+      return;
+    }
+
+    if (newStatus === "DONE" && !isBroker) {
+      const message = "Only brokers can move subtasks to DONE.";
+      setSubtaskError(message);
+      toast.warning(message);
+      return;
+    }
 
     setUpdatingSubtaskId(subtaskId);
     setSubtaskError(null);
@@ -1126,9 +1173,18 @@ export function TaskDetailModal({
             <span className="uppercase">{task.id.slice(0, 8)}</span>
           </div>
           <div className="flex items-center gap-2">
-            <button className="p-2 hover:bg-gray-100 rounded">
-              <MoreHorizontal className="w-4 h-4 text-gray-500" />
-            </button>
+            {canDeleteTask ? (
+              <button
+                type="button"
+                onClick={() => setIsDeleteTaskDialogOpen(true)}
+                disabled={isDeletingTask}
+                className="p-2 hover:bg-red-50 rounded text-red-500 hover:text-red-600 disabled:opacity-60"
+                aria-label="Delete task"
+                title="Delete task"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            ) : null}
             <button
               onClick={onClose}
               className="p-2 hover:bg-gray-100 rounded text-gray-500 hover:text-gray-700"
@@ -1621,11 +1677,14 @@ export function TaskDetailModal({
                                   }
                                   disabled={
                                     updatingSubtaskId === subtask.id ||
+                                    isFreelancer ||
                                     isInteractionLocked ||
                                     isSubtaskStatusLockedByBrokerApproval
                                   }
                                   title={
-                                    isSubtaskStatusLockedByBrokerApproval
+                                    isFreelancer
+                                      ? "Freelancers are not allowed to change subtask status."
+                                      : isSubtaskStatusLockedByBrokerApproval
                                       ? subtaskStatusLockMessage
                                       : undefined
                                   }
@@ -1635,7 +1694,9 @@ export function TaskDetailModal({
                                     updatingSubtaskId === subtask.id && "opacity-60"
                                   )}
                                 >
-                                  {SUBTASK_STATUS_OPTIONS.map((option) => (
+                                  {SUBTASK_STATUS_OPTIONS.filter(
+                                    (option) => option.value !== "DONE" || isBroker
+                                  ).map((option) => (
                                     <option key={option.value} value={option.value}>
                                       {option.label}
                                     </option>
@@ -2358,6 +2419,75 @@ export function TaskDetailModal({
       </div>
 
       <AlertDialog
+        open={isDeleteTaskDialogOpen}
+        onOpenChange={(open) => {
+          if (!isDeletingTask) {
+            setIsDeleteTaskDialogOpen(open);
+          }
+        }}
+      >
+        <AlertDialogContent className="max-w-md border border-slate-200 bg-white p-0 shadow-2xl">
+          <div className="border-b border-slate-200 px-6 py-5">
+            <AlertDialogHeader className="gap-3 text-left">
+              <div className="flex items-start gap-3">
+                <div className="flex h-11 w-11 items-center justify-center rounded-full border border-red-200 bg-red-50 text-red-700">
+                  <Trash2 className="h-5 w-5" />
+                </div>
+                <div className="space-y-1">
+                  <AlertDialogTitle className="text-base font-semibold text-slate-900">
+                    Delete Task
+                  </AlertDialogTitle>
+                  <AlertDialogDescription className="text-sm leading-6 text-slate-600">
+                    This will permanently remove this task from the workspace.
+                  </AlertDialogDescription>
+                </div>
+              </div>
+            </AlertDialogHeader>
+          </div>
+
+          <div className="space-y-4 px-6 py-5">
+            <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                Task
+              </p>
+              <p className="mt-2 text-sm font-semibold text-slate-900">
+                {task?.title ?? "Selected task"}
+              </p>
+            </div>
+          </div>
+
+          <AlertDialogFooter className="border-t border-slate-200 bg-slate-50 px-6 py-4 sm:justify-between">
+            <AlertDialogCancel
+              disabled={isDeletingTask}
+              className="border-slate-300 bg-white text-slate-700 hover:bg-slate-100 hover:text-slate-900"
+            >
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={isDeletingTask}
+              className="bg-red-600 text-white hover:bg-red-700 focus-visible:ring-red-400"
+              onClick={(event) => {
+                event.preventDefault();
+                void handleDeleteTask();
+              }}
+            >
+              {isDeletingTask ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                <>
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  Delete task
+                </>
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
         open={Boolean(approveDialogSubmission)}
         onOpenChange={(open) => {
           if (!open && !isReviewing) {
@@ -2379,10 +2509,7 @@ export function TaskDetailModal({
                   <AlertDialogDescription className="text-sm leading-6 text-slate-600">
                     By approving this, you verify that the work submitted in{" "}
                     Version {approveDialogSubmission?.version ?? "-"} meets the
-                    required standards.{" "}
-                    {approveDialogSubmission?.status === "PENDING"
-                      ? "The submission will move to client review and the task will remain IN_REVIEW."
-                      : "The task will be marked as DONE."}
+                    required standards. {approveDialogCopy.description}
                   </AlertDialogDescription>
                 </div>
               </div>
@@ -2437,9 +2564,7 @@ export function TaskDetailModal({
               ) : (
                 <>
                   <CheckCircle2 className="mr-2 h-4 w-4" />
-                  {approveDialogSubmission?.status === "PENDING"
-                    ? "Confirm & Send to Client"
-                    : "Confirm & Mark as Done"}
+                  {approveDialogCopy.actionLabel}
                 </>
               )}
             </AlertDialogAction>
