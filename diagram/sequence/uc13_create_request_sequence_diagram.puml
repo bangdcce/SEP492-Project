@@ -86,7 +86,7 @@ WizardAPI -> ApiClient : 3. Forward HTTP request
 
 activate ApiClient
 
-ApiClient -> WizardController : 4. Send GET "/wizard/questions"
+ApiClient -> WizardController : 4. Load wizard questions
 
 activate WizardController
 
@@ -148,7 +148,7 @@ alt [Client uploads reference files]
 
     WizardAPI -> ApiClient : 21. Forward HTTP request
 
-    ApiClient -> RequestController : 22. Send POST "/project-requests/upload"
+    ApiClient -> RequestController : 22. Upload request attachment
 
     activate RequestController
 
@@ -188,7 +188,7 @@ alt [Client clicks "Post to Market"]
 
     WizardAPI -> ApiClient : 35. Forward HTTP request
 
-    ApiClient -> RequestController : 36. Send POST "/project-requests"
+    ApiClient -> RequestController : 36. Create public draft request
 
     RequestController -> JWTGuard : 37. Confirm the caller is signed in
 
@@ -252,7 +252,7 @@ else [Client clicks "Find & Invite"]
 
     WizardAPI -> ApiClient : 58. Forward HTTP request
 
-    ApiClient -> RequestController : 59. Send POST "/project-requests"
+    ApiClient -> RequestController : 59. Create private draft request
 
     RequestController -> JWTGuard : 60. Confirm the caller is signed in
 
@@ -302,7 +302,7 @@ else [Quota or validation fails]
 
     WizardAPI -> ApiClient : 77. Forward HTTP request
 
-    ApiClient -> RequestController : 78. Send POST "/project-requests"
+    ApiClient -> RequestController : 78. Create new request
 
     RequestController -> RequestService : 79. Attempt request creation
 

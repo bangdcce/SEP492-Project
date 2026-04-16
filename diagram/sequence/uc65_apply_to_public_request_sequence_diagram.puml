@@ -51,7 +51,7 @@ ProposalModal -> RequestsAPI : 6. Call applyToRequest(requestId, coverLetter)
 activate RequestsAPI
 RequestsAPI -> ApiClient : 7. Forward HTTP request
 activate ApiClient
-ApiClient -> Controller : 8. Send POST "/project-requests/{id}/apply"
+ApiClient -> Controller : 8. Apply to public request
 activate Controller
 Controller -> JWTGuard : 9. Confirm the user is signed in
 activate JWTGuard

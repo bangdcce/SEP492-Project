@@ -76,7 +76,7 @@ SubscriptionAPI -> ApiClient : 4. Forward HTTP request
 
 activate ApiClient
 
-ApiClient -> SubscriptionController : 5. Send GET "/subscriptions/me"
+ApiClient -> SubscriptionController : 5. Load current subscription
 
 activate SubscriptionController
 
@@ -128,7 +128,7 @@ alt [Account is on free tier]
 
     PaymentsAPI -> ApiClient : 18. Forward HTTP request
 
-    ApiClient -> PaymentController : 19. Send GET "/payment-methods"
+    ApiClient -> PaymentController : 19. Load saved payment methods
 
     activate PaymentController
 

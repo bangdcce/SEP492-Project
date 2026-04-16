@@ -72,7 +72,7 @@ ProfilePage -> InviteModal : 3. Open the invitation modal
 
 activate InviteModal
 
-InviteModal -> Controller : 4. Request the current user's eligible requests with GET "/project-requests"
+InviteModal -> Controller : 4. Load the current user's eligible requests
 
 activate Controller
 
@@ -108,7 +108,7 @@ DiscoveryAPI -> ApiClient : 14. Forward HTTP request
 
 activate ApiClient
 
-ApiClient -> Controller : 15. Send POST "/project-requests/{requestId}/invite/broker" or POST "/project-requests/{requestId}/invite/freelancer"
+ApiClient -> Controller : 15. Send request invitation to the selected broker or freelancer
 
 Controller -> JWTGuard : 16. Confirm the user is signed in
 

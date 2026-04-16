@@ -70,7 +70,7 @@ WizardAPI -> ApiClient : 3. Forward HTTP request
 
 activate ApiClient
 
-ApiClient -> Controller : 4. Send GET "/project-requests/{requestId}"
+ApiClient -> Controller : 4. Load request details
 
 activate Controller
 
@@ -108,7 +108,7 @@ alt [Client clicks "Approve"]
 
     WizardAPI -> ApiClient : 16. Forward HTTP request
 
-    ApiClient -> Controller : 17. Send POST "/project-requests/{requestId}/approve-freelancer-invite"
+    ApiClient -> Controller : 17. Approve freelancer application
 
     Controller -> JWTGuard : 18. Confirm the client is signed in
 
@@ -158,7 +158,7 @@ else [Client clicks "Reject"]
 
     WizardAPI -> ApiClient : 35. Forward HTTP request
 
-    ApiClient -> Controller : 36. Send POST "/project-requests/{requestId}/reject-freelancer-invite"
+    ApiClient -> Controller : 36. Reject freelancer application
 
     Controller -> JWTGuard : 37. Confirm the client is signed in
 

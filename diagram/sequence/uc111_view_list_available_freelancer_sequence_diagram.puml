@@ -76,7 +76,7 @@ alt [Quick Match]
 
     activate WizardService
 
-    WizardService -> Controller : 6. Send GET "/matching/{requestId}?role=FREELANCER&enableAi=false"
+    WizardService -> Controller : 6. Call getMatches(requestId, FREELANCER, without AI)
 
     activate Controller
 
@@ -84,7 +84,7 @@ else [AI Suggestion]
 
     FreelancerPanel -> WizardService : 7. Call getFreelancerMatches(requestId, enableAi=true, topN)
 
-    WizardService -> Controller : 8. Send GET "/matching/{requestId}?role=FREELANCER&enableAi=true"
+    WizardService -> Controller : 8. Call getMatches(requestId, FREELANCER, with AI)
 
 end
 

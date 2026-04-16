@@ -1,25 +1,17 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from docx import Document
 from docx.enum.table import WD_ALIGN_VERTICAL, WD_TABLE_ALIGNMENT
 from docx.enum.text import WD_PARAGRAPH_ALIGNMENT
-from docx.oxml import OxmlElement
-from docx.oxml.ns import qn
 from docx.shared import Inches, Pt
 
 
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT_PATH = ROOT / "docs" / "usecase des" / "Doc Interdev - Updated Use Cases.docx"
-GENERATED_DATE = "2026-04-13"
-
-
-def apply_cell_shading(cell, fill: str) -> None:
-    tc_pr = cell._tc.get_or_add_tcPr()
-    shd = OxmlElement("w:shd")
-    shd.set(qn("w:fill"), fill)
-    tc_pr.append(shd)
+GENERATED_DATE = "27/03/2026"
 
 
 def set_cell_text(cell, text: str, *, bold: bool = False, align="left") -> None:
@@ -66,6 +58,27 @@ def add_sections(cell, sections: list[dict[str, object]]) -> None:
             step_run = step_paragraph.add_run(str(step))
             step_run.font.name = "Times New Roman"
             step_run.font.size = Pt(11)
+
+
+def expand_alternative_sections(sections: list[dict[str, object]]) -> list[dict[str, object]]:
+    expanded: list[dict[str, object]] = []
+    for section in sections:
+        heading = str(section["heading"])
+        match = re.match(r"^([A-Z]\d+(?:/[A-Z]\d+)*)\.\s+(.*)$", heading)
+        if not match or "/" not in match.group(1):
+            expanded.append(section)
+            continue
+
+        anchors = match.group(1).split("/")
+        title = match.group(2)
+        for anchor in anchors:
+            expanded.append(
+                {
+                    "heading": f"{anchor}. {title}",
+                    "steps": list(section["steps"]),
+                }
+            )
+    return expanded
 
 
 def add_plain_lines(cell, lines: list[str]) -> None:
@@ -1755,11 +1768,9 @@ def add_use_case_table(document: Document, use_case: dict[str, object]) -> None:
     for row_index, row_data in enumerate(rows):
         row = table.rows[row_index]
         set_cell_text(row.cells[0], str(row_data[0]), bold=True)
-        apply_cell_shading(row.cells[0], "D9EAF7")
         if len(row_data) == 4:
             set_cell_text(row.cells[1], str(row_data[1]))
             set_cell_text(row.cells[2], str(row_data[2]), bold=True)
-            apply_cell_shading(row.cells[2], "D9EAF7")
             set_cell_text(row.cells[3], str(row_data[3]))
             continue
 
@@ -1769,8 +1780,10 @@ def add_use_case_table(document: Document, use_case: dict[str, object]) -> None:
             add_labeled_list(merged, "PRE", list(value))
         elif row_index == 6:
             add_labeled_list(merged, "POST", list(value))
-        elif row_index in {7, 8}:
+        elif row_index == 7:
             add_sections(merged, list(value))
+        elif row_index == 8:
+            add_sections(merged, expand_alternative_sections(list(value)))
         else:
             lines = [f"{idx}. {line}" for idx, line in enumerate(value, start=1)] if isinstance(value, list) else [str(value)]
             add_plain_lines(merged, lines)
@@ -1840,8 +1853,15 @@ def create_document() -> Document:
 def main() -> None:
     OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
     document = create_document()
-    document.save(OUTPUT_PATH)
-    print(OUTPUT_PATH)
+    try:
+        document.save(OUTPUT_PATH)
+        print(OUTPUT_PATH)
+    except PermissionError:
+        fallback_path = OUTPUT_PATH.with_name(
+            f"{OUTPUT_PATH.stem} - Regenerated{OUTPUT_PATH.suffix}"
+        )
+        document.save(fallback_path)
+        print(fallback_path)
 
 
 if __name__ == "__main__":

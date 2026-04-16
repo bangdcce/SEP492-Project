@@ -41,7 +41,7 @@ ListPage -> DiscoveryAPI : 3. Request the current invitation or application list
 activate DiscoveryAPI
 DiscoveryAPI -> ApiClient : 4. Forward HTTP request
 activate ApiClient
-ApiClient -> Controller : 5. Send GET "/project-requests/invitations/my"
+ApiClient -> Controller : 5. Load my invitation list
 activate Controller
 Controller -> JWTGuard : 6. Confirm the user is signed in
 activate JWTGuard
@@ -68,7 +68,7 @@ DetailPage -> DiscoveryAPI : 17. Reload the list to resolve the selected invitat
 activate DiscoveryAPI
 DiscoveryAPI -> ApiClient : 18. Forward HTTP request
 activate ApiClient
-ApiClient -> Controller : 19. Send GET "/project-requests/invitations/my"
+ApiClient -> Controller : 19. Load my invitation list
 activate Controller
 Controller -> Service : 20. Reload invitations for the current role
 activate Service

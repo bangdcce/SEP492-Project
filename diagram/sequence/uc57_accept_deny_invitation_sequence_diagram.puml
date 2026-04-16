@@ -74,7 +74,7 @@ alt [User accepts the invitation]
 
     activate ApiClient
 
-    ApiClient -> Controller : 6. Send PATCH "/project-requests/invitations/{id}/respond"
+    ApiClient -> Controller : 6. Respond to invitation
 
     activate Controller
 
@@ -122,7 +122,7 @@ else [User denies the invitation]
 
     DiscoveryAPI -> ApiClient : 21. Forward HTTP request
 
-    ApiClient -> Controller : 22. Send PATCH "/project-requests/invitations/{id}/respond"
+    ApiClient -> Controller : 22. Respond to invitation
 
     Controller -> JWTGuard : 23. Confirm the user is signed in
 
