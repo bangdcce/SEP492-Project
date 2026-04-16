@@ -36,10 +36,15 @@ export class MatchingController {
     ];
   }
 
-  private extractRequestTerms(request: ProjectRequestEntity, role: 'BROKER' | 'FREELANCER'): string[] {
+  private extractRequestTerms(
+    request: ProjectRequestEntity,
+    role: 'BROKER' | 'FREELANCER',
+  ): string[] {
     const answerTerms = (request.answers || []).flatMap((answer: any) => {
-      const questionCode = String(answer?.question?.code || '').trim().toUpperCase();
-      
+      const questionCode = String(answer?.question?.code || '')
+        .trim()
+        .toUpperCase();
+
       // Freelancers match on technical features, not business domains
       if (role === 'FREELANCER') {
         if (!['FEATURES'].includes(questionCode)) {
@@ -51,7 +56,11 @@ export class MatchingController {
         }
       }
 
-      return this.parseRequestedTags(answer?.valueText, answer?.option?.label, answer?.option?.value);
+      return this.parseRequestedTags(
+        answer?.valueText,
+        answer?.option?.label,
+        answer?.option?.value,
+      );
     });
 
     return this.parseRequestedTags(request.techPreferences, ...answerTerms);
@@ -64,9 +73,10 @@ export class MatchingController {
     @Query('role') role: 'BROKER' | 'FREELANCER' = 'BROKER',
     @Query('enableAi') enableAi?: string,
     @Query('topN') topN?: string,
+    @Query('page') page?: string,
   ) {
     this.logger.log(
-      `Finding matches: requestId=${requestId}, role=${role}, enableAi=${enableAi}, topN=${topN}`,
+      `Finding matches: requestId=${requestId}, role=${role}, enableAi=${enableAi}, topN=${topN}, page=${page}`,
     );
 
     const request = await this.requestRepo.findOne({
@@ -108,6 +118,7 @@ export class MatchingController {
       role,
       enableAi: enableAi !== undefined ? enableAi === 'true' : undefined,
       topN: topN ? parseInt(topN, 10) : undefined,
+      page: page ? parseInt(page, 10) : undefined,
     });
   }
 }

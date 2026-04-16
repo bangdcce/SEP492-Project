@@ -18,6 +18,7 @@ export interface MatchingOptions {
   role: 'BROKER' | 'FREELANCER';
   enableAi?: boolean;
   topN?: number;
+  page?: number;
 }
 
 @Injectable()
@@ -43,14 +44,16 @@ export class MatchingService {
       this.configService.get<string>('MATCHING_QUICK_TOP_N') || '20',
       10,
     );
-    const topN = Math.max(
+    const pageSize = Math.max(
       1,
-      options.topN ??
-        (aiEnabled ? configuredAiTopN || 10 : configuredQuickTopN || 20),
+      options.topN ?? (aiEnabled ? configuredAiTopN || 10 : configuredQuickTopN || 20),
     );
+    const page = Math.max(1, options.page ?? 1);
+    const pageStart = (page - 1) * pageSize;
+    const pageEnd = pageStart + pageSize;
 
     this.logger.log(
-      `Finding matches for request ${input.requestId} | role=${options.role} | ai=${aiEnabled} | topN=${topN}`,
+      `Finding matches for request ${input.requestId} | role=${options.role} | ai=${aiEnabled} | page=${page} | pageSize=${pageSize}`,
     );
 
     // Step 1: Hard Filter
@@ -78,7 +81,7 @@ export class MatchingService {
         b.completedProjects - a.completedProjects ||
         b.trustScore - a.trustScore,
     );
-    const aiWindowSize = Math.max(topN * 2, 10);
+    const aiWindowSize = Math.max(pageEnd * 2, 10);
     const topCandidates = rankedCandidates.slice(
       0,
       Math.min(aiWindowSize, rankedCandidates.length),
@@ -87,7 +90,7 @@ export class MatchingService {
     let ranked;
     if (aiEnabled) {
       this.logger.log(
-        `AI window: evaluating ${topCandidates.length} candidates (will return top ${topN})`,
+        `AI window: evaluating ${topCandidates.length} candidates (page ${page}, page size ${pageSize})`,
       );
       const aiInput: AiRankerInput = {
         specDescription: input.specDescription,
@@ -107,9 +110,9 @@ export class MatchingService {
 
     // Step 4: Classifier — then return only topN
     const classified = this.classifier.classify(ranked, aiEnabled);
-    const finalResults = classified.slice(0, topN);
+    const finalResults = classified.slice(pageStart, pageEnd);
     this.logger.log(
-      `Classifier: ${classified.length} classified -> returning top ${finalResults.length}. Top score: ${finalResults[0]?.matchScore}`,
+      `Classifier: ${classified.length} classified -> returning ${finalResults.length} candidates for page ${page}. Top score: ${finalResults[0]?.matchScore}`,
     );
 
     return finalResults;

@@ -68,7 +68,10 @@ export const wizardService = {
   ): Promise<UploadProjectRequestFilesResult> => {
     const formData = new FormData();
     files.forEach((file) => {
-      formData.append(category === "requirements" ? "requirements" : "attachments", file);
+      formData.append(
+        category === "requirements" ? "requirements" : "attachments",
+        file,
+      );
     });
     return await apiClient.post("/project-requests/upload", formData, {
       headers: {
@@ -102,22 +105,37 @@ export const wizardService = {
   },
 
   inviteBroker: async (requestId: string, brokerId: string) => {
-    return await apiClient.post(`/project-requests/${requestId}/invite/broker`, { brokerId });
+    return await apiClient.post(
+      `/project-requests/${requestId}/invite/broker`,
+      { brokerId },
+    );
   },
 
-  inviteFreelancer: async (requestId: string, freelancerId: string, message?: string) => {
-    return await apiClient.post(`/project-requests/${requestId}/invite/freelancer`, {
-      freelancerId,
-      message,
-    });
+  inviteFreelancer: async (
+    requestId: string,
+    freelancerId: string,
+    message?: string,
+  ) => {
+    return await apiClient.post(
+      `/project-requests/${requestId}/invite/freelancer`,
+      {
+        freelancerId,
+        message,
+      },
+    );
   },
 
   applyToRequest: async (requestId: string, coverLetter: string) => {
-    return await apiClient.post(`/project-requests/${requestId}/apply`, { coverLetter });
+    return await apiClient.post(`/project-requests/${requestId}/apply`, {
+      coverLetter,
+    });
   },
 
   acceptBroker: async (requestId: string, brokerId: string) => {
-    return await apiClient.post(`/project-requests/${requestId}/accept-broker`, { brokerId });
+    return await apiClient.post(
+      `/project-requests/${requestId}/accept-broker`,
+      { brokerId },
+    );
   },
 
   deleteRequest: async (id: string) => {
@@ -125,71 +143,92 @@ export const wizardService = {
   },
 
   releaseBrokerSlot: async (requestId: string, proposalId: string) => {
-    return await apiClient.post(`/project-requests/${requestId}/release-broker-slot`, {
-      proposalId,
-    });
+    return await apiClient.post(
+      `/project-requests/${requestId}/release-broker-slot`,
+      {
+        proposalId,
+      },
+    );
   },
 
   approveSpecs: async (requestId: string) => {
-    return await apiClient.post(`/project-requests/${requestId}/approve-specs`, {});
+    return await apiClient.post(
+      `/project-requests/${requestId}/approve-specs`,
+      {},
+    );
   },
 
   approveFreelancerInvite: async (requestId: string, proposalId: string) => {
-    return await apiClient.post(`/project-requests/${requestId}/approve-freelancer-invite`, {
-      proposalId,
-    });
+    return await apiClient.post(
+      `/project-requests/${requestId}/approve-freelancer-invite`,
+      {
+        proposalId,
+      },
+    );
   },
 
   rejectFreelancerInvite: async (requestId: string, proposalId: string) => {
-    return await apiClient.post(`/project-requests/${requestId}/reject-freelancer-invite`, {
-      proposalId,
-    });
+    return await apiClient.post(
+      `/project-requests/${requestId}/reject-freelancer-invite`,
+      {
+        proposalId,
+      },
+    );
   },
 
   convertToProject: async (requestId: string) => {
     return await apiClient.post(`/project-requests/${requestId}/convert`, {});
   },
 
-  getBrokerMatches: async (requestId: string, options?: { enableAi?: boolean; topN?: number }) => {
+  getBrokerMatches: async (
+    requestId: string,
+    options?: { enableAi?: boolean; topN?: number; page?: number },
+  ) => {
     const params = new URLSearchParams();
     params.set("role", "BROKER");
-    if (options?.enableAi !== undefined) params.set("enableAi", String(options.enableAi));
+    if (options?.enableAi !== undefined)
+      params.set("enableAi", String(options.enableAi));
     if (options?.topN !== undefined) params.set("topN", String(options.topN));
+    if (options?.page !== undefined) params.set("page", String(options.page));
     const qs = params.toString();
     return await apiClient.get(`/matching/${requestId}?${qs}`);
   },
 
   getBrokerMatchesQuick: async (
     requestId: string,
-    options?: { topN?: number },
+    options?: { topN?: number; page?: number },
   ) => {
     const params = new URLSearchParams();
     params.set("role", "BROKER");
     params.set("enableAi", "false");
     if (options?.topN !== undefined) params.set("topN", String(options.topN));
+    if (options?.page !== undefined) params.set("page", String(options.page));
     return await apiClient.get(`/matching/${requestId}?${params.toString()}`);
   },
 
   getFreelancerMatches: async (
     requestId: string,
-    options?: { enableAi?: boolean; topN?: number },
+    options?: { enableAi?: boolean; topN?: number; page?: number },
   ) => {
     const params = new URLSearchParams();
     params.set("role", "FREELANCER");
-    if (options?.enableAi !== undefined) params.set("enableAi", String(options.enableAi));
+    if (options?.enableAi !== undefined)
+      params.set("enableAi", String(options.enableAi));
     if (options?.topN !== undefined) params.set("topN", String(options.topN));
+    if (options?.page !== undefined) params.set("page", String(options.page));
     const qs = params.toString();
     return await apiClient.get(`/matching/${requestId}?${qs}`);
   },
 
   getFreelancerMatchesQuick: async (
     requestId: string,
-    options?: { topN?: number },
+    options?: { topN?: number; page?: number },
   ) => {
     const params = new URLSearchParams();
     params.set("role", "FREELANCER");
     params.set("enableAi", "false");
     if (options?.topN !== undefined) params.set("topN", String(options.topN));
+    if (options?.page !== undefined) params.set("page", String(options.page));
     return await apiClient.get(`/matching/${requestId}?${params.toString()}`);
   },
 
