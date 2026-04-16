@@ -278,7 +278,7 @@ export function CandidateProfileModal({
         }
       }}
     >
-      <DialogContent className="!flex max-h-[88vh] max-w-[min(96vw,960px)] flex-col overflow-hidden p-0">
+      <DialogContent className="flex! max-h-[88vh] max-w-[min(96vw,960px)] flex-col overflow-hidden p-0">
         <div className="border-b bg-linear-to-r from-slate-50 via-white to-slate-50 px-5 py-4 sm:px-6 sm:py-5">
           <DialogHeader className="gap-4 text-left">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
