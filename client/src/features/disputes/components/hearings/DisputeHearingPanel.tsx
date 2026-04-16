@@ -45,6 +45,7 @@ import {
   getApiErrorDetails,
   isSchemaNotReadyErrorCode,
 } from "@/shared/utils/apiError";
+import { INTERNAL_DEV_TOOLS_ENABLED } from "@/shared/utils/internalTools";
 import { splitHearingsByLifecycle } from "@/features/hearings/utils/hearingLifecycle";
 import {
   getSchedulingErrorMessage,
@@ -152,11 +153,7 @@ export const DisputeHearingPanel = ({
     (currentUserRole === UserRole.ADMIN || currentUserRole === UserRole.STAFF);
   const canModerate =
     !readOnly && (currentUserRole === UserRole.ADMIN || currentUserRole === UserRole.STAFF);
-  const isDisputeTestToolsEnabled = useMemo(() => {
-    const raw = (import.meta.env.VITE_DISPUTE_TEST_TOOLS || "").toLowerCase();
-    return import.meta.env.DEV || raw === "true" || raw === "1";
-  }, []);
-  const canUseTestTools = isDisputeTestToolsEnabled && canModerate;
+  const canUseTestTools = INTERNAL_DEV_TOOLS_ENABLED && canModerate;
 
   const toIsoString = (value: string) => {
     const date = new Date(value);

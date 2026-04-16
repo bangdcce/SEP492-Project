@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo, useState } from "react";
+import { memo, useCallback, useState } from "react";
 import {
   AlertTriangle,
   ChevronLeft,
@@ -20,6 +20,7 @@ import {
   DISPUTE_DISCLAIMER_COPY,
   DISPUTE_DISCLAIMER_VERSION,
 } from "@/features/disputes/constants/disputeLegal";
+import { INTERNAL_DEV_TOOLS_ENABLED } from "@/shared/utils/internalTools";
 
 const VERDICT_APPEAL_REASON_MIN_LENGTH = 200;
 const REJECTION_APPEAL_REASON_MIN_LENGTH = 50;
@@ -53,10 +54,7 @@ export const AppealDialog = memo(function AppealDialog({
   const [disclaimerAccepted, setDisclaimerAccepted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  const sampleToolsEnabled = useMemo(() => {
-    const raw = (import.meta.env.VITE_DISPUTE_TEST_TOOLS || "").toLowerCase();
-    return import.meta.env.DEV || raw === "true" || raw === "1";
-  }, []);
+  const sampleToolsEnabled = INTERNAL_DEV_TOOLS_ENABLED;
 
   const reset = useCallback(() => {
     setStep(1);

@@ -16,6 +16,7 @@ import {
   getCompatibleClientSpecTemplates,
 } from '../templates';
 import { getProductTypeLabel, normalizeProductTypeCode } from '@/shared/utils/productType';
+import { INTERNAL_DEV_TOOLS_ENABLED } from '@/shared/utils/internalTools';
 
 const HTTP_URL_PATTERN = /^https?:\/\/[\w.-]+\.[a-z]{2,}.*$/i;
 const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
@@ -596,11 +597,13 @@ export function CreateClientSpecForm({
         </Alert>
       )}
 
-      <div className="flex justify-end">
-        <Button type="button" variant="outline" onClick={handleFillTestData}>
-          Fill Test Data
-        </Button>
-      </div>
+      {INTERNAL_DEV_TOOLS_ENABLED ? (
+        <div className="flex justify-end">
+          <Button type="button" variant="outline" onClick={handleFillTestData}>
+            Fill Test Data
+          </Button>
+        </div>
+      ) : null}
 
       <Card>
         <CardHeader>

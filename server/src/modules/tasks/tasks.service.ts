@@ -38,6 +38,10 @@ import { WorkspaceChatService } from '../workspace-chat/workspace-chat.service';
 import { TasksRealtimeBridge } from './tasks.realtime';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import { MilestoneInteractionPolicyService } from '../projects/milestone-interaction-policy.service';
+import {
+  type MilestoneDisputePolicy,
+  resolveMilestoneDisputePolicy,
+} from '../disputes/dispute-milestone-policy';
 
 /**
  * Response type for submission review
@@ -76,6 +80,7 @@ export interface WorkspaceMilestoneEscrowSummary {
 
 export interface WorkspaceMilestoneView extends MilestoneEntity {
   escrow: WorkspaceMilestoneEscrowSummary | null;
+  disputePolicy: MilestoneDisputePolicy;
 }
 
 export interface BoardWithMilestones {
@@ -1593,6 +1598,12 @@ export class TasksService implements OnModuleInit {
         totalTasks: milestoneProgressMap.get(milestone.id)?.totalTasks ?? 0,
         completedTasks: milestoneProgressMap.get(milestone.id)?.completedTasks ?? 0,
         escrow: escrowMap.get(milestone.id) ?? null,
+        disputePolicy: resolveMilestoneDisputePolicy({
+          milestoneStatus: milestone.status,
+          escrowStatus: escrowMap.get(milestone.id)?.status ?? null,
+          releasedAt: escrowMap.get(milestone.id)?.releasedAt ?? null,
+          dueDate: milestone.dueDate,
+        }),
       })),
     };
   }

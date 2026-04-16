@@ -36,7 +36,6 @@ interface MilestoneApprovalCardProps {
     milestoneId: string,
     payload: { recommendation: "ACCEPT" | "REJECT"; note: string },
   ) => Promise<void>;
-  onRaiseDispute?: (milestoneId: string) => void;
   canApprove?: boolean;
   currency?: string;
 }
@@ -108,7 +107,6 @@ export function MilestoneApprovalCard({
   onApprove,
   onRequestReview,
   onReviewerDecision,
-  onRaiseDispute,
   canApprove = false,
   currency,
 }: MilestoneApprovalCardProps) {
@@ -407,14 +405,6 @@ export function MilestoneApprovalCard({
                 {waitingMessage}
               </div>
               )}
-
-            <button
-              onClick={() => onRaiseDispute?.(milestone.id)}
-              className="flex items-center gap-2 rounded-xl border-2 border-red-200 bg-red-50 px-5 py-3 font-semibold text-red-700 transition-colors hover:border-red-300 hover:bg-red-100"
-            >
-              <ShieldAlert className="h-5 w-5" />
-              Raise Dispute
-            </button>
           </div>
 
           {canAssignedReviewerReview && showStaffReviewPanel && (
