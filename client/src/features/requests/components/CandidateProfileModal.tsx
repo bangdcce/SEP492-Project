@@ -6,7 +6,6 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
-  ScrollArea,
 } from "@/shared/components/ui";
 import {
   CheckCircle2,
@@ -236,7 +235,7 @@ export function CandidateProfileModal({
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-h-[90vh] max-w-3xl gap-0 overflow-hidden p-0">
+      <DialogContent className="max-h-[90vh] w-[calc(100vw-1.5rem)] max-w-4xl gap-0 overflow-hidden p-0">
         <div
           className={`overflow-y-auto p-5 ${
             canOpenFullProfile ? "max-h-[calc(90vh-5rem)]" : "max-h-[90vh]"
@@ -249,7 +248,9 @@ export function CandidateProfileModal({
               </div>
               <div className="min-w-0">
                 <DialogTitle className="flex flex-wrap items-center gap-3 text-2xl">
-                  <span>{candidate.fullName || "Unknown Candidate"}</span>
+                  <span className="break-words">
+                    {candidate.fullName || "Unknown Candidate"}
+                  </span>
                   <Badge
                     variant="outline"
                     className={`px-2 py-0.5 text-xs ${labelData.color}`}
@@ -259,12 +260,12 @@ export function CandidateProfileModal({
                 </DialogTitle>
                 <DialogDescription className="mt-1 flex flex-wrap gap-3 text-sm font-medium">
                   {candidate.candidateProfile?.companyName ? (
-                    <span className="text-muted-foreground">
+                    <span className="break-words text-muted-foreground">
                       {candidate.candidateProfile.companyName}
                     </span>
                   ) : null}
                   {domains.length ? (
-                    <span className="text-muted-foreground">
+                    <span className="break-words text-muted-foreground">
                       {domains.join(" / ")}
                     </span>
                   ) : null}
@@ -373,21 +374,21 @@ export function CandidateProfileModal({
                       </Badge>
                     </div>
 
-                    <p className="mt-2 text-sm text-slate-600">
+                    <p className="mt-2 break-words text-sm text-slate-600">
                       {section.summary}
                     </p>
 
                     {section.detailRows?.length ? (
-                      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                      <div className="mt-3 grid gap-2 md:grid-cols-2">
                         {section.detailRows.map((row) => (
                           <div
                             key={`${section.label}-${row.label}`}
-                            className="rounded-md bg-slate-50 px-3 py-2"
+                            className="min-w-0 rounded-md bg-slate-50 px-3 py-2"
                           >
                             <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                               {row.label}
                             </p>
-                            <p className="mt-1 text-sm text-slate-700">
+                            <p className="mt-1 break-words text-sm leading-relaxed text-slate-700">
                               {row.value}
                             </p>
                           </div>
@@ -396,23 +397,17 @@ export function CandidateProfileModal({
                     ) : null}
 
                     {section.chips?.length ? (
-                      <ScrollArea
-                        className={`mt-3 ${
-                          section.chips.length > 4 ? "max-h-28 pr-3" : ""
-                        }`}
-                      >
-                        <div className="flex flex-wrap gap-2">
-                          {section.chips.map((chip) => (
-                            <Badge
-                              key={`${section.label}-${chip}`}
-                              variant="secondary"
-                              className="bg-slate-100 text-slate-700"
-                            >
-                              {chip}
-                            </Badge>
-                          ))}
-                        </div>
-                      </ScrollArea>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {section.chips.map((chip) => (
+                          <Badge
+                            key={`${section.label}-${chip}`}
+                            variant="secondary"
+                            className="max-w-full justify-start whitespace-normal break-words bg-slate-100 px-2 py-1 text-left leading-4 text-slate-700"
+                          >
+                            {chip}
+                          </Badge>
+                        ))}
+                      </div>
                     ) : null}
                   </div>
                 ))}
