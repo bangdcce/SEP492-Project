@@ -24,9 +24,9 @@ import { STORAGE_KEYS } from "@/constants";
 import { getStoredJson } from "@/shared/utils/storage";
 import { resolveRoleBasePath } from "@/features/hearings/utils/hearingRouting";
 import {
-  DISPUTE_DISCLAIMER_COPY,
   DISPUTE_DISCLAIMER_VERSION,
 } from "../../constants/disputeLegal";
+import { DisputeDisclaimerCheckbox } from "../shared/DisputeDisclaimerCheckbox";
 
 interface CreateDisputeWizardProps {
   onClose: () => void;
@@ -267,6 +267,41 @@ export const CreateDisputeWizard = ({
     return "Failed to submit dispute.";
   };
 
+  const uploadEvidenceInBackground = useCallback(
+    (disputeId: string, filesToUpload: File[]) => {
+      if (filesToUpload.length === 0) {
+        toast.success("Dispute submitted successfully.");
+        return;
+      }
+
+      toast.info(
+        `Dispute created. Uploading ${filesToUpload.length} evidence file${
+          filesToUpload.length > 1 ? "s" : ""
+        } in the background...`,
+      );
+
+      void Promise.allSettled(
+        filesToUpload.map((file) => uploadDisputeEvidence(disputeId, file)),
+      ).then((results) => {
+        const failedCount = results.filter(
+          (result) => result.status === "rejected",
+        ).length;
+
+        if (failedCount === 0) {
+          toast.success("Dispute submitted and evidence uploaded.");
+          return;
+        }
+
+        toast.warning(
+          `Dispute submitted, but ${failedCount}/${filesToUpload.length} evidence file${
+            failedCount > 1 ? "s" : ""
+          } failed to upload. You can retry from the dispute detail page.`,
+        );
+      });
+    },
+    [],
+  );
+
   const handleSubmit = async () => {
     if (!isDisputeAllowed) {
       toast.error(policyReason || "Dispute is not available for this milestone.");
@@ -327,18 +362,13 @@ export const CreateDisputeWizard = ({
         throw new Error("Dispute created but missing ID.");
       }
 
-      if (files.length > 0) {
-        await Promise.all(
-          files.map((file) => uploadDisputeEvidence(disputeId, file)),
-        );
-      }
-
-      toast.success("Dispute submitted successfully.");
+      const filesToUpload = [...files];
       resetForm();
       onClose();
       navigate(
         `${roleBasePath}/hearings?createdDisputeId=${encodeURIComponent(disputeId)}&projectId=${encodeURIComponent(projectId)}`,
       );
+      uploadEvidenceInBackground(disputeId, filesToUpload);
     } catch (error: unknown) {
       const message = getErrorMessage(error);
       toast.error(message);
@@ -660,18 +690,14 @@ export const CreateDisputeWizard = ({
             </div>
           </div>
 
-          <label className="flex items-start gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700">
-            <input
-              type="checkbox"
-              data-testid="dispute-disclaimer-checkbox"
-              checked={disclaimerAccepted}
-              onChange={(event) => setDisclaimerAccepted(event.target.checked)}
-              className="mt-0.5"
-            />
-            <span>
-              I understand that {DISPUTE_DISCLAIMER_COPY}
-            </span>
-          </label>
+          <DisputeDisclaimerCheckbox
+            id="dispute-disclaimer-checkbox"
+            testId="dispute-disclaimer-checkbox"
+            checked={disclaimerAccepted}
+            onCheckedChange={setDisclaimerAccepted}
+            disabled={isSubmitting}
+            leadInText="I understand that"
+          />
 
           <div className="flex justify-between pt-2">
             <button

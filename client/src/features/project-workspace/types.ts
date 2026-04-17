@@ -238,6 +238,7 @@ export type Milestone = {
   reviewedByStaffId?: string | null;
   staffRecommendation?: StaffRecommendation | null;
   staffReviewNote?: string | null;
+  feedback?: string | null;
   // Progress fields (optional - calculated from tasks)
   progress?: number; // 0-100 percentage
   totalTasks?: number;

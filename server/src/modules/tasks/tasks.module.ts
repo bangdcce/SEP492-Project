@@ -18,6 +18,7 @@ import { WorkspaceChatModule } from '../workspace-chat/workspace-chat.module';
 import { AuthModule } from '../auth';
 import { AuditLogsModule } from '../audit-logs/audit-logs.module';
 import { ProjectsModule } from '../projects/projects.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
   imports: [
@@ -38,6 +39,7 @@ import { ProjectsModule } from '../projects/projects.module';
     AuditLogsModule,
     WorkspaceChatModule,
     ProjectsModule,
+    NotificationsModule,
   ],
   providers: [TasksService, TasksGateway],
   controllers: [TasksController],

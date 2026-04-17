@@ -12,12 +12,13 @@ import {
 } from "lucide-react";
 import { ROUTES } from "@/constants";
 import { formatCurrency, formatDate } from "@/shared/utils/formatters";
-import { Button } from "@/shared/components/ui/button";
 import { Badge } from "@/shared/components/ui/badge";
-import { getPaymentMethods } from "@/features/payments/api";
+import { Button } from "@/shared/components/ui/button";
+import { createPaymentMethod, fundMilestone, getPaymentMethods } from "@/features/payments/api";
 import type { MilestoneFundingResult, PaymentMethodView } from "@/features/payments/types";
 import type { Milestone } from "../../types";
 import { PayPalMilestoneCheckout } from "./PayPalMilestoneCheckout";
+import { StripeMilestoneCheckout } from "./StripeMilestoneCheckout";
 
 interface MilestoneFundingCardProps {
   milestone: Milestone;
@@ -26,6 +27,7 @@ interface MilestoneFundingCardProps {
   projectStatus?: string | null;
   currency?: string;
   billingSetupHref?: string;
+  currentUserEmail?: string | null;
   onFunded?: (result: MilestoneFundingResult) => void;
   isChatOpen?: boolean;
 }
@@ -93,11 +95,13 @@ export function MilestoneFundingCard({
   projectStatus,
   currency,
   billingSetupHref,
+  currentUserEmail,
   onFunded,
   isChatOpen = false,
 }: MilestoneFundingCardProps) {
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethodView[]>([]);
   const [loadingMethods, setLoadingMethods] = useState(false);
+  const [preparingPayPalMethod, setPreparingPayPalMethod] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
 
   const escrow = milestone.escrow ?? null;
@@ -125,13 +129,24 @@ export function MilestoneFundingCard({
       ? `milestone status is ${normalizedMilestoneStatus}`
       : null;
 
-  const fundingMethods = useMemo(
+  const paypalFundingMethods = useMemo(
     () => paymentMethods.filter((method) => method.type === "PAYPAL_ACCOUNT"),
     [paymentMethods],
   );
   const preferredPayPalMethod = useMemo(
-    () => fundingMethods.find((method) => method.isDefault) ?? fundingMethods[0] ?? null,
-    [fundingMethods],
+    () =>
+      paypalFundingMethods.find((method) => method.isDefault)
+      ?? paypalFundingMethods[0]
+      ?? null,
+    [paypalFundingMethods],
+  );
+  const cardFundingMethods = useMemo(
+    () => paymentMethods.filter((method) => method.type === "CARD_ACCOUNT"),
+    [paymentMethods],
+  );
+  const preferredCardMethod = useMemo(
+    () => cardFundingMethods.find((method) => method.isDefault) ?? cardFundingMethods[0] ?? null,
+    [cardFundingMethods],
   );
 
   useEffect(() => {
@@ -176,6 +191,39 @@ export function MilestoneFundingCard({
     ? `Funding is locked because ${fundingLockReason}.`
     : getFundingHeadline(escrow?.status, progress);
   const displayCurrency = escrow?.currency || currency || "USD";
+
+  const handleCardFallbackFunding = async (paymentMethodId: string) => {
+    setLocalError(null);
+    const result = await fundMilestone(milestone.id, {
+      paymentMethodId,
+      gateway: "INTERNAL_SANDBOX",
+    });
+    onFunded?.(result);
+  };
+
+  const handlePreparePayPalMethod = async () => {
+    const paypalEmail = currentUserEmail?.trim() || "paypal-checkout@interdev.local";
+
+    try {
+      setPreparingPayPalMethod(true);
+      setLocalError(null);
+
+      await createPaymentMethod({
+        type: "PAYPAL_ACCOUNT",
+        paypalEmail,
+        displayName: "PayPal checkout",
+        isDefault: paypalFundingMethods.length === 0,
+      });
+
+      const refreshedMethods = await getPaymentMethods();
+      setPaymentMethods(refreshedMethods);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Failed to prepare PayPal checkout.";
+      setLocalError(message);
+    } finally {
+      setPreparingPayPalMethod(false);
+    }
+  };
 
   if (!escrow) {
     return (
@@ -316,21 +364,34 @@ export function MilestoneFundingCard({
                     <Loader2 className="h-4 w-4 animate-spin" />
                     Loading funding methods...
                   </div>
-                ) : fundingMethods.length === 0 ? (
+                ) : !preferredPayPalMethod && !preferredCardMethod ? (
                     <div className="space-y-4 rounded-2xl border border-amber-300/20 bg-amber-400/10 px-4 py-4">
                       <div className="flex items-start gap-2 text-sm text-amber-50">
                         <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />
                         <span>
-                        No PayPal buyer account is on file yet. Add one in billing before broker review can start.
+                        No funding method is on file yet. Add one in billing before broker review can start.
                         </span>
                       </div>
-                    <Link
-                      to={billingSetupHref || ROUTES.CLIENT_BILLING}
-                      className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-medium text-slate-900 transition hover:bg-slate-100"
-                    >
-                      Open billing
-                      <ArrowRight className="h-4 w-4" />
-                    </Link>
+                      <div className="flex flex-wrap gap-3">
+                        <Button
+                          type="button"
+                          onClick={handlePreparePayPalMethod}
+                          disabled={preparingPayPalMethod}
+                          className="rounded-full bg-white px-4 py-2 text-sm font-medium text-slate-900 hover:bg-slate-100"
+                        >
+                          {preparingPayPalMethod ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : null}
+                          Prepare PayPal checkout
+                        </Button>
+                        <Link
+                          to={billingSetupHref || ROUTES.CLIENT_BILLING}
+                          className="inline-flex items-center gap-2 rounded-full border border-white/30 bg-white/10 px-4 py-2 text-sm font-medium text-white transition hover:bg-white/20"
+                        >
+                          Open billing
+                          <ArrowRight className="h-4 w-4" />
+                        </Link>
+                      </div>
                   </div>
                 ) : (
                   <>
@@ -357,9 +418,27 @@ export function MilestoneFundingCard({
                       </div>
                     ) : (
                       <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-200">
-                        Add a PayPal buyer account in billing to continue.
+                        A PayPal buyer account is not saved yet. You can still fund with your saved card below.
                       </div>
                     )}
+
+                    {preferredCardMethod ? (
+                      <div className="space-y-3">
+                        <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-200">
+                          Card · {getFundingMethodLabel(preferredCardMethod)}
+                        </div>
+                        <StripeMilestoneCheckout
+                          milestoneId={milestone.id}
+                          paymentMethodId={preferredCardMethod.id}
+                          amount={Number(escrow.totalAmount)}
+                          currency={displayCurrency}
+                          onError={setLocalError}
+                          onFallbackFund={() =>
+                            handleCardFallbackFunding(preferredCardMethod.id)
+                          }
+                        />
+                      </div>
+                    ) : null}
                   </>
                 )}
               </>

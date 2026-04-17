@@ -140,7 +140,11 @@ export const resolveMilestoneDisputePolicy = (
   if (!reason) {
     const allowedEscrowStatuses =
       milestoneStatus === MilestoneStatus.PAID
-        ? new Set<EscrowStatus>([EscrowStatus.RELEASED, EscrowStatus.DISPUTED])
+        ? new Set<EscrowStatus>([
+            EscrowStatus.FUNDED,
+            EscrowStatus.RELEASED,
+            EscrowStatus.DISPUTED,
+          ])
         : new Set<EscrowStatus>([EscrowStatus.FUNDED, EscrowStatus.DISPUTED]);
 
     if (!escrowStatus) {

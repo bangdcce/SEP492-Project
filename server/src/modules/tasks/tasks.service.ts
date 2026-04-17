@@ -38,6 +38,7 @@ import { WorkspaceChatService } from '../workspace-chat/workspace-chat.service';
 import { TasksRealtimeBridge } from './tasks.realtime';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import { MilestoneInteractionPolicyService } from '../projects/milestone-interaction-policy.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import {
   type MilestoneDisputePolicy,
   resolveMilestoneDisputePolicy,
@@ -299,6 +300,8 @@ export class TasksService implements OnModuleInit {
     private readonly milestoneInteractionPolicyService: MilestoneInteractionPolicyService,
     @Optional()
     private readonly workspaceChatService?: WorkspaceChatService,
+    @Optional()
+    private readonly notificationsService?: NotificationsService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -342,6 +345,57 @@ export class TasksService implements OnModuleInit {
     } catch (error) {
       this.logger.warn(
         `Workspace audit message skipped for project ${projectId}: ${
+          error instanceof Error ? error.message : 'unknown error'
+        }`,
+      );
+    }
+  }
+
+  private async notifyTaskStatusTransition(
+    task: Pick<TaskEntity, 'id' | 'title' | 'projectId'>,
+    previousStatus: TaskStatus,
+    nextStatus: TaskStatus,
+    actorId?: string,
+  ): Promise<void> {
+    if (!this.notificationsService || previousStatus === nextStatus) {
+      return;
+    }
+
+    try {
+      const project = await this.projectRepository.findOne({
+        where: { id: task.projectId },
+        select: ['id', 'clientId', 'brokerId', 'freelancerId', 'staffId'],
+      });
+
+      if (!project) {
+        return;
+      }
+
+      const recipientIds = Array.from(
+        new Set([
+          project.clientId,
+          project.brokerId,
+          project.freelancerId,
+          project.staffId,
+        ].filter(Boolean)),
+      ).filter((userId): userId is string => Boolean(userId) && userId !== actorId);
+
+      if (recipientIds.length === 0) {
+        return;
+      }
+
+      await this.notificationsService.createMany(
+        recipientIds.map((userId) => ({
+          userId,
+          title: 'Task status updated',
+          body: `Task "${task.title}" moved from ${previousStatus} to ${nextStatus}.`,
+          relatedType: 'Project',
+          relatedId: task.projectId,
+        })),
+      );
+    } catch (error) {
+      this.logger.warn(
+        `Task status notification skipped for task ${task.id}: ${
           error instanceof Error ? error.message : 'unknown error'
         }`,
       );
@@ -1294,6 +1348,13 @@ export class TasksService implements OnModuleInit {
 
     await this.recordWorkspaceSystemMessage(task.projectId, auditMessage, task.id);
 
+    await this.notifyTaskStatusTransition(
+      nextTask,
+      previousTaskStatus,
+      resolvedTaskStatus,
+      reviewerId,
+    );
+
     this.emitTaskRealtimeEvent({
       action: 'UPDATED',
       projectId: task.projectId,
@@ -1706,6 +1767,8 @@ export class TasksService implements OnModuleInit {
 
     await this.syncMilestoneStatus(milestoneId, progress);
 
+    await this.notifyTaskStatusTransition(updatedTask, previousStatus, status, actorId);
+
     this.emitTaskRealtimeEvent({
       action: 'UPDATED',
       projectId: updatedTask.projectId,
@@ -2084,6 +2147,12 @@ export class TasksService implements OnModuleInit {
           finalized.projectId,
           `Submission V${finalized.version} for task "${finalized.taskTitle}" was auto-approved after 24 hours without client response.`,
           finalized.taskId,
+        );
+
+        await this.notifyTaskStatusTransition(
+          updatedTask,
+          finalized.previousTaskStatus,
+          finalized.newTaskStatus,
         );
 
         this.emitTaskRealtimeEvent({

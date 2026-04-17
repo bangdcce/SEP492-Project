@@ -60,6 +60,20 @@ describe('resolveMilestoneDisputePolicy', () => {
     );
   });
 
+  it('allows paid milestones with funded escrow during the warranty window', () => {
+    const releasedAt = new Date('2026-04-01T00:00:00.000Z');
+    const result = resolveMilestoneDisputePolicy({
+      milestoneStatus: MilestoneStatus.PAID,
+      escrowStatus: EscrowStatus.FUNDED,
+      releasedAt,
+      now: new Date('2026-04-16T00:00:00.000Z'),
+    });
+
+    expect(result.canRaise).toBe(true);
+    expect(result.phase).toBe('POST_DELIVERY');
+    expect(result.allowedCategories).toEqual([DisputeCategory.QUALITY, DisputeCategory.PAYMENT]);
+  });
+
   it('blocks paid milestones after the warranty window expires', () => {
     const result = resolveMilestoneDisputePolicy({
       milestoneStatus: MilestoneStatus.PAID,

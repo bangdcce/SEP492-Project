@@ -30,6 +30,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { hasAnyUserRole } from '../auth/utils/role.utils';
 import { InviteProjectStaffDto } from './dto/invite-project-staff.dto';
 import { RespondProjectStaffInviteDto } from './dto/respond-project-staff-invite.dto';
+import { RejectMilestoneDto } from './dto/reject-milestone.dto';
 import { ReviewMilestoneStaffDto } from './dto/review-milestone-staff.dto';
 
 // Interface for authenticated request with user context
@@ -427,5 +428,24 @@ export class ProjectsController {
       this.logger.error(`Failed to approve milestone ${id}: ${errorMessage}`);
       throw new InternalServerErrorException('Failed to approve milestone');
     }
+  }
+
+  @Post('milestones/:id/reject')
+  async rejectMilestone(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: RejectMilestoneDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    const userId = req.user?.id;
+
+    if (!userId) {
+      throw new BadRequestException('User authentication required to reject milestone');
+    }
+
+    if (!this.hasRole(req.user?.role, UserRole.CLIENT)) {
+      throw new ForbiddenException('Only the project client can reject this milestone');
+    }
+
+    return this.projectsService.rejectMilestone(id, userId, dto.reason);
   }
 }

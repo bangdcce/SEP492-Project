@@ -31,6 +31,8 @@ export const CreateDisputeModal = ({
   currentUserId,
   projectMembers,
 }: CreateDisputeModalProps) => {
+  const safeMilestoneTitle = milestoneTitle.replaceAll("&amp;", "&");
+
   if (!isOpen) {
     return null;
   }
@@ -70,7 +72,7 @@ export const CreateDisputeModal = ({
                 <p className="text-sm text-gray-500 mt-1">
                   Disputing Milestone:{" "}
                   <span className="font-medium text-slate-700">
-                    {milestoneTitle}
+                    {safeMilestoneTitle}
                   </span>
                 </p>
               </div>

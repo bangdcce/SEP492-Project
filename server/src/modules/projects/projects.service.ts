@@ -279,6 +279,48 @@ export class ProjectsService {
     );
   }
 
+  private async notifyProjectParticipants(
+    project: Pick<ProjectEntity, 'id' | 'clientId' | 'brokerId' | 'freelancerId' | 'staffId'>,
+    payload: {
+      title: string;
+      body: string;
+      recipientUserIds?: Array<string | null | undefined>;
+      excludeUserIds?: Array<string | null | undefined>;
+    },
+  ): Promise<void> {
+    const excludeIds = new Set((payload.excludeUserIds ?? []).filter(Boolean) as string[]);
+    const recipientIds = Array.from(
+      new Set(
+        (payload.recipientUserIds && payload.recipientUserIds.length > 0
+          ? payload.recipientUserIds
+          : this.getProjectParticipantIds(project)
+        ).filter(Boolean),
+      ),
+    ).filter((userId): userId is string => Boolean(userId) && !excludeIds.has(userId));
+
+    if (recipientIds.length === 0) {
+      return;
+    }
+
+    try {
+      await this.notificationsService.createMany(
+        recipientIds.map((userId) => ({
+          userId,
+          title: payload.title,
+          body: payload.body,
+          relatedType: 'Project',
+          relatedId: project.id,
+        })),
+      );
+    } catch (error) {
+      this.logger.warn(
+        `Project notification skipped for project ${project.id}: ${
+          error instanceof Error ? error.message : 'unknown error'
+        }`,
+      );
+    }
+  }
+
   private async recordWorkspaceSystemMessage(
     projectId: string,
     content: string,
@@ -806,7 +848,9 @@ export class ProjectsService {
       throw new BadRequestException('Milestone review has already been requested');
     }
 
-    const { progress, totalTasks } = await this.calculateMilestoneTaskProgress(milestone.id);
+    const { progress, totalTasks, completedTasks } = await this.calculateMilestoneTaskProgress(
+      milestone.id,
+    );
     if (totalTasks === 0) {
       throw new BadRequestException('Milestone has no tasks to review');
     }
@@ -821,13 +865,26 @@ export class ProjectsService {
       milestone.id,
     );
 
-    milestone.status = this.requiresBrokerMilestoneReview(project)
+    const requiresBrokerReview = this.requiresBrokerMilestoneReview(project);
+    milestone.status = requiresBrokerReview
       ? MilestoneStatus.PENDING_STAFF_REVIEW
       : MilestoneStatus.SUBMITTED;
     milestone.submittedAt = new Date();
     this.clearStaffReviewDecision(milestone);
 
     const updatedMilestone = await this.milestoneRepository.save(milestone);
+
+    await this.notifyProjectParticipants(project, {
+      title: requiresBrokerReview
+        ? 'Milestone submitted for broker review'
+        : 'Milestone submitted for client approval',
+      body: requiresBrokerReview
+        ? `Milestone "${milestone.title}" is ready for broker review.`
+        : `Milestone "${milestone.title}" is waiting for client approval.`,
+      recipientUserIds: requiresBrokerReview ? [project.brokerId] : [project.clientId],
+      excludeUserIds: [requesterId],
+    });
+
     this.emitProjectUpdated(project);
     return updatedMilestone;
   }
@@ -871,6 +928,23 @@ export class ProjectsService {
     }
 
     const updatedMilestone = await this.milestoneRepository.save(milestone);
+
+    await this.notifyProjectParticipants(project, {
+      title:
+        payload.recommendation === StaffRecommendation.ACCEPT
+          ? 'Milestone ready for client approval'
+          : 'Milestone sent back for revisions',
+      body:
+        payload.recommendation === StaffRecommendation.ACCEPT
+          ? `Broker approved milestone "${milestone.title}". The client can now approve payment release.`
+          : `Broker requested revisions for milestone "${milestone.title}": ${trimmedNote}`,
+      recipientUserIds:
+        payload.recommendation === StaffRecommendation.ACCEPT
+          ? [project.clientId, project.freelancerId]
+          : [project.freelancerId],
+      excludeUserIds: [reviewerId],
+    });
+
     this.emitProjectUpdated(project);
     return updatedMilestone;
   }
@@ -1212,6 +1286,10 @@ export class ProjectsService {
     let releaseTransactionIds: string[] = [];
     let logCurrency = 'USD';
     let auditProjectId: string | null = null;
+    let projectForNotifications: Pick<
+      ProjectEntity,
+      'id' | 'requestId' | 'clientId' | 'brokerId' | 'freelancerId' | 'staffId'
+    > | null = null;
     let approvalActorLabel = 'Authorized user';
     let approvedMilestoneTitle = 'Milestone';
     let approvedMilestoneAmount = '0.00';
@@ -1252,6 +1330,14 @@ export class ProjectsService {
       }
 
       auditProjectId = project.id;
+      projectForNotifications = {
+        id: project.id,
+        requestId: project.requestId,
+        clientId: project.clientId,
+        brokerId: project.brokerId,
+        freelancerId: project.freelancerId,
+        staffId: project.staffId,
+      };
       approvalActorLabel = 'Client';
 
       if (milestone.status === MilestoneStatus.COMPLETED) {
@@ -1365,6 +1451,16 @@ export class ProjectsService {
       );
     }
 
+    if (projectForNotifications && updatedMilestone) {
+      await this.notifyProjectParticipants(projectForNotifications, {
+        title: 'Milestone approved and paid',
+        body: `Milestone "${updatedMilestone.title}" has been approved and escrow funds were released.`,
+        recipientUserIds: [projectForNotifications.freelancerId, projectForNotifications.brokerId],
+        excludeUserIds: [userId],
+      });
+      this.emitProjectUpdated(projectForNotifications);
+    }
+
     this.logger.log(
       `✅ Milestone ${milestoneId} approved: ${previousStatus} → PAID | Tasks: ${doneTasks}/${totalTasks} | ReleaseTx: ${releaseTransactionIds.length}`,
     );
@@ -1375,6 +1471,59 @@ export class ProjectsService {
       fundsReleased: true,
       message: `Milestone "${updatedMilestone?.title}" has been approved. Funds have been released.`,
     };
+  }
+
+  async rejectMilestone(milestoneId: string, userId: string, reason: string): Promise<MilestoneEntity> {
+    const { milestone, project } = await this.getMilestoneWithProjectOrThrow(milestoneId);
+
+    if (project.status === ProjectStatus.DISPUTED) {
+      throw new ConflictException('Cannot reject milestone while the project is under dispute');
+    }
+
+    if (project.clientId !== userId) {
+      throw new ForbiddenException('Only the project client can reject this milestone');
+    }
+
+    const normalizedReason = reason.trim();
+    if (!normalizedReason) {
+      throw new BadRequestException('Rejection reason is required');
+    }
+
+    const rejectableStatuses = [
+      MilestoneStatus.SUBMITTED,
+      MilestoneStatus.PENDING_CLIENT_APPROVAL,
+    ];
+    if (!rejectableStatuses.includes(milestone.status)) {
+      throw new BadRequestException(
+        `Cannot reject milestone with status "${milestone.status}". Only SUBMITTED or PENDING_CLIENT_APPROVAL milestones can be rejected.`,
+      );
+    }
+
+    await this.milestoneInteractionPolicyService.assertMilestoneUnlockedForWorkspace(
+      milestone.id,
+    );
+
+    milestone.status = MilestoneStatus.REVISIONS_REQUIRED;
+    milestone.feedback = normalizedReason;
+    milestone.submittedAt = null;
+    this.clearStaffReviewDecision(milestone);
+
+    const updatedMilestone = await this.milestoneRepository.save(milestone);
+
+    await this.recordWorkspaceSystemMessage(
+      project.id,
+      `Client requested revisions for milestone "${milestone.title}": ${normalizedReason}`,
+    );
+
+    await this.notifyProjectParticipants(project, {
+      title: 'Milestone sent back for revisions',
+      body: `Client requested revisions for milestone "${milestone.title}": ${normalizedReason}`,
+      recipientUserIds: [project.freelancerId, project.brokerId],
+      excludeUserIds: [userId],
+    });
+
+    this.emitProjectUpdated(project);
+    return updatedMilestone;
   }
 
   async cancelProject(
