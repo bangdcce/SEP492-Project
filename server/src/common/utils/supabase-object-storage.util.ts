@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import { extname } from 'path';
+import { basename, extname } from 'path';
 import { supabaseClient, supabaseConfig } from '../../config/supabase.config';
 
 type StorageScope = 'project-requests' | 'request-chat';
@@ -17,11 +17,12 @@ const STORAGE_BUCKETS: Record<StorageScope, string> = {
 const ensuredBuckets = new Map<string, Promise<void>>();
 
 const sanitizeObjectFilename = (fileName: string): string => {
-  const normalized = String(fileName || 'attachment')
-    .normalize('NFKD')
-    .replace(/[^\w.-]+/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^-|-$/g, '');
+  const normalized = basename(String(fileName || 'attachment'))
+    .normalize('NFC')
+    .replace(/[\u0000-\u001F<>:"/\\|?*]+/g, '_')
+    .replace(/\s+/g, ' ')
+    .replace(/\.{2,}/g, '.')
+    .trim();
 
   return normalized || 'attachment';
 };
@@ -51,7 +52,9 @@ const ensureBucketExists = async (bucketName: string): Promise<void> => {
         getBucketMessage.includes('404'));
 
     if (!missingBucket) {
-      throw new Error(`Failed to inspect bucket "${bucketName}": ${error?.message || 'unknown error'}`);
+      throw new Error(
+        `Failed to inspect bucket "${bucketName}": ${error?.message || 'unknown error'}`,
+      );
     }
 
     const { error: createError } = await supabaseClient.storage.createBucket(bucketName, {
@@ -92,15 +95,16 @@ const buildScopedStoragePath = (
     .replace(/^\/+|\/+$/g, '');
   const sanitizedFileName = sanitizeObjectFilename(fileName);
   const extension = extname(sanitizedFileName);
-  const basename = extension
-    ? sanitizedFileName.slice(0, -extension.length)
-    : sanitizedFileName;
-  const uniqueFileName = `${basename}-${Date.now()}-${randomUUID().slice(0, 8)}${extension}`;
+  const baseName = extension ? sanitizedFileName.slice(0, -extension.length) : sanitizedFileName;
+  const uniqueDirectory = `${baseName}-${Date.now()}-${randomUUID().slice(0, 8)}`;
 
-  return `${prefix}/${normalizedOwnerKey}/${uniqueFileName}`;
+  return `${prefix}/${normalizedOwnerKey}/${uniqueDirectory}/${sanitizedFileName}`;
 };
 
-const isValidScopedStoragePath = (value: string | null | undefined, scope: StorageScope): value is string => {
+const isValidScopedStoragePath = (
+  value: string | null | undefined,
+  scope: StorageScope,
+): value is string => {
   if (typeof value !== 'string') {
     return false;
   }
@@ -148,11 +152,13 @@ const uploadToScopedBucket = async (input: {
   const storagePath = buildScopedStoragePath(input.scope, input.ownerKey, input.fileName);
   await ensureBucketExists(bucketName);
 
-  const { error } = await supabaseClient.storage.from(bucketName).upload(storagePath, input.fileBuffer, {
-    contentType: input.mimeType || 'application/octet-stream',
-    cacheControl: '3600',
-    upsert: false,
-  });
+  const { error } = await supabaseClient.storage
+    .from(bucketName)
+    .upload(storagePath, input.fileBuffer, {
+      contentType: input.mimeType || 'application/octet-stream',
+      cacheControl: '3600',
+      upsert: false,
+    });
 
   if (error) {
     throw new Error(`Supabase upload failed: ${error.message}`);
@@ -171,8 +177,7 @@ const createSignedUrlForScopedObject = async (
   }
 
   await ensureBucketExists(STORAGE_BUCKETS[scope]);
-  const { data, error } = await supabaseClient
-    .storage
+  const { data, error } = await supabaseClient.storage
     .from(STORAGE_BUCKETS[scope])
     .createSignedUrl(storagePath, expiresIn);
 

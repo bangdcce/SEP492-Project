@@ -498,10 +498,10 @@ export class EvidenceService {
   generateStoragePath(disputeId: string, uploaderId: string, fileName: string): StoragePathResult {
     const timestamp = Date.now();
     const randomSuffix = Math.random().toString(36).substring(2, 8);
-    const ext = fileName.split('.').pop()?.toLowerCase() || 'bin';
-    const sanitizedFileName = `${timestamp}_${randomSuffix}.${ext}`;
+    const sanitizedFileName = this.sanitizeFileName(fileName) || 'evidence.bin';
+    const uniqueDirectory = `${timestamp}_${randomSuffix}`;
 
-    const path = `disputes/${disputeId}/${uploaderId}/${sanitizedFileName}`;
+    const path = `disputes/${disputeId}/${uploaderId}/${uniqueDirectory}/${sanitizedFileName}`;
 
     return {
       path,
@@ -650,7 +650,7 @@ export class EvidenceService {
       return {
         success: false,
         error:
-          'Appeal evidence can only be uploaded during the active appeal hearing while evidence intake is open.',
+          'Appeal review is handled as an admin desk review. Submit supporting material with the appeal filing or wait for admin instructions.',
         errorCode: 'DISPUTE_READ_ONLY',
       };
     }

@@ -30,7 +30,7 @@ interface MilestoneApprovalCardProps {
   isAssignedReviewer?: boolean;
   hasIntermediateReviewer?: boolean;
   assignedReviewerLabel?: string | null;
-  onApprove: (milestoneId: string, feedback?: string) => Promise<void>;
+  onApprove: (milestoneId: string) => Promise<void>;
   onReject: (milestoneId: string, reason: string) => Promise<void>;
   onRequestReview: (milestoneId: string) => Promise<void>;
   onReviewerDecision: (
@@ -125,7 +125,6 @@ export function MilestoneApprovalCard({
   const [showApproveModal, setShowApproveModal] = useState(false);
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [showStaffReviewPanel, setShowStaffReviewPanel] = useState(false);
-  const [feedback, setFeedback] = useState("");
   const [rejectReason, setRejectReason] = useState("");
   const [staffNote, setStaffNote] = useState("");
   const [staffReviewChecks, setStaffReviewChecks] = useState<
@@ -211,7 +210,6 @@ export function MilestoneApprovalCard({
 
   const handleCloseApproveModal = () => {
     setShowApproveModal(false);
-    setFeedback("");
     setError(null);
   };
 
@@ -231,9 +229,8 @@ export function MilestoneApprovalCard({
     setError(null);
 
     try {
-      await onApprove(milestone.id, feedback || undefined);
+      await onApprove(milestone.id);
       setShowApproveModal(false);
-      setFeedback("");
     } catch (err: unknown) {
       const errorMessage =
         err instanceof Error ? err.message : "Failed to approve milestone";
@@ -697,19 +694,6 @@ export function MilestoneApprovalCard({
                   </div>
                 </div>
               ) : null}
-            </div>
-
-            <div className="mb-5">
-              <label className="mb-2 block text-sm font-medium text-slate-700">
-                Feedback (optional)
-              </label>
-              <Textarea
-                value={feedback}
-                onChange={(event) => setFeedback(event.target.value)}
-                placeholder="Add a payment note or approval summary for the project record..."
-                rows={4}
-                className="min-h-[120px] rounded-2xl border-slate-300 bg-white px-4 py-3 text-sm leading-6 text-slate-900 placeholder:text-slate-400 focus-visible:border-slate-400 focus-visible:ring-slate-300/40"
-              />
             </div>
 
             {error && (

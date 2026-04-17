@@ -259,6 +259,7 @@ const TRUST_SCORE_PENALTY_RULES: Record<
 
 const VERDICT_CONFIG = {
   APPEAL_WINDOW_DAYS: 3,
+  APPEAL_REVIEW_DEADLINE_HOURS: 48,
   APPEAL_MIN_REASON_LENGTH: 200,
   APPEAL_FEE_AMOUNT: 10,
   APPEAL_FEE_CURRENCY: 'USD',
@@ -274,10 +275,7 @@ export interface LegalSignatureContext {
   deviceFingerprint?: string;
 }
 
-type VerdictFundsFinalizationReason =
-  | 'APPEAL_DEADLINE'
-  | 'PARTY_ACCEPTANCE'
-  | 'APPEAL_VERDICT';
+type VerdictFundsFinalizationReason = 'APPEAL_DEADLINE' | 'PARTY_ACCEPTANCE' | 'APPEAL_VERDICT';
 
 type VerdictWorkflowRealtimePayload = {
   projectId: string;
@@ -410,7 +408,8 @@ export class VerdictService {
 
     admins.sort((left, right) => {
       const loadDelta =
-        (openAppealCountByAdminId.get(left.id) || 0) - (openAppealCountByAdminId.get(right.id) || 0);
+        (openAppealCountByAdminId.get(left.id) || 0) -
+        (openAppealCountByAdminId.get(right.id) || 0);
       if (loadDelta !== 0) {
         return loadDelta;
       }
@@ -705,9 +704,7 @@ export class VerdictService {
     dispute: Pick<DisputeEntity, 'raisedById' | 'defendantId'>,
     signatures: Array<{ signerId: string }>,
   ): string[] {
-    const partyIds = Array.from(
-      new Set([dispute.raisedById, dispute.defendantId].filter(Boolean)),
-    );
+    const partyIds = Array.from(new Set([dispute.raisedById, dispute.defendantId].filter(Boolean)));
     return partyIds.filter((partyId) =>
       signatures.some((signature) => signature.signerId === partyId),
     );
@@ -1354,7 +1351,9 @@ export class VerdictService {
           return;
         }
         if (!CANONICAL_POLICY_CODES.has(trimmed)) {
-          errors.push(`violatedPolicies[${index}] must be a canonical policy code from the rule catalog`);
+          errors.push(
+            `violatedPolicies[${index}] must be a canonical policy code from the rule catalog`,
+          );
           return;
         }
 
@@ -1513,7 +1512,9 @@ export class VerdictService {
       amountToFreelancer = remaining.toDecimalPlaces(2, Decimal.ROUND_HALF_UP).toNumber();
     } else if (args.splitRatioClient != null) {
       if (args.splitRatioClient <= 0 || args.splitRatioClient >= 100) {
-        throw new BadRequestException('splitRatioClient must be between 1 and 99 for SPLIT verdict');
+        throw new BadRequestException(
+          'splitRatioClient must be between 1 and 99 for SPLIT verdict',
+        );
       }
 
       amountToClient = remaining
@@ -1583,6 +1584,10 @@ export class VerdictService {
 
   private getAppealDeadline(from: Date): Date {
     return new Date(from.getTime() + VERDICT_CONFIG.APPEAL_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+  }
+
+  private getAppealReviewDeadline(from: Date): Date {
+    return new Date(from.getTime() + VERDICT_CONFIG.APPEAL_REVIEW_DEADLINE_HOURS * 60 * 60 * 1000);
   }
 
   private getFundedAmount(escrow: EscrowEntity): number {
@@ -2001,12 +2006,16 @@ export class VerdictService {
 
       await this.chargeAppealFee(queryRunner, appellantId, disputeId);
 
+      const appealReviewDeadline = this.getAppealReviewDeadline(now);
       dispute.status = DisputeStateMachine.transition(dispute.status, DisputeStatus.APPEALED);
       dispute.currentTier = 2;
       dispute.escalatedAt = now;
       dispute.escalationReason = appealReason;
       dispute.appealReason = appealReason;
       dispute.appealedAt = now;
+      dispute.appealDeadline = appealReviewDeadline;
+      dispute.resolutionDeadline = appealReviewDeadline;
+      dispute.isOverdue = false;
       dispute.isAppealed = true;
 
       const appealOwnerId = await this.pickAppealAdminId(
@@ -2043,6 +2052,7 @@ export class VerdictService {
         disputeId: dispute.id,
         verdictId: verdict.id,
         appellantId,
+        appealDeadline: appealReviewDeadline,
       });
 
       return dispute;
@@ -2283,7 +2293,11 @@ export class VerdictService {
         );
       }
 
-      const signatures = await this.listAcceptanceSignatures(queryRunner.manager, dispute.id, verdict.id);
+      const signatures = await this.listAcceptanceSignatures(
+        queryRunner.manager,
+        dispute.id,
+        verdict.id,
+      );
       const acceptedPartyIds = this.collectAcceptedPartyIds(dispute, signatures);
       const requiredPartyIds = Array.from(
         new Set([dispute.raisedById, dispute.defendantId].filter(Boolean)),

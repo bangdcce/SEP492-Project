@@ -477,13 +477,12 @@ export interface MilestoneApprovalResult {
  */
 export const approveMilestone = async (
   milestoneId: string,
-  feedback?: string
 ): Promise<MilestoneApprovalResult> => {
-  console.log("[API] Approving milestone:", { milestoneId, feedback });
+  console.log("[API] Approving milestone:", { milestoneId });
 
   const result = await apiClient.post<MilestoneApprovalResult>(
     `/projects/milestones/${milestoneId}/approve`,
-    { feedback }
+    {},
   );
 
   console.log("[API] Milestone approved:", result);

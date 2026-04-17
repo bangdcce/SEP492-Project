@@ -97,9 +97,7 @@ export class DisputeNotificationListener {
     });
 
     return users
-      .filter((user) =>
-        [UserRole.CLIENT, UserRole.FREELANCER, UserRole.BROKER].includes(user.role),
-      )
+      .filter((user) => [UserRole.CLIENT, UserRole.FREELANCER, UserRole.BROKER].includes(user.role))
       .map((user) => user.id);
   }
 
@@ -119,10 +117,7 @@ export class DisputeNotificationListener {
     });
 
     return new Map(
-      users.map((user) => [
-        user.id,
-        user.fullName?.trim() || user.email?.trim() || user.id,
-      ]),
+      users.map((user) => [user.id, user.fullName?.trim() || user.email?.trim() || user.id]),
     );
   }
 
@@ -573,6 +568,7 @@ export class DisputeNotificationListener {
     disputeId?: string;
     userId?: string;
     appellantId?: string;
+    appealDeadline?: Date | string | null;
   }): Promise<void> {
     if (!payload?.disputeId) {
       return;
@@ -583,12 +579,14 @@ export class DisputeNotificationListener {
       return;
     }
 
+    const deadlineText = payload.appealDeadline
+      ? ` Review by ${new Date(payload.appealDeadline).toISOString()}.`
+      : '';
+
     await this.createNotifications(
-      audience.userIds.filter(
-        (userId) => userId !== (payload.userId || payload.appellantId),
-      ),
+      audience.userIds.filter((userId) => userId !== (payload.userId || payload.appellantId)),
       'Appeal submitted',
-      'A formal appeal was filed and the dispute is now in appeal review.',
+      `A formal appeal was filed and the dispute is now in appeal review.${deadlineText}`,
       'Dispute',
       audience.dispute.id,
     );
@@ -638,10 +636,7 @@ export class DisputeNotificationListener {
   }
 
   @OnEvent(DISPUTE_EVENTS.ASSIGNED)
-  async handleDisputeAssigned(payload: {
-    disputeId?: string;
-    staffId?: string;
-  }): Promise<void> {
+  async handleDisputeAssigned(payload: { disputeId?: string; staffId?: string }): Promise<void> {
     if (!payload?.disputeId || !payload.staffId) {
       return;
     }
@@ -656,8 +651,7 @@ export class DisputeNotificationListener {
       this.getUserDisplayMap([payload.staffId]),
     ]);
 
-    const staffLabel =
-      userDisplayMap.get(payload.staffId) || 'the assigned staff member';
+    const staffLabel = userDisplayMap.get(payload.staffId) || 'the assigned staff member';
 
     await this.createNotifications(
       [payload.staffId],
@@ -708,10 +702,7 @@ export class DisputeNotificationListener {
         payload.disputeId,
       );
 
-      if (
-        payload.previousOwnerId &&
-        payload.previousOwnerId !== payload.nextOwnerId
-      ) {
+      if (payload.previousOwnerId && payload.previousOwnerId !== payload.nextOwnerId) {
         await this.createNotifications(
           [payload.previousOwnerId],
           'Appeal case reassigned',
@@ -738,16 +729,13 @@ export class DisputeNotificationListener {
       this.getUserDisplayMap([payload.oldStaffId, payload.newStaffId]),
     ]);
 
-    const nextStaffLabel =
-      userDisplayMap.get(payload.newStaffId) || 'the assigned staff member';
+    const nextStaffLabel = userDisplayMap.get(payload.newStaffId) || 'the assigned staff member';
     const previousStaffLabel =
-      (payload.oldStaffId && userDisplayMap.get(payload.oldStaffId)) ||
-      'the previous staff member';
+      (payload.oldStaffId && userDisplayMap.get(payload.oldStaffId)) || 'the previous staff member';
 
     await this.createNotifications(
       stakeholderIds.filter(
-        (userId) =>
-          userId !== payload.newStaffId && userId !== payload.oldStaffId,
+        (userId) => userId !== payload.newStaffId && userId !== payload.oldStaffId,
       ),
       'Dispute handler updated',
       `This dispute is now being handled by ${nextStaffLabel}.`,
@@ -765,10 +753,7 @@ export class DisputeNotificationListener {
       audience.dispute.id,
     );
 
-    if (
-      payload.oldStaffId &&
-      payload.oldStaffId !== payload.newStaffId
-    ) {
+    if (payload.oldStaffId && payload.oldStaffId !== payload.newStaffId) {
       await this.createNotifications(
         [payload.oldStaffId],
         'Dispute reassigned',
@@ -810,9 +795,7 @@ export class DisputeNotificationListener {
       return;
     }
 
-    if (
-      payload.noteType === `${DisputeEscalationRequestKind.SUPPORT_ESCALATION}_REQUEST`
-    ) {
+    if (payload.noteType === `${DisputeEscalationRequestKind.SUPPORT_ESCALATION}_REQUEST`) {
       const recipients = [
         audience.dispute.assignedStaffId,
         audience.dispute.escalatedToAdminId,
@@ -830,13 +813,10 @@ export class DisputeNotificationListener {
       return;
     }
 
-    if (
-      payload.noteType === `${DisputeEscalationRequestKind.ADMIN_OVERSIGHT}_REQUEST`
-    ) {
-      const recipients = [
-        ...(await this.getAdminIds()),
-        audience.dispute.assignedStaffId,
-      ].filter((value): value is string => Boolean(value) && value !== payload.actorId);
+    if (payload.noteType === `${DisputeEscalationRequestKind.ADMIN_OVERSIGHT}_REQUEST`) {
+      const recipients = [...(await this.getAdminIds()), audience.dispute.assignedStaffId].filter(
+        (value): value is string => Boolean(value) && value !== payload.actorId,
+      );
       await this.createNotifications(
         recipients,
         'Admin oversight requested',
@@ -849,13 +829,10 @@ export class DisputeNotificationListener {
       return;
     }
 
-    if (
-      payload.noteType === `${DisputeEscalationRequestKind.NEUTRAL_PANEL}_REQUEST`
-    ) {
-      const recipients = [
-        ...(await this.getAdminIds()),
-        audience.dispute.assignedStaffId,
-      ].filter((value): value is string => Boolean(value) && value !== payload.actorId);
+    if (payload.noteType === `${DisputeEscalationRequestKind.NEUTRAL_PANEL}_REQUEST`) {
+      const recipients = [...(await this.getAdminIds()), audience.dispute.assignedStaffId].filter(
+        (value): value is string => Boolean(value) && value !== payload.actorId,
+      );
       await this.createNotifications(
         recipients,
         'Neutral panel requested',

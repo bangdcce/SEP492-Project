@@ -259,10 +259,35 @@ const normalizeAttachment = (
     return null;
   }
 
+  const getNameFromUrl = (input: string) => {
+    try {
+      const parsed = new URL(input);
+      const fileNameFromHash = new URLSearchParams(parsed.hash.replace(/^#/, "")).get(
+        "filename"
+      );
+      if (fileNameFromHash?.trim()) {
+        return decodeURIComponent(fileNameFromHash);
+      }
+
+      const fileNameFromQuery = parsed.searchParams.get("filename");
+      if (fileNameFromQuery?.trim()) {
+        return decodeURIComponent(fileNameFromQuery);
+      }
+    } catch {
+      const hash = input.split("#")[1] || "";
+      const fileNameFromHash = new URLSearchParams(hash).get("filename");
+      if (fileNameFromHash?.trim()) {
+        return decodeURIComponent(fileNameFromHash);
+      }
+    }
+
+    return input.split("/").pop()?.split("?")[0] || "attachment";
+  };
+
   const name =
     typeof value.name === "string" && value.name.trim().length > 0
       ? value.name.trim()
-      : url.split("/").pop()?.split("?")[0] || "attachment";
+      : getNameFromUrl(url);
   const type =
     typeof value.type === "string" && value.type.trim().length > 0
       ? value.type.trim()
@@ -1936,11 +1961,11 @@ export function WorkspaceChatDrawer({
       try {
         const uploadedAttachments = await Promise.all(
           files.map(async (file) => {
-            const url = await uploadImageToServer(file);
+            const uploaded = await uploadImageToServer(file);
             return {
-              url,
-              name: file.name || "attachment",
-              type: file.type || "application/octet-stream",
+              url: uploaded.url,
+              name: uploaded.fileName || file.name || "attachment",
+              type: uploaded.fileType || file.type || "application/octet-stream",
             } satisfies WorkspaceChatAttachment;
           }),
         );

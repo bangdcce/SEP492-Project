@@ -73,6 +73,7 @@ describe('DisputesService', () => {
   let auditLogsService: any;
   let staffAssignmentService: any;
   let calendarService: any;
+  let eventEmitter: any;
 
   const repoMock = () => ({
     find: jest.fn(),
@@ -174,9 +175,7 @@ describe('DisputesService', () => {
     hearingParticipantRepo = module.get(getRepositoryToken(HearingParticipantEntity));
     disputePartyRepo = module.get(getRepositoryToken(DisputePartyEntity));
     disputeScheduleProposalRepo = module.get(getRepositoryToken(DisputeScheduleProposalEntity));
-    disputeInternalMembershipRepo = module.get(
-      getRepositoryToken(DisputeInternalMembershipEntity),
-    );
+    disputeInternalMembershipRepo = module.get(getRepositoryToken(DisputeInternalMembershipEntity));
     activityRepo = module.get(getRepositoryToken(DisputeActivityEntity));
     evidenceRepo = module.get(getRepositoryToken(DisputeEvidenceEntity));
     contractRepo = module.get(getRepositoryToken(ContractEntity));
@@ -189,6 +188,7 @@ describe('DisputesService', () => {
     auditLogsService = module.get(AuditLogsService);
     staffAssignmentService = module.get(StaffAssignmentService);
     calendarService = module.get(CalendarService);
+    eventEmitter = module.get(EventEmitter2);
 
     verdictRepo.find.mockResolvedValue([]);
     legalSignatureRepo.find.mockResolvedValue([]);
@@ -1039,6 +1039,7 @@ describe('DisputesService', () => {
 
   describe('appeal workflow', () => {
     it('delegates submitAppeal to verdict service and merges additional evidence', async () => {
+      const reviewDeadline = new Date('2026-04-19T10:00:00.000Z');
       const updatedDispute = {
         id: 'd-1',
         status: DisputeStatus.APPEALED,
@@ -1046,6 +1047,7 @@ describe('DisputesService', () => {
         raiserRole: UserRole.CLIENT,
         defendantId: 'def-1',
         defendantRole: UserRole.FREELANCER,
+        appealDeadline: reviewDeadline,
         evidence: ['existing-proof', 'extra-proof'],
       };
 
@@ -1088,6 +1090,13 @@ describe('DisputesService', () => {
         }),
       );
       expect(activityRepo.save).toHaveBeenCalled();
+      expect(eventEmitter.emit).toHaveBeenCalledWith(
+        'dispute.appeal_submitted',
+        expect.objectContaining({
+          disputeId: 'd-1',
+          appealDeadline: reviewDeadline,
+        }),
+      );
       expect(hearingService.scheduleHearing).not.toHaveBeenCalled();
       expect(result).toEqual(updatedDispute);
       recordEvidence({

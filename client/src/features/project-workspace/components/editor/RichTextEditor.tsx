@@ -71,7 +71,10 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/shared/components/ui/
 import { ScrollArea } from "@/shared/components/ui/scroll-area";
 import { getApiErrorDetails } from "@/shared/utils/apiError";
 import { toast } from "sonner";
-import { uploadImageToServer } from "../../utils/file-upload.service";
+import {
+  buildDisplaySafeUploadUrl,
+  uploadImageToServer,
+} from "../../utils/file-upload.service";
 
 const lowlight = createLowlight(common);
 const CodeBlock = CodeBlockLowlight.extend({
@@ -380,11 +383,15 @@ export default function RichTextEditor({
         }
 
         try {
-          const url = await uploadImageToServer(file, {
+          const uploaded = await uploadImageToServer(file, {
             bucket: "task-attachments",
             pathPrefix: "comments",
           });
-          insertImageNode(view, url, index === 0 ? options.dropPosition : undefined);
+          insertImageNode(
+            view,
+            buildDisplaySafeUploadUrl(uploaded),
+            index === 0 ? options.dropPosition : undefined
+          );
         } catch (error) {
           const { message } = getApiErrorDetails(
             error,

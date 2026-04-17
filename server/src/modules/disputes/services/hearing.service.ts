@@ -440,9 +440,7 @@ export class HearingService implements OnModuleInit {
     return normalized;
   }
 
-  private getTimeboxAnchor(
-    hearing: Pick<DisputeHearingEntity, 'scheduledAt' | 'startedAt'>,
-  ): Date {
+  private getTimeboxAnchor(hearing: Pick<DisputeHearingEntity, 'scheduledAt' | 'startedAt'>): Date {
     return hearing.startedAt || hearing.scheduledAt;
   }
 
@@ -746,10 +744,7 @@ export class HearingService implements OnModuleInit {
     > & {
       dispute?: Pick<DisputeEntity, 'status'> | null;
     },
-  >(
-    hearings: T[],
-    lifecycle: HearingLifecycleFilter = 'all',
-  ): T[] {
+  >(hearings: T[], lifecycle: HearingLifecycleFilter = 'all'): T[] {
     if (lifecycle === 'all') {
       return hearings;
     }
@@ -1587,7 +1582,9 @@ export class HearingService implements OnModuleInit {
     referenceAt: Date,
   ): Promise<Date | null> {
     const participantIds = Array.from(
-      new Set((hearing.participants || []).map((participant) => participant.userId).filter(Boolean)),
+      new Set(
+        (hearing.participants || []).map((participant) => participant.userId).filter(Boolean),
+      ),
     );
     if (!participantIds.length) {
       return null;
@@ -2028,7 +2025,7 @@ export class HearingService implements OnModuleInit {
               : undefined,
           }
         : undefined,
-      };
+    };
   }
 
   private async emitStatementSubmittedEvent(
@@ -2401,10 +2398,7 @@ export class HearingService implements OnModuleInit {
       relations: ['participants', 'participants.user', 'dispute'],
       order: { hearingNumber: 'ASC', scheduledAt: 'ASC' },
     });
-    const docket = buildHearingDocket(
-      hearings,
-      hearings[0]?.dispute?.status,
-    );
+    const docket = buildHearingDocket(hearings, hearings[0]?.dispute?.status);
     const docketByHearingId = new Map(docket.items.map((item) => [item.hearingId, item]));
     const filteredHearings = this.applyLifecycleFilter(hearings, lifecycle);
     const confirmationSummaryByHearingId = await this.loadConfirmationSummaryByHearingIds(
@@ -2412,13 +2406,22 @@ export class HearingService implements OnModuleInit {
     );
 
     return filteredHearings.map((hearing) =>
-      this.mapHearingSummary(hearing, confirmationSummaryByHearingId, docketByHearingId.get(hearing.id)),
+      this.mapHearingSummary(
+        hearing,
+        confirmationSummaryByHearingId,
+        docketByHearingId.get(hearing.id),
+      ),
     );
   }
 
   async getHearingsForUser(
     user: UserEntity,
-    options: { statuses?: HearingStatus[]; from?: Date; to?: Date; lifecycle?: HearingLifecycleFilter } = {},
+    options: {
+      statuses?: HearingStatus[];
+      from?: Date;
+      to?: Date;
+      lifecycle?: HearingLifecycleFilter;
+    } = {},
   ) {
     const qb = this.hearingRepository
       .createQueryBuilder('hearing')
@@ -2481,7 +2484,11 @@ export class HearingService implements OnModuleInit {
       hearings.map((hearing) => hearing.id),
     );
     return hearings.map((hearing) =>
-      this.mapHearingSummary(hearing, confirmationSummaryByHearingId, docketByHearingId.get(hearing.id)),
+      this.mapHearingSummary(
+        hearing,
+        confirmationSummaryByHearingId,
+        docketByHearingId.get(hearing.id),
+      ),
     );
   }
 
@@ -2723,11 +2730,7 @@ export class HearingService implements OnModuleInit {
     }
 
     try {
-      return await this.evidenceService.getEvidenceList(
-        hearing.disputeId,
-        user.id,
-        user.role,
-      );
+      return await this.evidenceService.getEvidenceList(hearing.disputeId, user.id, user.role);
     } catch (error) {
       if (error instanceof ForbiddenException) {
         this.logger.warn(
@@ -2954,10 +2957,8 @@ export class HearingService implements OnModuleInit {
     const confirmationSummaryByHearingId = await this.loadConfirmationSummaryByHearingIds([
       hearing.id,
     ]);
-    const includeDrafts =
-      user.role === UserRole.ADMIN ||
-      user.role === UserRole.STAFF ||
-      hearing.moderatorId === user.id;
+    // Parties should receive their own drafts so the statement composer can reopen them.
+    const includeDrafts = true;
 
     const [permissions, gate, dossier, statements, questions, timeline, evidence, messages] =
       await Promise.all([
@@ -3650,15 +3651,12 @@ export class HearingService implements OnModuleInit {
       where: { id: moderatorId },
       select: ['id', 'role'],
     });
-    const canUseTestBypass = this.canUseTestSchedulingBypass(
-      moderator?.role,
-      dto.testBypassReason,
-    );
+    const canUseTestBypass = this.canUseTestSchedulingBypass(moderator?.role, dto.testBypassReason);
     const useEmergencyRules = dto.isEmergency || canUseTestBypass;
 
-    if (dispute.status === DisputeStatus.APPEALED && tier !== HearingTier.TIER_2) {
+    if (tier === HearingTier.TIER_2 || APPEAL_DISPUTE_STATUSES.has(dispute.status)) {
       throw new BadRequestException(
-        'Only Tier 2 hearings can be scheduled while a dispute is under appeal review.',
+        'Tier 2 hearings are disabled. Appeal review is handled through the admin appeal queue.',
       );
     }
 
@@ -3696,10 +3694,13 @@ export class HearingService implements OnModuleInit {
     const priorDocket = buildHearingDocket(priorHearings, dispute.status);
     const latestDocketEntry =
       priorDocket.latestHearingId != null
-        ? priorDocket.items.find((item) => item.hearingId === priorDocket.latestHearingId) ?? null
+        ? (priorDocket.items.find((item) => item.hearingId === priorDocket.latestHearingId) ?? null)
         : null;
 
-    if (latestDocketEntry?.status === HearingStatus.COMPLETED && !latestDocketEntry.minutesRecorded) {
+    if (
+      latestDocketEntry?.status === HearingStatus.COMPLETED &&
+      !latestDocketEntry.minutesRecorded
+    ) {
       throw new BadRequestException(
         'Record the completed hearing minutes and findings before opening the next hearing.',
       );
@@ -4411,22 +4412,16 @@ export class HearingService implements OnModuleInit {
 
       switch (phase) {
         case DisputePhase.PRESENTATION:
-          deadlinesByType[HearingStatementType.OPENING] = new Date(
-            now.getTime() + 30 * 60 * 1000,
-          ); // 30 min
+          deadlinesByType[HearingStatementType.OPENING] = new Date(now.getTime() + 30 * 60 * 1000); // 30 min
           break;
         case DisputePhase.EVIDENCE_SUBMISSION:
-          deadlinesByType[HearingStatementType.EVIDENCE] = new Date(
-            now.getTime() + 60 * 60 * 1000,
-          ); // 60 min
+          deadlinesByType[HearingStatementType.EVIDENCE] = new Date(now.getTime() + 60 * 60 * 1000); // 60 min
           deadlinesByType[HearingStatementType.WITNESS_TESTIMONY] = new Date(
             now.getTime() + 60 * 60 * 1000,
           ); // 60 min
           break;
         case DisputePhase.CROSS_EXAMINATION:
-          deadlinesByType[HearingStatementType.REBUTTAL] = new Date(
-            now.getTime() + 45 * 60 * 1000,
-          ); // 45 min
+          deadlinesByType[HearingStatementType.REBUTTAL] = new Date(now.getTime() + 45 * 60 * 1000); // 45 min
           deadlinesByType[HearingStatementType.OBJECTION] = new Date(
             now.getTime() + 45 * 60 * 1000,
           ); // 45 min
@@ -4435,9 +4430,7 @@ export class HearingService implements OnModuleInit {
           ); // 45 min
           break;
         case DisputePhase.DELIBERATION:
-          deadlinesByType[HearingStatementType.CLOSING] = new Date(
-            now.getTime() + 30 * 60 * 1000,
-          ); // 30 min
+          deadlinesByType[HearingStatementType.CLOSING] = new Date(now.getTime() + 30 * 60 * 1000); // 30 min
           break;
         // INTERROGATION: moderator Q&A only – no participant statement deadlines
         default:
@@ -4627,9 +4620,7 @@ export class HearingService implements OnModuleInit {
 
       // OBJECTION: role must be RAISER or DEFENDANT, phase must be CROSS_EXAMINATION, must have replyToStatementId
       if (statementType === HearingStatementType.OBJECTION) {
-        if (
-          ![HearingParticipantRole.RAISER, HearingParticipantRole.DEFENDANT].includes(role)
-        ) {
+        if (![HearingParticipantRole.RAISER, HearingParticipantRole.DEFENDANT].includes(role)) {
           throw new BadRequestException(
             'Only dispute parties (RAISER/DEFENDANT) can submit OBJECTION statements',
           );
@@ -4648,16 +4639,12 @@ export class HearingService implements OnModuleInit {
 
       // SURREBUTTAL: role must be RAISER or DEFENDANT, phase must be CROSS_EXAMINATION or DELIBERATION, must have replyToStatementId
       if (statementType === HearingStatementType.SURREBUTTAL) {
-        if (
-          ![HearingParticipantRole.RAISER, HearingParticipantRole.DEFENDANT].includes(role)
-        ) {
+        if (![HearingParticipantRole.RAISER, HearingParticipantRole.DEFENDANT].includes(role)) {
           throw new BadRequestException(
             'Only dispute parties (RAISER/DEFENDANT) can submit SURREBUTTAL statements',
           );
         }
-        if (
-          ![DisputePhase.CROSS_EXAMINATION, DisputePhase.DELIBERATION].includes(currentPhase)
-        ) {
+        if (![DisputePhase.CROSS_EXAMINATION, DisputePhase.DELIBERATION].includes(currentPhase)) {
           throw new BadRequestException(
             'SURREBUTTAL statements can only be submitted during CROSS_EXAMINATION or DELIBERATION phases',
           );
@@ -4789,11 +4776,12 @@ export class HearingService implements OnModuleInit {
       orderIndex,
       status: isDraft ? HearingStatementStatus.DRAFT : HearingStatementStatus.SUBMITTED,
       platformDeclarationAccepted: dto.platformDeclarationAccepted === true,
-      platformDeclarationAcceptedAt:
-        dto.platformDeclarationAccepted === true ? new Date() : null,
+      platformDeclarationAcceptedAt: dto.platformDeclarationAccepted === true ? new Date() : null,
       versionNumber: 1,
       versionHistory: [],
-      ...(dto.type === HearingStatementType.OBJECTION ? { objectionStatus: 'PENDING' as const } : {}),
+      ...(dto.type === HearingStatementType.OBJECTION
+        ? { objectionStatus: 'PENDING' as const }
+        : {}),
     });
 
     const saved = await this.statementRepository.save(statement);
@@ -5169,11 +5157,7 @@ export class HearingService implements OnModuleInit {
         role: participant.role,
       }));
 
-    if (
-      absentRequiredParticipants.length > 0 &&
-      input.endedByType === 'SYSTEM' &&
-      !noShowNote
-    ) {
+    if (absentRequiredParticipants.length > 0 && input.endedByType === 'SYSTEM' && !noShowNote) {
       noShowNote =
         'System-generated note: one or more required participants were absent when the hearing was automatically closed.';
     }
@@ -5405,14 +5389,17 @@ export class HearingService implements OnModuleInit {
       throw new NotFoundException('Requester not found');
     }
 
-    const canUseTestBypass = this.canUseTestSchedulingBypass(
-      requester.role,
-      dto.testBypassReason,
-    );
+    const canUseTestBypass = this.canUseTestSchedulingBypass(requester.role, dto.testBypassReason);
     const useEmergencyRules = dto.isEmergency || canUseTestBypass;
 
     if (requesterId !== hearing.moderatorId && requester.role !== UserRole.ADMIN) {
       throw new ForbiddenException('Only the assigned moderator or admin can reschedule');
+    }
+
+    if (hearing.tier === HearingTier.TIER_2) {
+      throw new BadRequestException(
+        'Tier 2 hearings are disabled. Appeal review is handled through the admin appeal queue.',
+      );
     }
 
     const now = new Date();

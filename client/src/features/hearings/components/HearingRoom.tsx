@@ -2032,6 +2032,14 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
         currentPhase={workspace?.phase?.current}
         participantRole={currentParticipant?.role}
         draftStatements={ownStatementDrafts}
+        evidenceGallery={evidence}
+        currentUserId={currentUserId}
+        raiserUserId={
+          workspace?.dossier?.dispute?.raiser?.id ||
+          workspace?.dossier?.dispute?.raisedBy?.id ||
+          null
+        }
+        defendantUserId={workspace?.dossier?.dispute?.defendant?.id || null}
       />
       {hearing && (
         <InviteSupportStaffDialog

@@ -35,6 +35,7 @@ import type {
   HearingStatementSummary,
   HearingStatementType,
 } from "@/features/hearings/types";
+import type { DisputeEvidence } from "@/features/disputes/types/dispute.types";
 
 type StatementSectionKey =
   | "summary"
@@ -561,6 +562,10 @@ interface StatementSubmissionDialogProps {
   currentPhase?: string;
   participantRole?: string | null;
   draftStatements?: HearingStatementSummary[];
+  evidenceGallery?: DisputeEvidence[];
+  currentUserId?: string | null;
+  raiserUserId?: string | null;
+  defendantUserId?: string | null;
 }
 
 export const StatementSubmissionDialog = memo(function StatementSubmissionDialog({
@@ -570,12 +575,16 @@ export const StatementSubmissionDialog = memo(function StatementSubmissionDialog
   currentPhase,
   participantRole,
   draftStatements = [],
+  evidenceGallery = [],
+  currentUserId,
+  raiserUserId,
+  defendantUserId,
 }: StatementSubmissionDialogProps) {
   const [selectedType, setSelectedType] = useState<HearingStatementType>("OPENING");
   const [selectedDraftId, setSelectedDraftId] = useState<string>("");
   const [title, setTitle] = useState("");
   const [sections, setSections] = useState<StatementSections>({ ...EMPTY_SECTIONS });
-  const [citedEvidenceIds, setCitedEvidenceIds] = useState("");
+  const [selectedEvidenceIds, setSelectedEvidenceIds] = useState<string[]>([]);
   const [replyToStatementId, setReplyToStatementId] = useState("");
   const [changeSummary, setChangeSummary] = useState("");
   const [declarationAccepted, setDeclarationAccepted] = useState(false);
@@ -616,6 +625,54 @@ export const StatementSubmissionDialog = memo(function StatementSubmissionDialog
 
   const declarationRequired = participantRole !== "MODERATOR";
 
+  const selectableEvidence = useMemo(() => {
+    if (participantRole === "MODERATOR") {
+      return evidenceGallery;
+    }
+
+    if (!currentUserId) {
+      return [];
+    }
+
+    return evidenceGallery.filter((item) => item.uploaderId === currentUserId);
+  }, [currentUserId, evidenceGallery, participantRole]);
+
+  const selectableEvidenceIdSet = useMemo(
+    () => new Set(selectableEvidence.map((item) => item.id)),
+    [selectableEvidence],
+  );
+
+  const selectedEvidenceIdSet = useMemo(
+    () => new Set(selectedEvidenceIds),
+    [selectedEvidenceIds],
+  );
+
+  const blockedEvidenceIds = useMemo(
+    () =>
+      selectedEvidenceIds.filter(
+        (evidenceId) =>
+          evidenceId.trim().length > 0 && !selectableEvidenceIdSet.has(evidenceId),
+      ),
+    [selectedEvidenceIds, selectableEvidenceIdSet],
+  );
+
+  const resolvedSelectedEvidenceIds = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          selectedEvidenceIds
+            .map((evidenceId) => evidenceId.trim())
+            .filter((evidenceId) => evidenceId.length > 0),
+        ),
+      ),
+    [selectedEvidenceIds],
+  );
+
+  const ownedEvidenceHelper =
+    participantRole === "MODERATOR"
+      ? "Moderator can cite any evidence from the hearing gallery."
+      : "Only evidence uploaded by your account can be tagged in this statement.";
+
   const suggestedType = useMemo((): HearingStatementType | null => {
     const isPartyRole = participantRole === "RAISER" || participantRole === "DEFENDANT";
     const normalizedPhase = currentPhase?.trim().toUpperCase();
@@ -648,7 +705,7 @@ export const StatementSubmissionDialog = memo(function StatementSubmissionDialog
     setSelectedDraftId("");
     setTitle("");
     setSections({ ...EMPTY_SECTIONS });
-    setCitedEvidenceIds("");
+    setSelectedEvidenceIds([]);
     setReplyToStatementId("");
     setChangeSummary("");
     setDeclarationAccepted(false);
@@ -664,11 +721,19 @@ export const StatementSubmissionDialog = memo(function StatementSubmissionDialog
     setSelectedType(selectedDraft.type);
     setTitle(selectedDraft.title ?? "");
     setSections(blocksToSections(selectedDraft));
-    setCitedEvidenceIds((selectedDraft.citedEvidenceIds ?? []).join(", "));
+    setSelectedEvidenceIds(selectedDraft.citedEvidenceIds ?? []);
     setReplyToStatementId(selectedDraft.replyToStatementId ?? "");
     setDeclarationAccepted(Boolean(selectedDraft.platformDeclarationAccepted));
     setChangeSummary("");
   }, [selectedDraft]);
+
+  const handleToggleEvidence = useCallback((evidenceId: string) => {
+    setSelectedEvidenceIds((current) =>
+      current.includes(evidenceId)
+        ? current.filter((id) => id !== evidenceId)
+        : [...current, evidenceId],
+    );
+  }, []);
 
   useEffect(() => {
     if (selectedDraft) {
@@ -696,14 +761,25 @@ export const StatementSubmissionDialog = memo(function StatementSubmissionDialog
 
     setTitle(sample.title);
     setSections(sample.sections);
-    setCitedEvidenceIds(sample.citedEvidenceIds);
+    const preferredSampleCount = Math.min(3, selectableEvidence.length);
+    setSelectedEvidenceIds(
+      preferredSampleCount > 0
+        ? selectableEvidence.slice(0, preferredSampleCount).map((item) => item.id)
+        : [],
+    );
     setReplyToStatementId(sample.replyToStatementId);
     setChangeSummary(sample.changeSummary);
     if (declarationRequired) {
       setDeclarationAccepted(sample.declarationAccepted);
     }
     toast.success(`Sample ${selectedType.toLowerCase()} statement loaded`);
-  }, [currentPhase, declarationRequired, participantRole, selectedType]);
+  }, [
+    currentPhase,
+    declarationRequired,
+    participantRole,
+    selectableEvidence,
+    selectedType,
+  ]);
 
   const totalContentLength = useMemo(
     () => Object.values(sections).reduce((sum, item) => sum + item.length, 0),
@@ -733,16 +809,28 @@ export const StatementSubmissionDialog = memo(function StatementSubmissionDialog
 
       const setter = isDraft ? setSavingDraft : setSubmitting;
       try {
+        const invalidEvidenceIds = resolvedSelectedEvidenceIds.filter(
+          (evidenceId) => !selectableEvidenceIdSet.has(evidenceId),
+        );
+        if (invalidEvidenceIds.length > 0) {
+          toast.error(
+            participantRole === "MODERATOR"
+              ? "Some cited evidence no longer exists in the gallery. Please re-select evidence before submitting."
+              : "You can only tag evidence uploaded by your account. Please review selected evidence.",
+          );
+          return;
+        }
+
         setter(true);
         await onSubmit({
           type: selectedType,
           title: title.trim() || undefined,
           content,
           contentBlocks,
-          citedEvidenceIds: citedEvidenceIds
-            .split(",")
-            .map((value) => value.trim())
-            .filter(Boolean),
+          citedEvidenceIds:
+            resolvedSelectedEvidenceIds.length > 0
+              ? resolvedSelectedEvidenceIds
+              : undefined,
           replyToStatementId: replyToStatementId.trim() || undefined,
           platformDeclarationAccepted: declarationAccepted,
           changeSummary: changeSummary.trim() || undefined,
@@ -765,10 +853,12 @@ export const StatementSubmissionDialog = memo(function StatementSubmissionDialog
       onSubmit,
       selectedType,
       title,
-      citedEvidenceIds,
+      participantRole,
+      resolvedSelectedEvidenceIds,
       replyToStatementId,
       declarationAccepted,
       changeSummary,
+      selectableEvidenceIdSet,
       selectedDraftId,
       onOpenChange,
       resetComposer,
@@ -949,19 +1039,77 @@ export const StatementSubmissionDialog = memo(function StatementSubmissionDialog
 
               <div className="space-y-1.5 md:col-span-2">
                 <label className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">
-                  Cited Evidence IDs
+                  Cited Evidence (Gallery)
                 </label>
-                <Input
-                  value={citedEvidenceIds}
-                  onChange={(event) => setCitedEvidenceIds(event.target.value)}
-                  placeholder="evidence-1, evidence-2, evidence-3"
-                  disabled={busy}
-                  className="text-sm"
-                />
+                <p className="text-xs text-slate-500">{ownedEvidenceHelper}</p>
+                <div className="max-h-64 overflow-y-auto rounded-xl border border-slate-200 bg-white">
+                  {selectableEvidence.length > 0 ? (
+                    <div className="divide-y divide-slate-100">
+                      {selectableEvidence.map((item) => {
+                        const checked = selectedEvidenceIdSet.has(item.id);
+                        const sideLabel =
+                          item.uploaderId === raiserUserId
+                            ? "Raiser"
+                            : item.uploaderId === defendantUserId
+                              ? "Defendant"
+                              : item.uploaderRole || "Unknown";
+
+                        return (
+                          <label
+                            key={item.id}
+                            className={cn(
+                              "flex cursor-pointer items-start gap-3 px-3 py-2 transition-colors",
+                              checked ? "bg-slate-50" : "hover:bg-slate-50/70",
+                            )}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => handleToggleEvidence(item.id)}
+                              disabled={busy}
+                              className="mt-1 h-4 w-4 rounded border-slate-300"
+                            />
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-sm font-medium text-slate-800">
+                                {item.fileName}
+                              </p>
+                              <p className="mt-0.5 text-xs text-slate-500">
+                                ID: {item.id} • {sideLabel} • Uploaded by{" "}
+                                {item.uploader?.fullName ||
+                                  item.uploader?.name ||
+                                  item.uploaderRole ||
+                                  "Unknown"}
+                              </p>
+                              {item.description ? (
+                                <p className="mt-0.5 line-clamp-2 text-xs text-slate-500">
+                                  {item.description}
+                                </p>
+                              ) : null}
+                            </div>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="px-3 py-4 text-xs text-slate-500">
+                      {participantRole === "MODERATOR"
+                        ? "No evidence is available in this hearing gallery yet."
+                        : "You have not uploaded evidence yet. Upload from gallery first, then tag it here."}
+                    </div>
+                  )}
+                </div>
                 <p className="text-xs text-slate-500">
-                  Use comma-separated evidence ids so the moderator can map your
-                  pleading to the record quickly.
+                  Selected: {resolvedSelectedEvidenceIds.length} evidence item
+                  {resolvedSelectedEvidenceIds.length === 1 ? "" : "s"}.
                 </p>
+                {blockedEvidenceIds.length > 0 ? (
+                  <p className="text-xs text-amber-700">
+                    {blockedEvidenceIds.length} draft citation
+                    {blockedEvidenceIds.length === 1 ? " is" : "s are"} not
+                    selectable for your role/account anymore and must be re-selected
+                    from the gallery.
+                  </p>
+                ) : null}
               </div>
 
               {REPLY_REQUIRED_TYPES.includes(selectedType) && (

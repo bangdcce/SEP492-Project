@@ -117,6 +117,57 @@ export function buildLeaveDaySlots(
   return slots;
 }
 
+export function buildLeaveAvailabilityDaySlots(
+  rangeStart: Date,
+  rangeEnd: Date,
+  timeZone: string,
+): LeaveDaySlot[] {
+  if (rangeEnd <= rangeStart) {
+    return [];
+  }
+
+  const slots: LeaveDaySlot[] = [];
+  const startDateKey = getLocalDateKey(rangeStart, timeZone);
+  const endDateKey = getLocalDateKey(rangeEnd, timeZone);
+
+  const localStart = new Date(rangeStart.toLocaleString('en-US', { timeZone }));
+  localStart.setHours(0, 0, 0, 0);
+  const localEnd = new Date(rangeEnd.toLocaleString('en-US', { timeZone }));
+  localEnd.setHours(0, 0, 0, 0);
+
+  for (
+    let cursor = new Date(localStart);
+    cursor <= localEnd;
+    cursor.setDate(cursor.getDate() + 1)
+  ) {
+    const year = cursor.getFullYear();
+    const month = cursor.getMonth() + 1;
+    const day = cursor.getDate();
+    const dateKey = `${year}-${pad2(month)}-${pad2(day)}`;
+    const monthKey = `${year}-${pad2(month)}`;
+
+    const slotStartMinutes =
+      dateKey === startDateKey ? getLocalTimeMinutes(rangeStart, timeZone) : 0;
+    const slotEndMinutes =
+      dateKey === endDateKey ? getLocalTimeMinutes(rangeEnd, timeZone) : 24 * 60;
+
+    if (slotEndMinutes <= slotStartMinutes) {
+      continue;
+    }
+
+    slots.push({
+      dateKey,
+      monthKey,
+      startTime: minutesToTime(slotStartMinutes),
+      endTime: slotEndMinutes >= 24 * 60 ? '23:59:59' : minutesToTime(slotEndMinutes),
+      minutes:
+        slotEndMinutes >= 24 * 60 ? 24 * 60 - slotStartMinutes : slotEndMinutes - slotStartMinutes,
+    });
+  }
+
+  return slots;
+}
+
 export function calculateLeaveMinutes(rangeStart: Date, rangeEnd: Date, timeZone: string): number {
   return buildLeaveDaySlots(rangeStart, rangeEnd, timeZone).reduce(
     (sum, slot) => sum + slot.minutes,
