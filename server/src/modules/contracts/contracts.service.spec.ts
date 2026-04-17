@@ -31,6 +31,8 @@ import { ProjectRequestEntity } from '../../database/entities/project-request.en
 import { ProjectRequestProposalEntity } from '../../database/entities/project-request-proposal.entity';
 import { DigitalSignatureEntity } from '../../database/entities/digital-signature.entity';
 import { EscrowEntity } from '../../database/entities/escrow.entity';
+import { DisputeEntity, DisputeStatus } from '../../database/entities/dispute.entity';
+import { DisputeInternalMembershipEntity } from '../../database/entities/dispute-internal-membership.entity';
 import { ContractArchiveStorageService } from './contract-archive.storage';
 import { NotificationsService } from '../notifications/notifications.service';
 import { SigningCredentialsService } from '../auth/signing-credentials.service';
@@ -52,6 +54,8 @@ describe('ContractsService', () => {
   };
   const mockProjectRequestsRepo = {};
   const mockProjectRequestProposalsRepo = { find: jest.fn() };
+  const mockDisputesRepo = { find: jest.fn() };
+  const mockDisputeInternalMembershipRepo = { findOne: jest.fn() };
   const mockAuditLogsService = { log: jest.fn() };
   const mockNotificationsService = {
     create: jest.fn().mockResolvedValue(undefined),
@@ -180,6 +184,8 @@ describe('ContractsService', () => {
     mockManager.find.mockImplementation(async () => []);
     mockManager.update.mockImplementation(async () => undefined);
     mockManager.delete.mockImplementation(async () => undefined);
+    mockDisputesRepo.find.mockResolvedValue([]);
+    mockDisputeInternalMembershipRepo.findOne.mockResolvedValue(null);
 
     queryRunner = {
       connect: jest.fn(),
@@ -210,6 +216,11 @@ describe('ContractsService', () => {
         { provide: getRepositoryToken(ProjectEntity), useValue: mockProjectsRepo },
         { provide: getRepositoryToken(ProjectSpecEntity), useValue: mockProjectSpecsRepo },
         { provide: getRepositoryToken(ProjectRequestEntity), useValue: mockProjectRequestsRepo },
+        { provide: getRepositoryToken(DisputeEntity), useValue: mockDisputesRepo },
+        {
+          provide: getRepositoryToken(DisputeInternalMembershipEntity),
+          useValue: mockDisputeInternalMembershipRepo,
+        },
         {
           provide: getRepositoryToken(ProjectRequestProposalEntity),
           useValue: mockProjectRequestProposalsRepo,
@@ -611,6 +622,146 @@ describe('ContractsService', () => {
       expect(result.id).toBe(contract.id);
       expect((result as any).requiredSignerCount).toBe(3);
       expect((result as any).signedCount).toBe(1);
+    });
+
+    it('allows staff assigned to an active dispute on the same project to view contract detail', async () => {
+      const project = buildProject({
+        staffId: 'other-staff',
+        staffInviteStatus: ProjectStaffInviteStatus.PENDING,
+        client: { id: 'client-uuid', fullName: 'Client', email: 'client@example.com' } as any,
+        broker: { id: 'broker-uuid', fullName: 'Broker', email: 'broker@example.com' } as any,
+        freelancer: {
+          id: 'freelancer-uuid',
+          fullName: 'Freelancer',
+          email: 'freelancer@example.com',
+        } as any,
+        request: { specs: [] } as any,
+      });
+      const contract = {
+        id: 'contract-dispute-assigned',
+        projectId: project.id,
+        sourceSpecId: 'spec-uuid',
+        title: 'Website Revamp',
+        status: ContractStatus.SENT,
+        contractUrl: 'contracts/project-uuid.pdf',
+        project,
+        milestoneSnapshot: buildSnapshot(),
+        commercialContext: buildCommercialContext(project),
+        termsContent: 'Terms',
+        signatures: [],
+        contentHash: null,
+      } as unknown as ContractEntity;
+
+      mockContractsRepo.findOne.mockResolvedValue(contract);
+      mockDisputesRepo.find.mockResolvedValue([
+        {
+          id: 'dispute-uuid',
+          status: DisputeStatus.IN_MEDIATION,
+          assignedStaffId: 'staff-uuid',
+          escalatedToAdminId: null,
+        },
+      ]);
+
+      const result = await service.findOneForUser(
+        { id: 'staff-uuid', role: UserRole.STAFF } as UserEntity,
+        contract.id,
+      );
+
+      expect(result.id).toBe(contract.id);
+      expect(mockDisputeInternalMembershipRepo.findOne).not.toHaveBeenCalled();
+    });
+
+    it('allows staff with internal dispute membership to view contract detail', async () => {
+      const project = buildProject({
+        staffId: 'other-staff',
+        staffInviteStatus: ProjectStaffInviteStatus.PENDING,
+        client: { id: 'client-uuid', fullName: 'Client', email: 'client@example.com' } as any,
+        broker: { id: 'broker-uuid', fullName: 'Broker', email: 'broker@example.com' } as any,
+        freelancer: {
+          id: 'freelancer-uuid',
+          fullName: 'Freelancer',
+          email: 'freelancer@example.com',
+        } as any,
+        request: { specs: [] } as any,
+      });
+      const contract = {
+        id: 'contract-dispute-member',
+        projectId: project.id,
+        sourceSpecId: 'spec-uuid',
+        title: 'Website Revamp',
+        status: ContractStatus.SENT,
+        contractUrl: 'contracts/project-uuid.pdf',
+        project,
+        milestoneSnapshot: buildSnapshot(),
+        commercialContext: buildCommercialContext(project),
+        termsContent: 'Terms',
+        signatures: [],
+        contentHash: null,
+      } as unknown as ContractEntity;
+
+      mockContractsRepo.findOne.mockResolvedValue(contract);
+      mockDisputesRepo.find.mockResolvedValue([
+        {
+          id: 'dispute-uuid',
+          status: DisputeStatus.PENDING_REVIEW,
+          assignedStaffId: 'another-staff-uuid',
+          escalatedToAdminId: null,
+        },
+      ]);
+      mockDisputeInternalMembershipRepo.findOne.mockResolvedValue({ id: 'membership-uuid' });
+
+      const result = await service.findOneForUser(
+        { id: 'staff-uuid', role: UserRole.STAFF } as UserEntity,
+        contract.id,
+      );
+
+      expect(result.id).toBe(contract.id);
+      expect(mockDisputeInternalMembershipRepo.findOne).toHaveBeenCalled();
+    });
+
+    it('rejects staff when no active dispute assignment or membership grants access', async () => {
+      const project = buildProject({
+        client: { id: 'client-uuid', fullName: 'Client', email: 'client@example.com' } as any,
+        broker: { id: 'broker-uuid', fullName: 'Broker', email: 'broker@example.com' } as any,
+        freelancer: {
+          id: 'freelancer-uuid',
+          fullName: 'Freelancer',
+          email: 'freelancer@example.com',
+        } as any,
+        request: { specs: [] } as any,
+      });
+      const contract = {
+        id: 'contract-private-for-staff',
+        projectId: project.id,
+        sourceSpecId: 'spec-uuid',
+        title: 'Website Revamp',
+        status: ContractStatus.SENT,
+        contractUrl: 'contracts/project-uuid.pdf',
+        project,
+        milestoneSnapshot: buildSnapshot(),
+        commercialContext: buildCommercialContext(project),
+        termsContent: 'Terms',
+        signatures: [],
+        contentHash: null,
+      } as unknown as ContractEntity;
+
+      mockContractsRepo.findOne.mockResolvedValue(contract);
+      mockDisputesRepo.find.mockResolvedValue([
+        {
+          id: 'dispute-uuid',
+          status: DisputeStatus.IN_MEDIATION,
+          assignedStaffId: 'another-staff-uuid',
+          escalatedToAdminId: null,
+        },
+      ]);
+      mockDisputeInternalMembershipRepo.findOne.mockResolvedValue(null);
+
+      await expect(
+        service.findOneForUser(
+          { id: 'staff-uuid', role: UserRole.STAFF } as UserEntity,
+          contract.id,
+        ),
+      ).rejects.toThrow('You are not allowed to view this contract');
     });
 
     it('rejects viewers outside the contract parties and accepted staff', async () => {

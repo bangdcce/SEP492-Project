@@ -35,7 +35,10 @@ const OFF_PLATFORM_RISK_RULES = [
 ] as const;
 
 const normalizeForRiskScan = (content: string): string =>
-  content.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase();
+  content
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .toLowerCase();
 
 const escapeIlikePattern = (value: string): string => value.replace(/[\\%_]/g, '\\$&');
 
@@ -125,7 +128,15 @@ export class WorkspaceChatService {
   private async getProjectAccessContext(projectId: string): Promise<ProjectEntity> {
     const project = await this.projectRepo.findOne({
       where: { id: projectId },
-      select: ['id', 'title', 'clientId', 'brokerId', 'freelancerId', 'staffId', 'staffInviteStatus'],
+      select: [
+        'id',
+        'title',
+        'clientId',
+        'brokerId',
+        'freelancerId',
+        'staffId',
+        'staffInviteStatus',
+      ],
     });
 
     if (!project) {
@@ -137,16 +148,13 @@ export class WorkspaceChatService {
 
   private isProjectParticipant(project: ProjectEntity, userId: string): boolean {
     return (
-      project.clientId === userId ||
-      project.brokerId === userId ||
-      project.freelancerId === userId
+      project.clientId === userId || project.brokerId === userId || project.freelancerId === userId
     );
   }
 
   private isAcceptedSupervisingStaff(project: ProjectEntity, userId: string): boolean {
     return (
-      project.staffId === userId &&
-      project.staffInviteStatus === ProjectStaffInviteStatus.ACCEPTED
+      project.staffId === userId && project.staffInviteStatus === ProjectStaffInviteStatus.ACCEPTED
     );
   }
 
@@ -162,7 +170,8 @@ export class WorkspaceChatService {
     const project = await this.getProjectAccessContext(projectId);
 
     const canRead =
-      this.isProjectParticipant(project, userId) || this.isAcceptedSupervisingStaff(project, userId);
+      this.isProjectParticipant(project, userId) ||
+      this.isAcceptedSupervisingStaff(project, userId);
 
     if (!canRead) {
       throw new ForbiddenException('You do not have access to this project chat');
@@ -555,11 +564,15 @@ export class WorkspaceChatService {
     }
   }
 
-  private async getReadableProjectContext(projectId: string, userId: string): Promise<ProjectEntity> {
+  private async getReadableProjectContext(
+    projectId: string,
+    userId: string,
+  ): Promise<ProjectEntity> {
     const project = await this.getProjectAccessContext(projectId);
 
     const canRead =
-      this.isProjectParticipant(project, userId) || this.isAcceptedSupervisingStaff(project, userId);
+      this.isProjectParticipant(project, userId) ||
+      this.isAcceptedSupervisingStaff(project, userId);
 
     if (!canRead) {
       throw new ForbiddenException('You do not have access to this project chat');
@@ -573,8 +586,7 @@ export class WorkspaceChatService {
     const normalizedName = `${file.originalname || ''}`.trim().toLowerCase();
     return (
       normalizedName.endsWith('.xlsx') &&
-      (normalizedMimeType ===
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+      (normalizedMimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
         normalizedMimeType === 'application/octet-stream' ||
         normalizedMimeType === '')
     );
@@ -716,12 +728,30 @@ export class WorkspaceChatService {
   private inferAttachmentName(url: string): string {
     try {
       const parsedUrl = new URL(url);
+      const fileNameFromHash = new URLSearchParams(parsedUrl.hash.replace(/^#/, '')).get(
+        'filename',
+      );
+      if (fileNameFromHash?.trim()) {
+        return decodeURIComponent(fileNameFromHash);
+      }
+
+      const fileNameFromQuery = parsedUrl.searchParams.get('filename');
+      if (fileNameFromQuery?.trim()) {
+        return decodeURIComponent(fileNameFromQuery);
+      }
+
       const segments = parsedUrl.pathname.split('/').filter(Boolean);
       const lastSegment = segments[segments.length - 1];
       if (lastSegment) {
         return decodeURIComponent(lastSegment);
       }
     } catch {
+      const hashSegment = url.split('#')[1] || '';
+      const fileNameFromHash = new URLSearchParams(hashSegment).get('filename');
+      if (fileNameFromHash?.trim()) {
+        return decodeURIComponent(fileNameFromHash);
+      }
+
       const segments = url.split('/').filter(Boolean);
       const lastSegment = segments[segments.length - 1];
       if (lastSegment) {
@@ -822,4 +852,3 @@ export class WorkspaceChatService {
     };
   }
 }
-

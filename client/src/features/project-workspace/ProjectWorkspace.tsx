@@ -1637,10 +1637,7 @@ export function ProjectWorkspace() {
   }, [contractDetail?.id, currentUser?.id, projectId, reloadWorkspaceData]);
 
   // Handle milestone approval (Client/Broker only)
-  const handleApproveMilestone = async (
-    milestoneId: string,
-    feedback?: string,
-  ) => {
+  const handleApproveMilestone = async (milestoneId: string) => {
     if (isProjectInteractionLocked) {
       throw new Error(
         isProjectCanceled
@@ -1650,7 +1647,7 @@ export function ProjectWorkspace() {
     }
     try {
       setError(null);
-      const result = await approveMilestone(milestoneId, feedback);
+      const result = await approveMilestone(milestoneId);
 
       // Update the milestone status in local state
       setMilestones((prev) =>

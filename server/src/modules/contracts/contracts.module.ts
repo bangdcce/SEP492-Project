@@ -8,6 +8,8 @@ import { ProjectSpecEntity } from '../../database/entities/project-spec.entity';
 import { MilestoneEntity } from '../../database/entities/milestone.entity';
 import { EscrowEntity } from '../../database/entities/escrow.entity';
 import { DigitalSignatureEntity } from '../../database/entities/digital-signature.entity';
+import { DisputeEntity } from '../../database/entities/dispute.entity';
+import { DisputeInternalMembershipEntity } from '../../database/entities/dispute-internal-membership.entity';
 import { ProjectRequestEntity } from '../../database/entities/project-request.entity';
 import { ProjectRequestProposalEntity } from '../../database/entities/project-request-proposal.entity';
 import { AuditLogsModule } from '../audit-logs/audit-logs.module';
@@ -24,6 +26,8 @@ import { AuthModule } from '../auth/auth.module';
       MilestoneEntity,
       EscrowEntity,
       DigitalSignatureEntity,
+      DisputeEntity,
+      DisputeInternalMembershipEntity,
       ProjectRequestEntity,
       ProjectRequestProposalEntity,
     ]),

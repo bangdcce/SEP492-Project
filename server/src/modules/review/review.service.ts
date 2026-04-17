@@ -12,7 +12,6 @@ import {
   MilestoneEntity,
   MilestoneStatus,
   ProjectEntity,
-  ProjectStatus,
   ReportEntity,
   ReportStatus,
   ReviewEntity,
@@ -49,8 +48,6 @@ type ModerationAction =
   | 'RELEASE_REVIEW_MODERATION'
   | 'REASSIGN_REVIEW_MODERATION';
 
-const REVIEWABLE_PROJECT_STATUSES = [ProjectStatus.COMPLETED, ProjectStatus.PAID];
-
 @Injectable()
 export class ReviewService {
   private readonly logger = new Logger(ReviewService.name);
@@ -86,12 +83,6 @@ export class ReviewService {
     });
 
     if (!project) throw new NotFoundException('Project not found');
-
-    // ChềEdự án đã Hoàn Thành mới được review (đềEtránh blackmailing)
-
-    if (!REVIEWABLE_PROJECT_STATUSES.includes(project.status)) {
-      throw new BadRequestException('You can only review a completed or paid project.');
-    }
 
     await this.assertFinalMilestonePaid(projectId);
 

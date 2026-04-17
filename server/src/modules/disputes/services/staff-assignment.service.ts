@@ -282,7 +282,9 @@ export class StaffAssignmentService {
     return bankInfo;
   }
 
-  private extractDisputeDevSettings(bankInfo?: Record<string, any> | null): StoredDisputeDevSettings {
+  private extractDisputeDevSettings(
+    bankInfo?: Record<string, any> | null,
+  ): StoredDisputeDevSettings {
     const normalizedBankInfo = this.normalizeProfileBankInfo(bankInfo);
     const rawSettings = normalizedBankInfo.disputeDevSettings;
 
@@ -382,7 +384,8 @@ export class StaffAssignmentService {
     }
 
     const normalizedTargetEmail = targetStaffEmail?.trim().toLowerCase();
-    const fallbackActorEmail = actor.role === UserRole.STAFF ? actor.email.trim().toLowerCase() : '';
+    const fallbackActorEmail =
+      actor.role === UserRole.STAFF ? actor.email.trim().toLowerCase() : '';
     const resolvedTargetEmail = normalizedTargetEmail || fallbackActorEmail;
 
     let targetStaffId: string | null = null;
@@ -610,7 +613,10 @@ export class StaffAssignmentService {
     return buckets;
   }
 
-  private findDashboardBucket<T extends { start: Date; end: Date }>(buckets: T[], value?: Date | null) {
+  private findDashboardBucket<T extends { start: Date; end: Date }>(
+    buckets: T[],
+    value?: Date | null,
+  ) {
     if (!value) {
       return null;
     }
@@ -698,7 +704,9 @@ export class StaffAssignmentService {
         const overturnRate =
           appealedCases > 0 ? Math.round((overturnedCases / appealedCases) * 10000) / 100 : 0;
         const lastActiveAt =
-          latestWorkload?.updatedAt?.toISOString() || performances.at(-1)?.updatedAt?.toISOString() || null;
+          latestWorkload?.updatedAt?.toISOString() ||
+          performances.at(-1)?.updatedAt?.toISOString() ||
+          null;
 
         return {
           id: staff.id,
@@ -882,12 +890,9 @@ export class StaffAssignmentService {
       this.disputeRepository
         .createQueryBuilder('dispute')
         .where('dispute.createdAt BETWEEN :start AND :end', { start, end: now })
-        .andWhere(
-          '(dispute.groupId IS NOT NULL OR dispute.disputeType IN (:...brokerTypes))',
-          {
-            brokerTypes: [...BROKER_INVOLVED_DISPUTE_TYPES],
-          },
-        )
+        .andWhere('(dispute.groupId IS NOT NULL OR dispute.disputeType IN (:...brokerTypes))', {
+          brokerTypes: [...BROKER_INVOLVED_DISPUTE_TYPES],
+        })
         .getCount(),
       this.evidenceRepository
         .createQueryBuilder('evidence')
@@ -961,9 +966,7 @@ export class StaffAssignmentService {
         ? Math.round((autoScheduledCount / hearingEventCount) * 10000) / 100
         : 0;
     const noShowRate =
-      completedHearings > 0
-        ? Math.round((noShowHearings / completedHearings) * 10000) / 100
-        : 0;
+      completedHearings > 0 ? Math.round((noShowHearings / completedHearings) * 10000) / 100 : 0;
 
     const feedbackValues = performanceRows
       .map((row) => Number(row.avgUserRating || 0))
@@ -999,10 +1002,7 @@ export class StaffAssignmentService {
       }
     });
     workloadRows.forEach((row) => {
-      const bucket = this.findDashboardBucket(
-        buckets,
-        row.date ? new Date(row.date) : undefined,
-      );
+      const bucket = this.findDashboardBucket(buckets, row.date ? new Date(row.date) : undefined);
       if (!bucket) {
         return;
       }
@@ -1029,18 +1029,30 @@ export class StaffAssignmentService {
     const memberDivisor = members.length || 1;
     const teamAverages = {
       resolvedCases:
-        Math.round((members.reduce((sum, member) => sum + member.resolvedCases, 0) / memberDivisor) * 100) / 100,
+        Math.round(
+          (members.reduce((sum, member) => sum + member.resolvedCases, 0) / memberDivisor) * 100,
+        ) / 100,
       pendingCases:
-        Math.round((members.reduce((sum, member) => sum + member.pendingCases, 0) / memberDivisor) * 100) / 100,
+        Math.round(
+          (members.reduce((sum, member) => sum + member.pendingCases, 0) / memberDivisor) * 100,
+        ) / 100,
       utilizationRate:
-        Math.round((members.reduce((sum, member) => sum + member.utilizationRate, 0) / memberDivisor) * 100) / 100,
+        Math.round(
+          (members.reduce((sum, member) => sum + member.utilizationRate, 0) / memberDivisor) * 100,
+        ) / 100,
       appealRate:
-        Math.round((members.reduce((sum, member) => sum + member.appealRate, 0) / memberDivisor) * 100) / 100,
+        Math.round(
+          (members.reduce((sum, member) => sum + member.appealRate, 0) / memberDivisor) * 100,
+        ) / 100,
       overturnRate:
-        Math.round((members.reduce((sum, member) => sum + member.overturnRate, 0) / memberDivisor) * 100) / 100,
+        Math.round(
+          (members.reduce((sum, member) => sum + member.overturnRate, 0) / memberDivisor) * 100,
+        ) / 100,
       avgResolutionTimeHours:
         Math.round(
-          (members.reduce((sum, member) => sum + member.avgResolutionTimeHours, 0) / memberDivisor) * 100,
+          (members.reduce((sum, member) => sum + member.avgResolutionTimeHours, 0) /
+            memberDivisor) *
+            100,
         ) / 100,
     };
     const currentUserMember =
@@ -1070,8 +1082,7 @@ export class StaffAssignmentService {
         noShowRate,
       },
       quality: {
-        appealRate:
-          closedCount > 0 ? Math.round((appealedCount / closedCount) * 10000) / 100 : 0,
+        appealRate: closedCount > 0 ? Math.round((appealedCount / closedCount) * 10000) / 100 : 0,
         overturnedVerdictRate:
           appealedCount > 0 ? Math.round((overturnedCount / appealedCount) * 10000) / 100 : 0,
         feedbackScore,
@@ -1705,6 +1716,10 @@ export class StaffAssignmentService {
     });
 
     const workloadMap = new Map(workloads.map((w) => [w.staffId, w]));
+    const approvedLeaveStaffIds = await this.leaveService.getApprovedLeaveStaffIdsAt(
+      targetDate,
+      allStaff.map((staff) => staff.id),
+    );
 
     // 3. Calculate average monthly disputes for fairness
     const monthStart = new Date(targetDate.getFullYear(), targetDate.getMonth(), 1);
@@ -1744,8 +1759,8 @@ export class StaffAssignmentService {
 
       // Default workload if not exists
       const utilizationRate = workload?.utilizationRate || 0;
-      const isOnLeave = workload?.isOnLeave || false;
-      const canAccept = workload?.canAcceptNewEvent ?? true;
+      const isOnLeave = approvedLeaveStaffIds.has(staff.id) || workload?.isOnLeave || false;
+      const canAccept = isOnLeave ? false : (workload?.canAcceptNewEvent ?? true);
 
       const performance = performanceMap.get(staff.id);
       const avgUserRating = Number(performance?.avgUserRating ?? 4);
@@ -2309,7 +2324,8 @@ export class StaffAssignmentService {
       emitEvent?: boolean;
     },
   ): Promise<number> {
-    const repository = options?.manager?.getRepository(StaffWorkloadEntity) ?? this.workloadRepository;
+    const repository =
+      options?.manager?.getRepository(StaffWorkloadEntity) ?? this.workloadRepository;
     const emitEvent = options?.emitEvent ?? true;
     const dateStr = new Date().toISOString().split('T')[0];
     const workloadDate = dateStr as unknown as Date;
@@ -2319,11 +2335,7 @@ export class StaffAssignmentService {
       date: workloadDate,
     };
 
-    const incrementResult = await repository.increment(
-      incrementWhere,
-      'totalDisputesPending',
-      1,
-    );
+    const incrementResult = await repository.increment(incrementWhere, 'totalDisputesPending', 1);
 
     if (!incrementResult.affected) {
       try {
@@ -2359,8 +2371,7 @@ export class StaffAssignmentService {
       return 0;
     }
 
-    const shouldAccept =
-      existingWorkload.utilizationRate < ASSIGNMENT_CONFIG.MAX_UTILIZATION_RATE;
+    const shouldAccept = existingWorkload.utilizationRate < ASSIGNMENT_CONFIG.MAX_UTILIZATION_RATE;
     const shouldMarkOverloaded =
       existingWorkload.utilizationRate >= ASSIGNMENT_CONFIG.OVERLOADED_THRESHOLD;
     const normalizedPendingCount = Math.max(0, Number(existingWorkload.totalDisputesPending || 0));
@@ -2407,7 +2418,8 @@ export class StaffAssignmentService {
       emitEvent?: boolean;
     },
   ): Promise<number> {
-    const repository = options?.manager?.getRepository(StaffWorkloadEntity) ?? this.workloadRepository;
+    const repository =
+      options?.manager?.getRepository(StaffWorkloadEntity) ?? this.workloadRepository;
     const emitEvent = options?.emitEvent ?? true;
     const dateStr = new Date().toISOString().split('T')[0];
     const workloadDate = dateStr as unknown as Date;
@@ -2437,15 +2449,12 @@ export class StaffAssignmentService {
     });
 
     if (!existingWorkload) {
-      this.logger.warn(
-        `Workload row missing after decrement for staff ${staffId} on ${dateStr}.`,
-      );
+      this.logger.warn(`Workload row missing after decrement for staff ${staffId} on ${dateStr}.`);
       return 0;
     }
 
     const normalizedPendingCount = Math.max(0, Number(existingWorkload.totalDisputesPending || 0));
-    const shouldAccept =
-      existingWorkload.utilizationRate < ASSIGNMENT_CONFIG.MAX_UTILIZATION_RATE;
+    const shouldAccept = existingWorkload.utilizationRate < ASSIGNMENT_CONFIG.MAX_UTILIZATION_RATE;
     const shouldMarkOverloaded =
       existingWorkload.utilizationRate >= ASSIGNMENT_CONFIG.OVERLOADED_THRESHOLD;
 
@@ -2667,14 +2676,12 @@ export class StaffAssignmentService {
     // 1. Estimate complexity
     const complexity = await this.estimateDisputeComplexity(disputeId);
 
-    let assignmentEvent:
-      | {
-          staffId: string;
-          newPendingCount: number;
-          complexityLevel: ComplexityLevel;
-          estimatedMinutes: number;
-        }
-      | null = null;
+    let assignmentEvent: {
+      staffId: string;
+      newPendingCount: number;
+      complexityLevel: ComplexityLevel;
+      estimatedMinutes: number;
+    } | null = null;
 
     const result = await this.dataSource.transaction(async (manager) => {
       const disputeRepo = manager.getRepository(DisputeEntity);
@@ -2755,6 +2762,10 @@ export class StaffAssignmentService {
 
       // Re-check with per-row lock to avoid assigning stale overloaded candidates.
       const workloadDate = new Date().toISOString().split('T')[0] as unknown as Date;
+      const approvedLeaveStaffIds = await this.leaveService.getApprovedLeaveStaffIdsAt(
+        new Date(),
+        candidateIds,
+      );
       let selectedStaffId: string | null = null;
 
       for (const candidateId of candidateIds) {
@@ -2765,12 +2776,13 @@ export class StaffAssignmentService {
           },
           lock: { mode: 'pessimistic_write' },
         });
+        const isOnLeave = approvedLeaveStaffIds.has(candidateId) || Boolean(workload?.isOnLeave);
 
         const stillAvailable =
-          !workload ||
-          (!workload.isOnLeave &&
-            (workload.canAcceptNewEvent ?? true) &&
-            Number(workload.utilizationRate || 0) < ASSIGNMENT_CONFIG.MAX_UTILIZATION_RATE);
+          !isOnLeave &&
+          (!workload ||
+            ((workload.canAcceptNewEvent ?? true) &&
+              Number(workload.utilizationRate || 0) < ASSIGNMENT_CONFIG.MAX_UTILIZATION_RATE));
 
         if (stillAvailable) {
           selectedStaffId = candidateId;
@@ -2876,14 +2888,12 @@ export class StaffAssignmentService {
     newStaffId: string;
     message: string;
   }> {
-    let reassignmentEvent:
-      | {
-          oldStaffId: string | null;
-          newStaffId: string;
-          oldPendingCount: number | null;
-          newPendingCount: number;
-        }
-      | null = null;
+    let reassignmentEvent: {
+      oldStaffId: string | null;
+      newStaffId: string;
+      oldPendingCount: number | null;
+      newPendingCount: number;
+    } | null = null;
 
     const result = await this.dataSource.transaction(async (manager) => {
       const disputeRepo = manager.getRepository(DisputeEntity);
@@ -3283,13 +3293,20 @@ export class StaffAssignmentService {
 
     const today = new Date();
     const dateStr = today.toISOString().split('T')[0];
+    const dayStart = new Date(`${dateStr}T00:00:00.000Z`);
+    const dayEnd = new Date(`${dateStr}T23:59:59.999Z`);
+    const approvedLeaveStaffIds = await this.leaveService.getApprovedLeaveStaffIdsOverlapping(
+      dayStart,
+      dayEnd,
+      allStaff.map((staff) => staff.id),
+    );
 
     for (const staff of allStaff) {
       // Count events scheduled for today
       const events = await this.calendarRepository.find({
         where: {
           organizerId: staff.id,
-          startTime: Between(new Date(dateStr + 'T00:00:00'), new Date(dateStr + 'T23:59:59')),
+          startTime: Between(dayStart, dayEnd),
           status: In([EventStatus.SCHEDULED, EventStatus.PENDING_CONFIRMATION]),
         },
       });
@@ -3297,6 +3314,7 @@ export class StaffAssignmentService {
       const scheduledMinutes = events.reduce((sum, e) => sum + e.durationMinutes, 0);
       const dailyCapacity = 480; // 8 hours default
       const utilizationRate = (scheduledMinutes / dailyCapacity) * 100;
+      const isOnLeave = approvedLeaveStaffIds.has(staff.id);
 
       await this.workloadRepository.upsert(
         {
@@ -3307,7 +3325,8 @@ export class StaffAssignmentService {
           dailyCapacityMinutes: dailyCapacity,
           utilizationRate: Math.round(utilizationRate * 100) / 100,
           isOverloaded: utilizationRate >= ASSIGNMENT_CONFIG.OVERLOADED_THRESHOLD,
-          canAcceptNewEvent: utilizationRate < ASSIGNMENT_CONFIG.MAX_UTILIZATION_RATE,
+          canAcceptNewEvent: !isOnLeave && utilizationRate < ASSIGNMENT_CONFIG.MAX_UTILIZATION_RATE,
+          isOnLeave,
         },
         ['staffId', 'date'],
       );

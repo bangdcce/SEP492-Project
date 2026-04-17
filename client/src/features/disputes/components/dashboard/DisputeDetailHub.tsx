@@ -174,7 +174,9 @@ const ExpandableTextBlock = ({
     "min-w-0 whitespace-pre-wrap break-words [overflow-wrap:anywhere]",
     contentClassName,
     canExpand && !expanded ? `${collapsedMaxHeightClass} overflow-hidden` : "",
-    canExpand && expanded ? `${expandedMaxHeightClass} overflow-y-auto pr-1` : "",
+    canExpand && expanded
+      ? `${expandedMaxHeightClass} overflow-y-auto pr-1`
+      : "",
   ]
     .filter(Boolean)
     .join(" ");
@@ -266,7 +268,9 @@ const TimelineRoute = ({
       ) : null}
 
       <div>
-        <h3 className="mb-3 text-sm font-semibold text-slate-900">Case Timeline</h3>
+        <h3 className="mb-3 text-sm font-semibold text-slate-900">
+          Case Timeline
+        </h3>
         {loading ? (
           <div className="rounded-xl border border-slate-200 bg-white p-4 text-gray-500">
             Loading timeline...
@@ -399,7 +403,7 @@ const caseStageLabelMap: Record<string, string> = {
   DELIBERATION: "Deliberation",
   VERDICT_ISSUED: "Verdict issued",
   APPEAL_WINDOW: "Appeal window",
-  APPEAL_HEARING: "Appeal hearing",
+  APPEAL_HEARING: "Appeal review",
   FINAL_ARCHIVE: "Final archive",
 };
 
@@ -699,6 +703,12 @@ export const DisputeDetailHub = ({
     if (!appealDeadlineSource) return false;
     return Date.now() > new Date(appealDeadlineSource).getTime();
   }, [appealDeadlineSource]);
+  const appealDeadlineLabel = useMemo(() => {
+    if (appealTrack?.state === "FILED" || appealTrack?.state === "RESOLVED") {
+      return "Appeal review deadline";
+    }
+    return "Appeal window";
+  }, [appealTrack?.state]);
 
   const canSubmitVerdictAppeal = useMemo(() => {
     if (typeof verdict?.acceptance?.currentUserCanAppeal === "boolean") {
@@ -978,7 +988,10 @@ export const DisputeDetailHub = ({
 
   const openContractPage = useCallback(
     (contractId: string) => {
-      const targetPath = resolveContractDetailPath(contractBasePath, contractId);
+      const targetPath = resolveContractDetailPath(
+        contractBasePath,
+        contractId,
+      );
       if (!targetPath) {
         toast.error("Contract page is unavailable for your current role.");
         return;
@@ -1452,9 +1465,7 @@ export const DisputeDetailHub = ({
                     </h3>
                     <p className="mt-1 text-xs text-amber-900/80">
                       State: <strong>{appealStateLabel}</strong>
-                      {appealTrack.requiresHearing
-                        ? " • Tier 2 hearing required"
-                        : " • Desk review"}
+                      {" • Admin desk review"}
                     </p>
                   </div>
                   {appealTrack.isSlaBreached ? (
@@ -1595,7 +1606,9 @@ export const DisputeDetailHub = ({
                   {dispute.hearingDocket.map((entry) => {
                     const agendaBlock = parseHearingAgendaBlock(
                       entry.agenda,
-                      entry.tier === "TIER_2" ? dispute?.appealReason : undefined,
+                      entry.tier === "TIER_2"
+                        ? dispute?.appealReason
+                        : undefined,
                     );
 
                     return (
@@ -1930,7 +1943,7 @@ export const DisputeDetailHub = ({
             {appealDeadlineSource ? (
               <div className="flex items-center gap-2">
                 <Scale className="h-4 w-4 text-gray-400" />
-                Appeal window {appealDeadlineText ?? "Available"}
+                {appealDeadlineLabel} {appealDeadlineText ?? "Available"}
               </div>
             ) : null}
           </div>

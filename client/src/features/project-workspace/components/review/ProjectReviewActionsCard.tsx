@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   CheckCircle2,
@@ -29,8 +29,7 @@ type ReviewTarget = WorkspaceProjectParticipant & {
   roleLabel: string;
 };
 
-const REVIEWABLE_PROJECT_STATUSES = new Set(["COMPLETED", "PAID"]);
-const FINAL_REVIEWABLE_MILESTONE_STATUSES = new Set(["COMPLETED", "PAID"]);
+const FINAL_REVIEWABLE_MILESTONE_STATUSES = new Set(["PAID"]);
 
 const toTimestamp = (value?: string | null) => {
   if (!value) return Number.POSITIVE_INFINITY;
@@ -93,14 +92,19 @@ export function ProjectReviewActionsCard({
   const [isLoading, setIsLoading] = useState(false);
   const [activeTarget, setActiveTarget] = useState<ReviewTarget | null>(null);
 
+  const refreshTargetReviews = useCallback(async (targetId: string) => {
+    const reviews = await getReviewsByUser(targetId);
+    setReviewsByTargetId((current) => ({
+      ...current,
+      [targetId]: reviews,
+    }));
+  }, []);
+
   const finalMilestone = useMemo(
     () => getFinalMilestone(milestones),
     [milestones],
   );
 
-  const isProjectReviewable = REVIEWABLE_PROJECT_STATUSES.has(
-    String(project.status || "").toUpperCase(),
-  );
   const isFinalMilestoneReadyForReview = FINAL_REVIEWABLE_MILESTONE_STATUSES.has(
     String(finalMilestone?.status || "").toUpperCase(),
   );
@@ -125,7 +129,6 @@ export function ProjectReviewActionsCard({
 
   const isRatingAvailable =
     Boolean(currentUserId && currentUserId.trim().length > 0) &&
-    isProjectReviewable &&
     isFinalMilestoneReadyForReview &&
     reviewableTargets.length > 0;
 
@@ -205,7 +208,7 @@ export function ProjectReviewActionsCard({
                 Rate project participants
               </h3>
               <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">
-                Final milestone{finalMilestone?.title ? ` (${finalMilestone.title})` : ""} is completed. Submit ratings here instead of hunting for the trust profile flow manually.
+                Final milestone{finalMilestone?.title ? ` (${finalMilestone.title})` : ""} is paid. Submit participant feedback here, and it will map directly to Trust Profile reviews and trust score updates.
               </p>
             </div>
           </div>
@@ -305,30 +308,8 @@ export function ProjectReviewActionsCard({
             fullName: activeTarget.fullName || "Unknown user",
           }}
           onSuccess={() => {
-            const optimisticReview: Review = {
-              id: `workspace-review-${project.id}-${activeTarget.id}`,
-              rating: 5,
-              comment: "",
-              weight: 1,
-              createdAt: new Date().toISOString(),
-              updatedAt: new Date().toISOString(),
-              reviewer: {
-                id: currentUserId ?? "current-user",
-                fullName: "You",
-              },
-              project: {
-                id: project.id,
-                title: project.title || "Project",
-                totalBudget: 0,
-              },
-            };
-            setReviewsByTargetId((current) => ({
-              ...current,
-              [activeTarget.id]: [
-                ...(current[activeTarget.id] || []),
-                optimisticReview,
-              ],
-            }));
+            const targetId = activeTarget.id;
+            void refreshTargetReviews(targetId);
             setActiveTarget(null);
           }}
         />

@@ -372,12 +372,11 @@ export class TasksService implements OnModuleInit {
       }
 
       const recipientIds = Array.from(
-        new Set([
-          project.clientId,
-          project.brokerId,
-          project.freelancerId,
-          project.staffId,
-        ].filter(Boolean)),
+        new Set(
+          [project.clientId, project.brokerId, project.freelancerId, project.staffId].filter(
+            Boolean,
+          ),
+        ),
       ).filter((userId): userId is string => Boolean(userId) && userId !== actorId);
 
       if (recipientIds.length === 0) {
@@ -440,25 +439,42 @@ export class TasksService implements OnModuleInit {
     return this.supabase;
   }
 
-  private buildAttachmentPath(fileName: string): string {
-    const ext = path.extname(fileName || '').toLowerCase();
-    const unique = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  private sanitizeAttachmentFileName(fileName: string): string {
+    const trimmedName = path.basename(String(fileName || '').trim());
+    const sanitized = Array.from(trimmedName)
+      .filter((char) => char.charCodeAt(0) >= 32)
+      .join('')
+      .replace(/[<>:"/\\|?*]/g, '_')
+      .replace(/\s+/g, ' ')
+      .replace(/\.{2,}/g, '.')
+      .trim();
 
-    return `comments/${unique}${ext}`;
+    return sanitized || 'attachment';
   }
 
-  async uploadFile(file: Express.Multer.File): Promise<{ url: string }> {
+  private buildAttachmentPath(fileName: string): string {
+    const unique = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    const sanitizedFileName = this.sanitizeAttachmentFileName(fileName);
+
+    return `comments/${unique}/${sanitizedFileName}`;
+  }
+
+  async uploadFile(
+    file: Express.Multer.File,
+  ): Promise<{ url: string; fileName: string; fileType: string }> {
     if (!file?.buffer) {
       throw new BadRequestException('File is required');
     }
 
     const supabase = this.getSupabaseClient();
     const bucketName = ATTACHMENT_BUCKET;
+    const originalFileName = this.sanitizeAttachmentFileName(file.originalname || 'attachment');
+    const fileType = file.mimetype || 'application/octet-stream';
     this.logger.log(`Uploading to bucket: ${bucketName}`);
-    const storagePath = this.buildAttachmentPath(file.originalname || 'attachment');
+    const storagePath = this.buildAttachmentPath(originalFileName);
 
     const { error } = await supabase.storage.from(bucketName).upload(storagePath, file.buffer, {
-      contentType: file.mimetype || 'application/octet-stream',
+      contentType: fileType,
       cacheControl: '3600',
       upsert: false,
     });
@@ -480,8 +496,8 @@ export class TasksService implements OnModuleInit {
         context: {
           bucket: ATTACHMENT_BUCKET,
           storagePath,
-          fileName: file.originalname || 'attachment',
-          mimeType: file.mimetype || 'application/octet-stream',
+          fileName: originalFileName,
+          mimeType: fileType,
         },
       });
       throw new InternalServerErrorException('Failed to upload attachment');
@@ -493,7 +509,11 @@ export class TasksService implements OnModuleInit {
       throw new InternalServerErrorException('Upload succeeded, but public URL is missing');
     }
 
-    return { url: data.publicUrl };
+    return {
+      url: data.publicUrl,
+      fileName: originalFileName,
+      fileType,
+    };
   }
 
   async getTaskHistory(taskId: string): Promise<TaskHistoryEntity[]> {
@@ -710,11 +730,7 @@ export class TasksService implements OnModuleInit {
     await this.taskLinkRepository.remove(link);
   }
 
-  async deleteTask(
-    taskId: string,
-    actorId?: string,
-    actorRole?: UserRole | string,
-  ): Promise<void> {
+  async deleteTask(taskId: string, actorId?: string, actorRole?: UserRole | string): Promise<void> {
     if (!actorId) {
       throw new ForbiddenException('Authentication required');
     }
@@ -945,7 +961,11 @@ export class TasksService implements OnModuleInit {
 
     let attachmentsUpdated = false;
     try {
-      attachmentsUpdated = await this.createAttachmentsFromComment(taskId, actorId, sanitizedContent);
+      attachmentsUpdated = await this.createAttachmentsFromComment(
+        taskId,
+        actorId,
+        sanitizedContent,
+      );
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       this.logger.warn(`Failed to extract task attachments: ${message}`);
@@ -1373,7 +1393,6 @@ export class TasksService implements OnModuleInit {
       totalTasks,
       completedTasks,
     };
-
   }
 
   private extractImageUrls(html: string): string[] {
@@ -1391,9 +1410,25 @@ export class TasksService implements OnModuleInit {
   private getFileNameFromUrl(url: string): string {
     try {
       const parsed = new URL(url);
+      const fileNameFromHash = new URLSearchParams(parsed.hash.replace(/^#/, '')).get('filename');
+      if (fileNameFromHash?.trim()) {
+        return decodeURIComponent(fileNameFromHash);
+      }
+
+      const fileNameFromQuery = parsed.searchParams.get('filename');
+      if (fileNameFromQuery?.trim()) {
+        return decodeURIComponent(fileNameFromQuery);
+      }
+
       const name = path.basename(parsed.pathname);
       return name || 'attachment';
     } catch {
+      const hashSegment = url.split('#')[1] || '';
+      const fileNameFromHash = new URLSearchParams(hashSegment).get('filename');
+      if (fileNameFromHash?.trim()) {
+        return decodeURIComponent(fileNameFromHash);
+      }
+
       const cleaned = url.split('?')[0]?.split('#')[0] || '';
       const name = path.basename(cleaned);
       return name || 'attachment';
@@ -1631,12 +1666,11 @@ export class TasksService implements OnModuleInit {
       if (!task.milestoneId) {
         continue;
       }
-      const currentSummary =
-        milestoneProgressMap.get(task.milestoneId) ?? {
-          progress: 0,
-          totalTasks: 0,
-          completedTasks: 0,
-        };
+      const currentSummary = milestoneProgressMap.get(task.milestoneId) ?? {
+        progress: 0,
+        totalTasks: 0,
+        completedTasks: 0,
+      };
       currentSummary.totalTasks += 1;
       if (task.status === TaskStatus.DONE) {
         currentSummary.completedTasks += 1;
@@ -1648,14 +1682,13 @@ export class TasksService implements OnModuleInit {
       tasks: board,
       milestones: milestones.map((milestone) => ({
         ...milestone,
-        progress:
-          milestoneProgressMap.get(milestone.id)?.totalTasks
-            ? Math.round(
-                (milestoneProgressMap.get(milestone.id)!.completedTasks
-                  / milestoneProgressMap.get(milestone.id)!.totalTasks)
-                  * 100,
-              )
-            : 0,
+        progress: milestoneProgressMap.get(milestone.id)?.totalTasks
+          ? Math.round(
+              (milestoneProgressMap.get(milestone.id)!.completedTasks /
+                milestoneProgressMap.get(milestone.id)!.totalTasks) *
+                100,
+            )
+          : 0,
         totalTasks: milestoneProgressMap.get(milestone.id)?.totalTasks ?? 0,
         completedTasks: milestoneProgressMap.get(milestone.id)?.completedTasks ?? 0,
         escrow: escrowMap.get(milestone.id) ?? null,
@@ -1722,7 +1755,11 @@ export class TasksService implements OnModuleInit {
       },
     });
 
-    if (status === TaskStatus.DONE && previousStatus !== TaskStatus.DONE && approvedSubmissionCount === 0) {
+    if (
+      status === TaskStatus.DONE &&
+      previousStatus !== TaskStatus.DONE &&
+      approvedSubmissionCount === 0
+    ) {
       throw new BadRequestException('Cannot move to DONE without an approved submission.');
     }
 
@@ -1962,9 +1999,7 @@ export class TasksService implements OnModuleInit {
     }
 
     if (!project.brokerId || project.brokerId !== data.requesterId) {
-      throw new ForbiddenException(
-        'Only the assigned broker can create tasks for this project.',
-      );
+      throw new ForbiddenException('Only the assigned broker can create tasks for this project.');
     }
 
     await this.assertMilestoneInteractionAllowed(data.milestoneId);
@@ -2139,8 +2174,9 @@ export class TasksService implements OnModuleInit {
           continue;
         }
 
-        const { progress, totalTasks, completedTasks } =
-          await this.calculateMilestoneProgress(finalized.milestoneId);
+        const { progress, totalTasks, completedTasks } = await this.calculateMilestoneProgress(
+          finalized.milestoneId,
+        );
 
         await this.syncMilestoneStatus(finalized.milestoneId, progress, now);
         await this.recordWorkspaceSystemMessage(
@@ -2204,8 +2240,7 @@ export class TasksService implements OnModuleInit {
         return null;
       }
 
-      const autoApprovalNote =
-        'Automatically approved after 24 hours without client response.';
+      const autoApprovalNote = 'Automatically approved after 24 hours without client response.';
 
       const updateResult = await submissionRepo
         .createQueryBuilder()

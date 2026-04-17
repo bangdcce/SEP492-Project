@@ -845,6 +845,7 @@ export class DisputeEventListener {
     newStatus?: string;
     appealReason?: string;
     additionalEvidenceCount?: number;
+    appealDeadline?: Date | string | null;
     escalatedToAdminId?: string | null;
   }): Promise<void> {
     if (!payload?.disputeId) {
@@ -858,6 +859,7 @@ export class DisputeEventListener {
       newStatus: payload.newStatus || null,
       appealReason: payload.appealReason || null,
       additionalEvidenceCount: payload.additionalEvidenceCount ?? 0,
+      appealDeadline: payload.appealDeadline ? this.toIsoString(payload.appealDeadline) : null,
       escalatedToAdminId: payload.escalatedToAdminId || null,
       serverTimestamp: this.toIsoString(),
     };
@@ -872,6 +874,7 @@ export class DisputeEventListener {
         previousStatus: payload.previousStatus || null,
         newStatus: payload.newStatus || null,
         additionalEvidenceCount: payload.additionalEvidenceCount ?? 0,
+        appealDeadline: payload.appealDeadline ? this.toIsoString(payload.appealDeadline) : null,
         escalatedToAdminId: payload.escalatedToAdminId || null,
       },
     });

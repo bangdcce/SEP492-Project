@@ -1293,6 +1293,7 @@ export class ProjectsService {
     let approvalActorLabel = 'Authorized user';
     let approvedMilestoneTitle = 'Milestone';
     let approvedMilestoneAmount = '0.00';
+    let projectMarkedPaid = false;
 
     await this.dataSource.transaction(async (manager) => {
       const milestoneRepository = manager.getRepository(MilestoneEntity);
@@ -1422,6 +1423,23 @@ export class ProjectsService {
       milestone.status = MilestoneStatus.PAID;
       updatedMilestone = await milestoneRepository.save(milestone);
 
+      const projectMilestones = await milestoneRepository.find({
+        where: { projectId: project.id },
+      });
+      const hasMilestones = projectMilestones.length > 0;
+      const allMilestonesPaid =
+        hasMilestones &&
+        projectMilestones.every((item) => item.status === MilestoneStatus.PAID);
+
+      if (allMilestonesPaid && project.status !== ProjectStatus.PAID) {
+        project.status = ProjectStatus.PAID;
+        if (!project.endDate) {
+          project.endDate = new Date();
+        }
+        await projectRepository.save(project);
+        projectMarkedPaid = true;
+      }
+
       this.logger.log(
         `💰 FUNDS RELEASED: Milestone "${milestone.title}" (${milestone.amount} ${logCurrency}) approved by user ${userId} | tx=${releaseTransactionIds.join(',')}`,
       );
@@ -1447,7 +1465,9 @@ export class ProjectsService {
     if (auditProjectId) {
       await this.recordWorkspaceSystemMessage(
         auditProjectId,
-        `${approvalActorLabel} authorized release of ${approvedMilestoneAmount} ${logCurrency} for milestone "${approvedMilestoneTitle}".`,
+        projectMarkedPaid
+          ? `${approvalActorLabel} authorized release of ${approvedMilestoneAmount} ${logCurrency} for milestone "${approvedMilestoneTitle}". Project is now marked PAID and participant feedback is unlocked.`
+          : `${approvalActorLabel} authorized release of ${approvedMilestoneAmount} ${logCurrency} for milestone "${approvedMilestoneTitle}".`,
       );
     }
 

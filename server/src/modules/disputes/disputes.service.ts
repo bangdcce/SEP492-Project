@@ -166,6 +166,7 @@ const DEFAULT_TEST_LOOKAHEAD_DAYS = 7;
 const _DEFAULT_SETTLEMENT_WINDOW_HOURS = 24;
 const _DEADLINE_SETTLEMENT_WINDOW_HOURS = 48;
 const _REJECTION_APPEAL_WINDOW_HOURS = 24;
+const APPEAL_REVIEW_DEADLINE_HOURS = 48;
 const DISMISSAL_HOLD_HOURS = 24;
 const DISMISSAL_RATE_SAMPLE_WINDOW_DAYS = 30;
 const DISMISSAL_RATE_ALERT_THRESHOLD = 0.3;
@@ -1695,50 +1696,49 @@ export class DisputesService {
         }
       }
 
-      if (process.env.NODE_ENV === "__legacy_disabled__") {
-      const allowedMilestoneStatuses = parentDisputeId
-        ? [MilestoneStatus.COMPLETED, MilestoneStatus.LOCKED]
-        : this.getAllowedMilestoneStatusesForDispute(disputeCategory);
+      if (process.env.NODE_ENV === '__legacy_disabled__') {
+        const allowedMilestoneStatuses = parentDisputeId
+          ? [MilestoneStatus.COMPLETED, MilestoneStatus.LOCKED]
+          : this.getAllowedMilestoneStatusesForDispute(disputeCategory);
 
-      // Nếu milestone đã PAID nhưng còn bảo hành -> Cho phép dispute
-      if (milestone.status === MilestoneStatus.PAID) {
-        allowedMilestoneStatuses.push(MilestoneStatus.PAID);
-      }
-
-      if (!allowedMilestoneStatuses.includes(milestone.status)) {
-        throw new BadRequestException(
-          `Milestone status "${milestone.status}" does not allow ${disputeCategory} disputes. ` +
-            `Allowed statuses: ${allowedMilestoneStatuses.join(', ')}`,
-        );
-      }
-
-      const allowedEscrowStatuses = parentDisputeId
-        ? [EscrowStatus.FUNDED, EscrowStatus.DISPUTED]
-        : [EscrowStatus.FUNDED, EscrowStatus.DISPUTED];
-
-      if (!allowedEscrowStatuses.includes(escrow.status)) {
-        throw new BadRequestException('Escrow is not in valid state for dispute');
-      }
-
-      const executionSignal = await this.collectMilestoneExecutionSignal(
-        queryRunner.manager,
-        milestone,
-      );
-      const eligibility = this.evaluateDisputeEligibility({
-        category: disputeCategory,
-        milestone,
-        escrow,
-        executionSignal,
-        now,
-      });
-      if (!eligibility.allowed) {
-        if (canUseEligibilityBypass) {
-          testBypassReason = eligibility.reason;
-        } else {
-          throw new BadRequestException(eligibility.reason);
+        // Nếu milestone đã PAID nhưng còn bảo hành -> Cho phép dispute
+        if (milestone.status === MilestoneStatus.PAID) {
+          allowedMilestoneStatuses.push(MilestoneStatus.PAID);
         }
-      }
 
+        if (!allowedMilestoneStatuses.includes(milestone.status)) {
+          throw new BadRequestException(
+            `Milestone status "${milestone.status}" does not allow ${disputeCategory} disputes. ` +
+              `Allowed statuses: ${allowedMilestoneStatuses.join(', ')}`,
+          );
+        }
+
+        const allowedEscrowStatuses = parentDisputeId
+          ? [EscrowStatus.FUNDED, EscrowStatus.DISPUTED]
+          : [EscrowStatus.FUNDED, EscrowStatus.DISPUTED];
+
+        if (!allowedEscrowStatuses.includes(escrow.status)) {
+          throw new BadRequestException('Escrow is not in valid state for dispute');
+        }
+
+        const executionSignal = await this.collectMilestoneExecutionSignal(
+          queryRunner.manager,
+          milestone,
+        );
+        const eligibility = this.evaluateDisputeEligibility({
+          category: disputeCategory,
+          milestone,
+          escrow,
+          executionSignal,
+          now,
+        });
+        if (!eligibility.allowed) {
+          if (canUseEligibilityBypass) {
+            testBypassReason = eligibility.reason;
+          } else {
+            throw new BadRequestException(eligibility.reason);
+          }
+        }
       }
 
       const projectMember = [project.clientId, project.brokerId, project.freelancerId].filter(
@@ -2397,49 +2397,48 @@ export class DisputesService {
       }
     }
 
-    if (process.env.NODE_ENV === "__legacy_disabled__") {
-    const allowedMilestoneStatuses = parentDisputeId
-      ? [MilestoneStatus.COMPLETED, MilestoneStatus.LOCKED]
-      : this.getAllowedMilestoneStatusesForDispute(disputeCategory);
+    if (process.env.NODE_ENV === '__legacy_disabled__') {
+      const allowedMilestoneStatuses = parentDisputeId
+        ? [MilestoneStatus.COMPLETED, MilestoneStatus.LOCKED]
+        : this.getAllowedMilestoneStatusesForDispute(disputeCategory);
 
-    if (milestone.status === MilestoneStatus.PAID) {
-      allowedMilestoneStatuses.push(MilestoneStatus.PAID);
-    }
-
-    if (!allowedMilestoneStatuses.includes(milestone.status)) {
-      throw new BadRequestException(
-        `Milestone status "${milestone.status}" does not allow ${disputeCategory} disputes. ` +
-          `Allowed statuses: ${allowedMilestoneStatuses.join(', ')}`,
-      );
-    }
-
-    const allowedEscrowStatuses = parentDisputeId
-      ? [EscrowStatus.FUNDED, EscrowStatus.DISPUTED]
-      : [EscrowStatus.FUNDED, EscrowStatus.DISPUTED];
-
-    if (!allowedEscrowStatuses.includes(escrow.status)) {
-      throw new BadRequestException('Escrow is not in valid state for dispute');
-    }
-
-    const executionSignal = await this.collectMilestoneExecutionSignal(
-      queryRunner.manager,
-      milestone,
-    );
-    const eligibility = this.evaluateDisputeEligibility({
-      category: disputeCategory,
-      milestone,
-      escrow,
-      executionSignal,
-      now,
-    });
-    if (!eligibility.allowed) {
-      if (canUseEligibilityBypass) {
-        testBypassReason = eligibility.reason;
-      } else {
-        throw new BadRequestException(eligibility.reason);
+      if (milestone.status === MilestoneStatus.PAID) {
+        allowedMilestoneStatuses.push(MilestoneStatus.PAID);
       }
-    }
 
+      if (!allowedMilestoneStatuses.includes(milestone.status)) {
+        throw new BadRequestException(
+          `Milestone status "${milestone.status}" does not allow ${disputeCategory} disputes. ` +
+            `Allowed statuses: ${allowedMilestoneStatuses.join(', ')}`,
+        );
+      }
+
+      const allowedEscrowStatuses = parentDisputeId
+        ? [EscrowStatus.FUNDED, EscrowStatus.DISPUTED]
+        : [EscrowStatus.FUNDED, EscrowStatus.DISPUTED];
+
+      if (!allowedEscrowStatuses.includes(escrow.status)) {
+        throw new BadRequestException('Escrow is not in valid state for dispute');
+      }
+
+      const executionSignal = await this.collectMilestoneExecutionSignal(
+        queryRunner.manager,
+        milestone,
+      );
+      const eligibility = this.evaluateDisputeEligibility({
+        category: disputeCategory,
+        milestone,
+        escrow,
+        executionSignal,
+        now,
+      });
+      if (!eligibility.allowed) {
+        if (canUseEligibilityBypass) {
+          testBypassReason = eligibility.reason;
+        } else {
+          throw new BadRequestException(eligibility.reason);
+        }
+      }
     }
 
     const projectMember = [project.clientId, project.brokerId, project.freelancerId].filter(
@@ -3080,9 +3079,7 @@ export class DisputesService {
 
     const scopedFilters: Omit<DisputeFilterDto, 'asRaiser' | 'asDefendant' | 'asInvolved'> = {
       ...restFilters,
-      ...(normalizedHandledByStaffId
-        ? { handledByStaffId: normalizedHandledByStaffId }
-        : {}),
+      ...(normalizedHandledByStaffId ? { handledByStaffId: normalizedHandledByStaffId } : {}),
     };
 
     const requestedScopes = [
@@ -3164,12 +3161,9 @@ export class DisputesService {
             sub.orWhere('dispute.appealResolvedById = :handledByStaffId', {
               handledByStaffId: normalizedHandledByStaffId,
             });
-            sub.orWhere(
-              'dispute.rejectionAppealResolvedById = :handledByStaffId',
-              {
-                handledByStaffId: normalizedHandledByStaffId,
-              },
-            );
+            sub.orWhere('dispute.rejectionAppealResolvedById = :handledByStaffId', {
+              handledByStaffId: normalizedHandledByStaffId,
+            });
           }
         }),
       );
@@ -4299,10 +4293,11 @@ export class DisputesService {
 
     const hasSubmittedAt = Boolean(milestone.submittedAt);
     const hasSubmissionSignal =
-      hasSubmittedAt ||
-      Boolean(milestone.proofOfWork && milestone.proofOfWork.trim().length > 0);
+      hasSubmittedAt || Boolean(milestone.proofOfWork && milestone.proofOfWork.trim().length > 0);
 
-    const requiresBrokerReview = Boolean(project?.brokerId && project.brokerId !== project.clientId);
+    const requiresBrokerReview = Boolean(
+      project?.brokerId && project.brokerId !== project.clientId,
+    );
     const brokerAcceptedLegacyFallback =
       requiresBrokerReview &&
       !milestone.staffRecommendation &&
@@ -4922,9 +4917,9 @@ export class DisputesService {
       case 'DELIBERATION':
         return 'Moderator is reviewing the hearing record and minutes.';
       case 'APPEAL_HEARING':
-        return 'Appeal review is active on the Tier 2 docket.';
+        return 'Appeal review is active in the admin queue.';
       case 'APPEAL_WINDOW':
-        return 'Appeal review window is open or awaiting final appeal outcome.';
+        return 'Appeal is under admin desk review awaiting the final outcome.';
       case 'VERDICT_ISSUED':
       case 'FINAL_ARCHIVE':
         return 'Case record is read-only reference material.';
@@ -5330,10 +5325,20 @@ export class DisputesService {
         appealKind === 'REJECTION'
           ? rawDispute.rejectionAppealedAt || null
           : rawDispute.appealedAt || null;
+      const appealReviewDeadline = [
+        DisputeStatus.APPEALED,
+        DisputeStatus.REJECTION_APPEALED,
+      ].includes(rawDispute.status)
+        ? rawDispute.resolutionDeadline || rawDispute.appealDeadline || null
+        : null;
       const appealDeadline =
         appealKind === 'REJECTION'
-          ? rawDispute.dismissalHoldUntil || null
-          : rawDispute.appealDeadline || null;
+          ? appealFiledAt
+            ? appealReviewDeadline
+            : rawDispute.dismissalHoldUntil || null
+          : appealFiledAt
+            ? appealReviewDeadline
+            : rawDispute.appealDeadline || null;
       const appealResolvedAt =
         appealKind === 'REJECTION'
           ? rawDispute.rejectionAppealResolvedAt || null
@@ -5372,13 +5377,16 @@ export class DisputesService {
         canResolve:
           Boolean(viewer?.userRole === UserRole.ADMIN) &&
           [DisputeStatus.APPEALED, DisputeStatus.REJECTION_APPEALED].includes(rawDispute.status),
-        requiresHearing: appealKind === 'VERDICT',
+        requiresHearing: false,
         resolution: appealResolution,
         resolvedAt: appealResolvedAt,
         isSlaBreached: Boolean(
           appealFiledAt &&
           !appealResolvedAt &&
-          now.getTime() - new Date(appealFiledAt).getTime() > 48 * 60 * 60 * 1000,
+          now.getTime() >
+            (appealDeadline
+              ? new Date(appealDeadline).getTime()
+              : new Date(appealFiledAt).getTime() + APPEAL_REVIEW_DEADLINE_HOURS * 60 * 60 * 1000),
         ),
       };
       const caseStage =
@@ -9383,63 +9391,9 @@ export class DisputesService {
       newStatus: updated.status,
       appealReason: normalizedReason,
       additionalEvidenceCount: dto.additionalEvidence?.length ?? 0,
+      appealDeadline: updated.appealDeadline ?? null,
       escalatedToAdminId: updated.escalatedToAdminId ?? null,
     });
-
-    try {
-      const existingAppealHearing = await this.hearingRepo.findOne({
-        where: {
-          disputeId,
-          tier: HearingTier.TIER_2,
-          status: In([HearingStatus.SCHEDULED, HearingStatus.IN_PROGRESS, HearingStatus.PAUSED]),
-        },
-        select: ['id'],
-      });
-
-      if (existingAppealHearing) {
-        return updated;
-      }
-
-      const admin = updated.escalatedToAdminId
-        ? await this.userRepo.findOne({
-            where: {
-              id: updated.escalatedToAdminId,
-              role: UserRole.ADMIN,
-              status: UserStatus.ACTIVE,
-            },
-            select: ['id'],
-          })
-        : await this.userRepo.findOne({
-            where: { role: UserRole.ADMIN, status: UserStatus.ACTIVE },
-            select: ['id'],
-            order: { createdAt: 'ASC' },
-          });
-
-      if (admin) {
-        const appealHearingDate = new Date(Date.now() + 72 * 60 * 60 * 1000);
-
-        await this.hearingService.scheduleHearing(
-          {
-            disputeId,
-            scheduledAt: appealHearingDate.toISOString(),
-            tier: HearingTier.TIER_2,
-            agenda: [
-              'Appeal hearing (Tier 2)',
-              'Reviewing verdict appeal',
-              normalizedReason.slice(0, 1600),
-            ].join('\n\n'),
-            estimatedDurationMinutes: 90,
-            isEmergency: false,
-          },
-          admin.id,
-        );
-
-        updated = (await this.disputeRepo.findOne({ where: { id: disputeId } })) ?? updated;
-      }
-    } catch (scheduleError: unknown) {
-      const errMsg = scheduleError instanceof Error ? scheduleError.message : String(scheduleError);
-      this.logger.warn(`Auto-schedule TIER_2 hearing failed for dispute ${disputeId}: ${errMsg}`);
-    }
 
     return updated;
   }
@@ -9465,14 +9419,21 @@ export class DisputesService {
 
     const previousStatus = dispute.status;
     const previousResult = dispute.result ?? null;
+    const now = new Date();
+    const appealReviewDeadline = new Date(
+      now.getTime() + APPEAL_REVIEW_DEADLINE_HOURS * 60 * 60 * 1000,
+    );
     dispute.status = DisputeStateMachine.transition(
       dispute.status,
       DisputeStatus.REJECTION_APPEALED,
     );
     dispute.rejectionAppealReason = reason;
-    dispute.rejectionAppealedAt = new Date();
+    dispute.rejectionAppealedAt = now;
     dispute.escalationReason = reason;
     dispute.escalatedAt = dispute.rejectionAppealedAt;
+    dispute.appealDeadline = appealReviewDeadline;
+    dispute.resolutionDeadline = appealReviewDeadline;
+    dispute.isOverdue = false;
     dispute.escalatedToAdminId = await this.pickAppealAdminId(dispute.escalatedToAdminId);
 
     const updated = await this.disputeRepo.save(dispute);
@@ -9496,7 +9457,7 @@ export class DisputesService {
     this.eventEmitter.emit(DISPUTE_EVENTS.REJECTION_APPEALED, {
       disputeId: dispute.id,
       userId,
-      appealDeadline: dispute.dismissalHoldUntil,
+      appealDeadline: dispute.appealDeadline,
       escalatedToAdminId: updated.escalatedToAdminId,
     });
 

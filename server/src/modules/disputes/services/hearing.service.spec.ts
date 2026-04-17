@@ -19,12 +19,12 @@ import {
   EventStatus,
   HearingParticipantEntity,
   HearingParticipantRole,
-    HearingQuestionEntity,
-    HearingReminderDeliveryEntity,
-    HearingStatementEntity,
-    HearingStatementStatus,
-    HearingStatementType,
-    HearingStatus,
+  HearingQuestionEntity,
+  HearingReminderDeliveryEntity,
+  HearingStatementEntity,
+  HearingStatementStatus,
+  HearingStatementType,
+  HearingStatus,
   HearingTier,
   MilestoneEntity,
   NotificationEntity,
@@ -127,6 +127,52 @@ describe('HearingService', () => {
     expect(service).toBeDefined();
   });
 
+  describe('appeal desk review hardening', () => {
+    it('rejects scheduling tier 2 hearings', async () => {
+      disputeRepo.findOne.mockResolvedValue({
+        id: 'd-1',
+        status: DisputeStatus.IN_MEDIATION,
+        currentTier: 1,
+      });
+      userRepo.findOne.mockResolvedValue({ id: 'admin-1', role: UserRole.ADMIN });
+
+      await expect(
+        service.scheduleHearing(
+          {
+            disputeId: 'd-1',
+            scheduledAt: '2026-04-21T10:00:00.000Z',
+            tier: HearingTier.TIER_2,
+          } as ScheduleHearingDto,
+          'admin-1',
+        ),
+      ).rejects.toThrow('Tier 2 hearings are disabled');
+    });
+
+    it('rejects rescheduling legacy tier 2 hearings', async () => {
+      hearingRepo.findOne.mockResolvedValue({
+        id: 'hearing-tier-2',
+        disputeId: 'd-1',
+        status: HearingStatus.SCHEDULED,
+        tier: HearingTier.TIER_2,
+        rescheduleCount: 0,
+        scheduledAt: new Date('2026-04-21T10:00:00.000Z'),
+        moderatorId: 'admin-1',
+        participants: [],
+      });
+      userRepo.findOne.mockResolvedValue({ id: 'admin-1', role: UserRole.ADMIN });
+
+      await expect(
+        service.rescheduleHearing(
+          {
+            hearingId: 'hearing-tier-2',
+            scheduledAt: '2026-04-22T10:00:00.000Z',
+          } as RescheduleHearingDto,
+          'admin-1',
+        ),
+      ).rejects.toThrow('Tier 2 hearings are disabled');
+    });
+  });
+
   describe('determineRequiredParticipants', () => {
     it('adds broker as optional witness', async () => {
       disputeRepo.findOne.mockResolvedValue({
@@ -148,7 +194,11 @@ describe('HearingService', () => {
       });
       disputePartyRepo.find.mockResolvedValue([]);
 
-      const result = await service.determineRequiredParticipants('d-1', HearingTier.TIER_1, 'staff-1');
+      const result = await service.determineRequiredParticipants(
+        'd-1',
+        HearingTier.TIER_1,
+        'staff-1',
+      );
 
       const broker = result.participants.find((item) => item.userId === 'broker-1');
       expect(result.hasBroker).toBe(true);
@@ -214,7 +264,11 @@ describe('HearingService', () => {
         ],
       });
 
-      const result = await service.getEvidenceAttachPermission('h-1', 'declined-1', UserRole.CLIENT);
+      const result = await service.getEvidenceAttachPermission(
+        'h-1',
+        'declined-1',
+        UserRole.CLIENT,
+      );
 
       expect(result.allowed).toBe(false);
       expect(result.reason).toContain('declined');
@@ -342,6 +396,14 @@ describe('HearingService', () => {
       } as UserEntity);
 
       expect(result.evidence).toEqual([]);
+      expect((service as any).getHearingStatements).toHaveBeenCalledWith(
+        'h-1',
+        expect.objectContaining({
+          id: 'broker-1',
+          role: UserRole.BROKER,
+        }),
+        { includeDrafts: true },
+      );
       expect(evidenceService.getEvidenceList).toHaveBeenCalledWith(
         'd-1',
         'broker-1',
@@ -369,7 +431,9 @@ describe('HearingService', () => {
     });
 
     it('returns false when required participant is pending/declined', () => {
-      const participants = [{ userId: 'u1', isRequired: true, isOnline: true }] as HearingParticipantEntity[];
+      const participants = [
+        { userId: 'u1', isRequired: true, isOnline: true },
+      ] as HearingParticipantEntity[];
 
       const pending = (service as any).areAllRequiredParticipantsReady(
         participants,
@@ -414,11 +478,7 @@ describe('HearingService', () => {
         canControl: true,
       });
 
-      await service.transitionHearingPhase(
-        'hearing-1',
-        DisputePhase.CROSS_EXAMINATION,
-        'staff-1',
-      );
+      await service.transitionHearingPhase('hearing-1', DisputePhase.CROSS_EXAMINATION, 'staff-1');
 
       expect(statementRepo.update).toHaveBeenCalledTimes(3);
       expect(statementRepo.update).toHaveBeenCalledWith(
@@ -472,13 +532,11 @@ describe('HearingService', () => {
         role: UserRole.STAFF,
       });
 
-      const finalizeSpy = jest
-        .spyOn(service as any, 'finalizeHearingEnd')
-        .mockResolvedValue({
-          hearing: resolvedHearing,
-          cancelledQuestions: [],
-          absentParticipants: [],
-        });
+      const finalizeSpy = jest.spyOn(service as any, 'finalizeHearingEnd').mockResolvedValue({
+        hearing: resolvedHearing,
+        cancelledQuestions: [],
+        absentParticipants: [],
+      });
 
       await service.endHearing(
         {
@@ -623,9 +681,7 @@ describe('HearingService', () => {
         type: HearingStatementType.OPENING,
         title: 'Old title',
         content: 'Old summary',
-        structuredContent: [
-          { kind: 'SUMMARY', heading: 'Executive Summary', body: 'Old summary' },
-        ],
+        structuredContent: [{ kind: 'SUMMARY', heading: 'Executive Summary', body: 'Old summary' }],
         citedEvidenceIds: ['ev-old'],
         attachments: null,
         replyToStatementId: null,
@@ -677,7 +733,9 @@ describe('HearingService', () => {
   describe('hearing lifecycle filtering', () => {
     it('returns only actionable hearings for active lifecycle', async () => {
       jest.spyOn(service as any, 'ensureDisputeAccessForHearings').mockResolvedValue(undefined);
-      jest.spyOn(service as any, 'loadConfirmationSummaryByHearingIds').mockResolvedValue(new Map());
+      jest
+        .spyOn(service as any, 'loadConfirmationSummaryByHearingIds')
+        .mockResolvedValue(new Map());
       const upcomingActiveAt = new Date(Date.now() + 60 * 60 * 1000);
       const appealFutureAt = new Date(Date.now() + 2 * 60 * 60 * 1000);
 
@@ -771,15 +829,13 @@ describe('HearingService', () => {
       expect((service as any).normalizeMeetingLink('abc-defg-hij')).toBe(
         'https://meet.google.com/abc-defg-hij',
       );
-      expect(
-        (service as any).normalizeMeetingLink('meet.google.com/abc-defg-hij'),
-      ).toBe('https://meet.google.com/abc-defg-hij');
+      expect((service as any).normalizeMeetingLink('meet.google.com/abc-defg-hij')).toBe(
+        'https://meet.google.com/abc-defg-hij',
+      );
     });
 
     it('rejects malformed external meeting links inside the service layer', () => {
-      expect(() => (service as any).normalizeMeetingLink('not-a-url')).toThrow(
-        BadRequestException,
-      );
+      expect(() => (service as any).normalizeMeetingLink('not-a-url')).toThrow(BadRequestException);
       expect(() =>
         (service as any).normalizeMeetingLink('https://meet.google.com/demo-hearing'),
       ).toThrow(BadRequestException);
@@ -815,17 +871,13 @@ describe('HearingService', () => {
         },
       ]);
 
-      const finalizeSpy = jest
-        .spyOn(service as any, 'finalizeHearingEnd')
-        .mockResolvedValue({
-          hearing: { id: 'h-overdue' },
-          cancelledQuestions: [],
-          absentParticipants: [],
-        });
+      const finalizeSpy = jest.spyOn(service as any, 'finalizeHearingEnd').mockResolvedValue({
+        hearing: { id: 'h-overdue' },
+        cancelledQuestions: [],
+        absentParticipants: [],
+      });
 
-      const result = await service.autoCloseOverdueHearings(
-        new Date('2026-03-03T11:16:00.000Z'),
-      );
+      const result = await service.autoCloseOverdueHearings(new Date('2026-03-03T11:16:00.000Z'));
 
       expect(result.checked).toBe(1);
       expect(result.closed).toBe(1);

@@ -50,8 +50,7 @@ const statusLabel: Record<LeaveStatus, string> = {
 };
 
 const statusClasses: Record<LeaveStatus, string> = {
-  [LeaveStatus.PENDING]:
-    "bg-amber-100 text-amber-700 border border-amber-200",
+  [LeaveStatus.PENDING]: "bg-amber-100 text-amber-700 border border-amber-200",
   [LeaveStatus.APPROVED]:
     "bg-emerald-100 text-emerald-700 border border-emerald-200",
   [LeaveStatus.REJECTED]: "bg-rose-100 text-rose-700 border border-rose-200",
@@ -63,6 +62,15 @@ const getMonthLabel = (month: string) => {
   const date = new Date(`${month}-01T00:00:00`);
   if (Number.isNaN(date.getTime())) return month;
   return format(date, "MMMM yyyy");
+};
+
+const formatActorSummary = (
+  summary?: LeaveRequest["processedBy"] | LeaveRequest["cancelledBy"] | null,
+  fallbackId?: string | null,
+) => {
+  const name = summary?.fullName ?? fallbackId ?? null;
+  if (!name) return null;
+  return summary?.email ? `${name} (${summary.email})` : name;
 };
 
 const matchesSearch = (request: LeaveRequest, keyword: string) => {
@@ -82,8 +90,12 @@ const matchesSearch = (request: LeaveRequest, keyword: string) => {
 export default function AdminLeaveManagementPage() {
   const [activeTab, setActiveTab] = useState<TabKey>("approvals");
 
-  const [selectedMonth, setSelectedMonth] = useState(format(new Date(), "yyyy-MM"));
-  const [statusFilter, setStatusFilter] = useState<LeaveStatus>(LeaveStatus.PENDING);
+  const [selectedMonth, setSelectedMonth] = useState(
+    format(new Date(), "yyyy-MM"),
+  );
+  const [statusFilter, setStatusFilter] = useState<LeaveStatus>(
+    LeaveStatus.PENDING,
+  );
   const [approvalsSearch, setApprovalsSearch] = useState("");
   const [requests, setRequests] = useState<LeaveRequest[]>([]);
   const [loadingRequests, setLoadingRequests] = useState(false);
@@ -91,7 +103,9 @@ export default function AdminLeaveManagementPage() {
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [dialogAction, setDialogAction] = useState<ProcessAction>("approve");
-  const [selectedRequest, setSelectedRequest] = useState<LeaveRequest | null>(null);
+  const [selectedRequest, setSelectedRequest] = useState<LeaveRequest | null>(
+    null,
+  );
   const [processNote, setProcessNote] = useState("");
 
   const [policySearch, setPolicySearch] = useState("");
@@ -147,7 +161,8 @@ export default function AdminLeaveManagementPage() {
         setPolicyDrafts((prev) => {
           const next = { ...prev };
           response.data.forEach((item) => {
-            next[item.staffId] = next[item.staffId] ?? String(item.monthlyAllowanceMinutes);
+            next[item.staffId] =
+              next[item.staffId] ?? String(item.monthlyAllowanceMinutes);
           });
           return next;
         });
@@ -174,7 +189,8 @@ export default function AdminLeaveManagementPage() {
       requests
         .filter((request) => matchesSearch(request, approvalsSearch))
         .sort(
-          (a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime(),
+          (a, b) =>
+            new Date(b.startTime).getTime() - new Date(a.startTime).getTime(),
         ),
     [approvalsSearch, requests],
   );
@@ -219,7 +235,8 @@ export default function AdminLeaveManagementPage() {
   };
 
   const handleSavePolicy = async (item: LeavePolicyItem) => {
-    const rawValue = policyDrafts[item.staffId] ?? String(item.monthlyAllowanceMinutes);
+    const rawValue =
+      policyDrafts[item.staffId] ?? String(item.monthlyAllowanceMinutes);
     const normalized = rawValue.trim();
     if (!/^\d+$/.test(normalized)) {
       toast.error("Allowance must be a non-negative integer.");
@@ -341,9 +358,14 @@ export default function AdminLeaveManagementPage() {
                   const staffName = request.staff?.fullName ?? "Unknown staff";
                   const staffEmail = request.staff?.email ?? "N/A";
                   const isPending = request.status === LeaveStatus.PENDING;
-                  const processedByName =
-                    request.processedBy?.fullName ?? request.processedById ?? null;
-                  const processedByEmail = request.processedBy?.email ?? null;
+                  const approvedByLabel = formatActorSummary(
+                    request.processedBy,
+                    request.processedById,
+                  );
+                  const cancelledByLabel = formatActorSummary(
+                    request.cancelledBy,
+                    request.cancelledById,
+                  );
                   return (
                     <div
                       key={request.id}
@@ -366,24 +388,81 @@ export default function AdminLeaveManagementPage() {
                           </p>
                           <p className="text-xs text-gray-500">
                             <CalendarDays className="mr-1 inline h-3 w-3" />
-                            {format(new Date(request.startTime), "MMM d, yyyy h:mm a")} -{" "}
-                            {format(new Date(request.endTime), "MMM d, yyyy h:mm a")}
+                            {format(
+                              new Date(request.startTime),
+                              "MMM d, yyyy h:mm a",
+                            )}{" "}
+                            -{" "}
+                            {format(
+                              new Date(request.endTime),
+                              "MMM d, yyyy h:mm a",
+                            )}
                           </p>
                           <p className="text-xs text-gray-500">
                             Duration: {formatMinutes(request.durationMinutes)}
                           </p>
-                          {processedByName ? (
+                          {request.status === LeaveStatus.APPROVED &&
+                          approvedByLabel ? (
                             <p className="text-xs text-gray-500">
-                              Processed by:{" "}
-                              {processedByEmail
-                                ? `${processedByName} (${processedByEmail})`
-                                : processedByName}
+                              Approved by: {approvedByLabel}
                             </p>
                           ) : null}
-                          {request.processedAt ? (
+                          {request.status === LeaveStatus.APPROVED &&
+                          request.processedAt ? (
                             <p className="text-xs text-gray-500">
-                              Processed at:{" "}
-                              {format(new Date(request.processedAt), "MMM d, yyyy h:mm a")}
+                              Approved at:{" "}
+                              {format(
+                                new Date(request.processedAt),
+                                "MMM d, yyyy h:mm a",
+                              )}
+                            </p>
+                          ) : null}
+                          {request.status === LeaveStatus.REJECTED &&
+                          approvedByLabel ? (
+                            <p className="text-xs text-gray-500">
+                              Rejected by: {approvedByLabel}
+                            </p>
+                          ) : null}
+                          {request.status === LeaveStatus.REJECTED &&
+                          request.processedAt ? (
+                            <p className="text-xs text-gray-500">
+                              Rejected at:{" "}
+                              {format(
+                                new Date(request.processedAt),
+                                "MMM d, yyyy h:mm a",
+                              )}
+                            </p>
+                          ) : null}
+                          {request.status === LeaveStatus.CANCELLED &&
+                          approvedByLabel ? (
+                            <p className="text-xs text-gray-500">
+                              Originally approved by: {approvedByLabel}
+                            </p>
+                          ) : null}
+                          {request.status === LeaveStatus.CANCELLED &&
+                          request.processedAt ? (
+                            <p className="text-xs text-gray-500">
+                              Originally approved at:{" "}
+                              {format(
+                                new Date(request.processedAt),
+                                "MMM d, yyyy h:mm a",
+                              )}
+                            </p>
+                          ) : null}
+                          {request.status === LeaveStatus.CANCELLED &&
+                          cancelledByLabel ? (
+                            <p className="text-xs text-gray-500">
+                              Cancelled by: {cancelledByLabel}
+                            </p>
+                          ) : null}
+                          {request.status === LeaveStatus.CANCELLED &&
+                          request.cancelledAt ? (
+                            <p className="text-xs text-gray-500">
+                              Cancelled at:{" "}
+                              {format(
+                                new Date(request.cancelledAt),
+                                "MMM d, yyyy h:mm a",
+                              )}
                             </p>
                           ) : null}
                           {request.reason ? (
@@ -393,14 +472,18 @@ export default function AdminLeaveManagementPage() {
                           ) : null}
                           {request.processedNote ? (
                             <p className="text-xs text-gray-500">
-                              Processed note: {request.processedNote}
+                              {request.status === LeaveStatus.CANCELLED
+                                ? `Latest note: ${request.processedNote}`
+                                : `Processed note: ${request.processedNote}`}
                             </p>
                           ) : null}
                         </div>
                         {isPending ? (
                           <div className="flex gap-2">
                             <button
-                              onClick={() => openProcessDialog(request, "approve")}
+                              onClick={() =>
+                                openProcessDialog(request, "approve")
+                              }
                               disabled={processingId === request.id}
                               className="inline-flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-700 hover:bg-emerald-100 disabled:opacity-50"
                             >
@@ -408,7 +491,9 @@ export default function AdminLeaveManagementPage() {
                               Approve
                             </button>
                             <button
-                              onClick={() => openProcessDialog(request, "reject")}
+                              onClick={() =>
+                                openProcessDialog(request, "reject")
+                              }
                               disabled={processingId === request.id}
                               className="inline-flex items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-medium text-rose-700 hover:bg-rose-100 disabled:opacity-50"
                             >
@@ -494,7 +579,10 @@ export default function AdminLeaveManagementPage() {
                               String(item.monthlyAllowanceMinutes)
                             }
                             onChange={(event) =>
-                              updatePolicyDraft(item.staffId, event.target.value)
+                              updatePolicyDraft(
+                                item.staffId,
+                                event.target.value,
+                              )
                             }
                             className="w-28 rounded-lg border border-gray-200 px-3 py-2 text-sm"
                           />
@@ -509,7 +597,8 @@ export default function AdminLeaveManagementPage() {
                         </div>
                       </div>
                       <p className="mt-2 text-xs text-gray-500">
-                        Current allowance: {formatMinutes(item.monthlyAllowanceMinutes)}
+                        Current allowance:{" "}
+                        {formatMinutes(item.monthlyAllowanceMinutes)}
                       </p>
                     </div>
                   );
@@ -565,7 +654,9 @@ export default function AdminLeaveManagementPage() {
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>
-              {dialogAction === "approve" ? "Approve leave request?" : "Reject leave request?"}
+              {dialogAction === "approve"
+                ? "Approve leave request?"
+                : "Reject leave request?"}
             </DialogTitle>
             <DialogDescription>
               {selectedRequest
@@ -601,7 +692,11 @@ export default function AdminLeaveManagementPage() {
                   : "bg-rose-600 hover:bg-rose-700"
               }`}
             >
-              {processingId ? "Processing..." : dialogAction === "approve" ? "Approve" : "Reject"}
+              {processingId
+                ? "Processing..."
+                : dialogAction === "approve"
+                  ? "Approve"
+                  : "Reject"}
             </button>
           </DialogFooter>
         </DialogContent>

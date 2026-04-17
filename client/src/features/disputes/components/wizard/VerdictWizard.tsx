@@ -1,5 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, FlaskConical, Loader2, Scale, Search } from "lucide-react";
+import {
+  AlertTriangle,
+  FlaskConical,
+  Loader2,
+  Scale,
+  Search,
+} from "lucide-react";
 import { MoneySplitSlider } from "../shared/MoneySplitSlider";
 import { DisputeResult } from "../../../staff/types/staff.types";
 import {
@@ -105,7 +111,9 @@ export const VerdictWizard = ({
   const [verdict, setVerdict] = useState<DisputeResult | null>(null);
   const [faultType, setFaultType] = useState<string>("");
   const [faultyParty, setFaultyParty] = useState<string>("");
-  const [policyCatalog, setPolicyCatalog] = useState<DisputeRuleCatalogItem[]>([]);
+  const [policyCatalog, setPolicyCatalog] = useState<DisputeRuleCatalogItem[]>(
+    [],
+  );
   const [policySearch, setPolicySearch] = useState("");
   const [selectedPolicies, setSelectedPolicies] = useState<string[]>([]);
   const [evidenceBasis, setEvidenceBasis] = useState("");
@@ -153,7 +161,9 @@ export const VerdictWizard = ({
           const normalizedRules = normalizePolicyCatalog(rules);
           setPolicyCatalog(normalizedRules);
           if (sampleFillPendingRef.current) {
-            setSelectedPolicies(normalizedRules.slice(0, 2).map((rule) => rule.code));
+            setSelectedPolicies(
+              normalizedRules.slice(0, 2).map((rule) => rule.code),
+            );
             sampleFillPendingRef.current = false;
             setSampleFillPending(false);
           } else {
@@ -254,7 +264,11 @@ export const VerdictWizard = ({
       toast.error("Evidence basis is required.");
       return;
     }
-    if (!factualFindings.trim() || !legalAnalysis.trim() || !conclusion.trim()) {
+    if (
+      !factualFindings.trim() ||
+      !legalAnalysis.trim() ||
+      !conclusion.trim()
+    ) {
       toast.error("Complete the reasoning section.");
       return;
     }
@@ -329,7 +343,9 @@ export const VerdictWizard = ({
         );
       } else {
         toast.error(
-          isAppealMode ? "Could not submit appeal verdict." : "Could not submit verdict.",
+          isAppealMode
+            ? "Could not submit appeal verdict."
+            : "Could not submit verdict.",
         );
       }
     } finally {
@@ -346,23 +362,23 @@ export const VerdictWizard = ({
           </h3>
           <p className="mt-1 text-sm text-gray-500">
             {isAppealMode
-              ? "Issue the Tier 2 decision that upholds or overrides the original verdict."
+              ? "Issue the final appeal decision that upholds or overrides the original verdict."
               : "Initial verdict issuance has moved to Hearing Room so the hearing can close with minutes and findings in one step."}
           </p>
         </div>
         {isAppealMode ? (
           <span className="inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-medium text-amber-800">
             <Scale className="h-3.5 w-3.5" />
-            Tier 2 Appeal Review
+            Appeal Review
           </span>
         ) : null}
       </div>
 
       {!isAppealMode ? (
         <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-          Use the Hearing Room verdict panel for initial verdicts. This wizard remains available
-          only for appeal review so the platform does not bypass hearing minutes and closure
-          requirements.
+          Use the Hearing Room verdict panel for initial verdicts. This wizard
+          remains available only for appeal review so the platform does not
+          bypass hearing minutes and closure requirements.
         </div>
       ) : null}
 
@@ -510,7 +526,9 @@ export const VerdictWizard = ({
           />
           <div className="mt-3 grid gap-2">
             {catalogLoading ? (
-              <div className="text-sm text-slate-500">Loading policy catalog...</div>
+              <div className="text-sm text-slate-500">
+                Loading policy catalog...
+              </div>
             ) : (
               filteredPolicies.map((policy) => {
                 const selected = selectedPolicies.includes(policy.code);
@@ -531,7 +549,9 @@ export const VerdictWizard = ({
                     <div className="mt-1 text-sm font-semibold text-slate-900">
                       {policy.title}
                     </div>
-                    <p className="mt-1 text-sm text-slate-600">{policy.summary}</p>
+                    <p className="mt-1 text-sm text-slate-600">
+                      {policy.summary}
+                    </p>
                   </button>
                 );
               })

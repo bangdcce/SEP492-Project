@@ -23,24 +23,25 @@ import {
   DialogTitle,
 } from "@/shared/components/ui/dialog";
 
-const STATUS_STYLES: Record<LeaveStatus, { label: string; className: string }> = {
-  [LeaveStatus.PENDING]: {
-    label: "Pending",
-    className: "bg-amber-100 text-amber-700 border border-amber-200",
-  },
-  [LeaveStatus.APPROVED]: {
-    label: "Approved",
-    className: "bg-emerald-100 text-emerald-700 border border-emerald-200",
-  },
-  [LeaveStatus.REJECTED]: {
-    label: "Rejected",
-    className: "bg-rose-100 text-rose-700 border border-rose-200",
-  },
-  [LeaveStatus.CANCELLED]: {
-    label: "Cancelled",
-    className: "bg-slate-100 text-slate-600 border border-slate-200",
-  },
-};
+const STATUS_STYLES: Record<LeaveStatus, { label: string; className: string }> =
+  {
+    [LeaveStatus.PENDING]: {
+      label: "Pending",
+      className: "bg-amber-100 text-amber-700 border border-amber-200",
+    },
+    [LeaveStatus.APPROVED]: {
+      label: "Approved",
+      className: "bg-emerald-100 text-emerald-700 border border-emerald-200",
+    },
+    [LeaveStatus.REJECTED]: {
+      label: "Rejected",
+      className: "bg-rose-100 text-rose-700 border border-rose-200",
+    },
+    [LeaveStatus.CANCELLED]: {
+      label: "Cancelled",
+      className: "bg-slate-100 text-slate-600 border border-slate-200",
+    },
+  };
 
 const TYPE_STYLES: Record<LeaveType, { label: string; className: string }> = {
   [LeaveType.SHORT_TERM]: {
@@ -66,6 +67,15 @@ const getMonthLabel = (month: string) => {
   const date = new Date(`${month}-01T00:00:00`);
   if (Number.isNaN(date.getTime())) return month;
   return format(date, "MMMM yyyy");
+};
+
+const formatActorSummary = (
+  summary?: LeaveRequest["processedBy"] | LeaveRequest["cancelledBy"] | null,
+  fallbackId?: string | null,
+) => {
+  const name = summary?.fullName ?? fallbackId ?? null;
+  if (!name) return null;
+  return summary?.email ? `${name} (${summary.email})` : name;
 };
 
 export const StaffLeavePage = () => {
@@ -202,9 +212,11 @@ export const StaffLeavePage = () => {
 
       await loadLeaveData({ preferCache: false });
     } catch (error) {
-      const responseData = (error as { response?: { data?: { message?: string } } })
-        .response?.data;
-      const message = responseData?.message ?? "Failed to submit leave request.";
+      const responseData = (
+        error as { response?: { data?: { message?: string } } }
+      ).response?.data;
+      const message =
+        responseData?.message ?? "Failed to submit leave request.";
       toast.error(message);
       console.error("Failed to submit leave request", error);
     } finally {
@@ -252,7 +264,9 @@ export const StaffLeavePage = () => {
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-2xl font-bold text-slate-900">Leave Management</h2>
+          <h2 className="text-2xl font-bold text-slate-900">
+            Leave Management
+          </h2>
           <p className="text-gray-500">
             Request time off, track monthly balance, and monitor approvals.
           </p>
@@ -295,7 +309,9 @@ export const StaffLeavePage = () => {
 
             <div className="mt-4 grid gap-3 md:grid-cols-2">
               <div>
-                <label className="text-xs text-gray-500">Reason (optional)</label>
+                <label className="text-xs text-gray-500">
+                  Reason (optional)
+                </label>
                 <input
                   type="text"
                   value={reason}
@@ -351,9 +367,14 @@ export const StaffLeavePage = () => {
                 {sortedRequests.map((request) => {
                   const statusStyle = STATUS_STYLES[request.status];
                   const typeStyle = TYPE_STYLES[request.type];
-                  const processedByName =
-                    request.processedBy?.fullName ?? request.processedById ?? null;
-                  const processedByEmail = request.processedBy?.email ?? null;
+                  const approvedByLabel = formatActorSummary(
+                    request.processedBy,
+                    request.processedById,
+                  );
+                  const cancelledByLabel = formatActorSummary(
+                    request.cancelledBy,
+                    request.cancelledById,
+                  );
                   return (
                     <div
                       key={request.id}
@@ -362,9 +383,15 @@ export const StaffLeavePage = () => {
                       <div className="flex flex-col gap-1">
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="text-sm font-semibold text-slate-900">
-                            {format(new Date(request.startTime), "MMM d, yyyy h:mm a")}
+                            {format(
+                              new Date(request.startTime),
+                              "MMM d, yyyy h:mm a",
+                            )}
                             {" - "}
-                            {format(new Date(request.endTime), "MMM d, yyyy h:mm a")}
+                            {format(
+                              new Date(request.endTime),
+                              "MMM d, yyyy h:mm a",
+                            )}
                           </span>
                           <span
                             className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${typeStyle.className}`}
@@ -385,18 +412,68 @@ export const StaffLeavePage = () => {
                         <div className="text-xs text-gray-500">
                           Duration: {formatMinutes(request.durationMinutes)}
                         </div>
-                        {processedByName ? (
+                        {request.status === LeaveStatus.APPROVED &&
+                        approvedByLabel ? (
                           <div className="text-xs text-gray-500">
-                            Reviewed by:{" "}
-                            {processedByEmail
-                              ? `${processedByName} (${processedByEmail})`
-                              : processedByName}
+                            Approved by: {approvedByLabel}
                           </div>
                         ) : null}
-                        {request.processedAt ? (
+                        {request.status === LeaveStatus.APPROVED &&
+                        request.processedAt ? (
                           <div className="text-xs text-gray-500">
-                            Reviewed at:{" "}
-                            {format(new Date(request.processedAt), "MMM d, yyyy h:mm a")}
+                            Approved at:{" "}
+                            {format(
+                              new Date(request.processedAt),
+                              "MMM d, yyyy h:mm a",
+                            )}
+                          </div>
+                        ) : null}
+                        {request.status === LeaveStatus.REJECTED &&
+                        approvedByLabel ? (
+                          <div className="text-xs text-gray-500">
+                            Rejected by: {approvedByLabel}
+                          </div>
+                        ) : null}
+                        {request.status === LeaveStatus.REJECTED &&
+                        request.processedAt ? (
+                          <div className="text-xs text-gray-500">
+                            Rejected at:{" "}
+                            {format(
+                              new Date(request.processedAt),
+                              "MMM d, yyyy h:mm a",
+                            )}
+                          </div>
+                        ) : null}
+                        {request.status === LeaveStatus.CANCELLED &&
+                        approvedByLabel ? (
+                          <div className="text-xs text-gray-500">
+                            Originally approved by: {approvedByLabel}
+                          </div>
+                        ) : null}
+                        {request.status === LeaveStatus.CANCELLED &&
+                        request.processedAt ? (
+                          <div className="text-xs text-gray-500">
+                            Originally approved at:{" "}
+                            {format(
+                              new Date(request.processedAt),
+                              "MMM d, yyyy h:mm a",
+                            )}
+                          </div>
+                        ) : null}
+                        {request.status === LeaveStatus.CANCELLED &&
+                        cancelledByLabel ? (
+                          <div className="text-xs text-gray-500">
+                            Cancelled by: {cancelledByLabel}
+                          </div>
+                        ) : null}
+                        {request.status === LeaveStatus.CANCELLED &&
+                        request.cancelledAt ? (
+                          <div className="text-xs text-gray-500">
+                            Cancelled at:{" "}
+                            {format(
+                              new Date(request.cancelledAt),
+                              "MMM d, yyyy h:mm a",
+                            )}
                           </div>
                         ) : null}
                         {request.reason ? (
@@ -406,7 +483,9 @@ export const StaffLeavePage = () => {
                         ) : null}
                         {request.processedNote ? (
                           <div className="text-xs text-gray-500">
-                            Note: {request.processedNote}
+                            {request.status === LeaveStatus.CANCELLED
+                              ? `Latest note: ${request.processedNote}`
+                              : `Note: ${request.processedNote}`}
                           </div>
                         ) : null}
                       </div>
@@ -495,7 +574,8 @@ export const StaffLeavePage = () => {
 
                 {balanceSummary.overage !== "0m" && (
                   <div className="rounded-lg border border-rose-100 bg-rose-50 p-3 text-xs text-rose-700">
-                    Overage: {balanceSummary.overage} (counts toward performance)
+                    Overage: {balanceSummary.overage} (counts toward
+                    performance)
                   </div>
                 )}
               </div>
@@ -507,7 +587,9 @@ export const StaffLeavePage = () => {
           </div>
 
           <div className="rounded-xl border border-teal-100 bg-teal-50 p-4">
-            <h4 className="text-sm font-semibold text-teal-900">Policy notes</h4>
+            <h4 className="text-sm font-semibold text-teal-900">
+              Policy notes
+            </h4>
             <ul className="mt-2 space-y-2 text-xs text-teal-800">
               <li>Short-term leave should be added via availability.</li>
               <li>Long-term leave requests require admin approval.</li>
