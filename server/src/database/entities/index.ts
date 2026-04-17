@@ -27,7 +27,7 @@ export { ProjectRequestProposalEntity } from './project-request-proposal.entity'
 // Project Management Entities
 export { ProjectEntity, ProjectStatus, PricingModel } from './project.entity';
 export { ProjectCategoryEntity } from './project-category.entity';
-export { MilestoneEntity, MilestoneStatus } from './milestone.entity';
+export { MilestoneEntity, MilestoneStatus, StaffRecommendation } from './milestone.entity';
 export { TaskEntity, TaskStatus } from './task.entity';
 export { TaskHistoryEntity } from './task-history.entity';
 export {

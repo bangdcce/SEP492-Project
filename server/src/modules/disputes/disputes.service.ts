@@ -47,6 +47,7 @@ import {
   EscrowStatus,
   MilestoneEntity,
   MilestoneStatus,
+  StaffRecommendation,
   TaskEntity,
   TaskStatus,
   ProjectEntity,
@@ -1978,80 +1979,125 @@ export class DisputesService {
       await queryRunner.release();
     }
 
-    if (testBypassReason) {
+    if (!project) {
+      throw new NotFoundException('Project not found or not eligible for dispute');
+    }
+
+    void this.runCreatePostCommitSideEffects({
+      savedDispute,
+      project,
+      projectId,
+      raisedBy,
+      raiserRole,
+      defendantId,
+      defendantRole,
+      testBypassReason,
+    });
+
+    return savedDispute;
+  }
+
+  private async runCreatePostCommitSideEffects(input: {
+    savedDispute: DisputeEntity;
+    project: ProjectEntity;
+    projectId: string;
+    raisedBy: string;
+    raiserRole: UserRole;
+    defendantId: string;
+    defendantRole: UserRole;
+    testBypassReason: string | null;
+  }): Promise<void> {
+    const {
+      savedDispute,
+      project,
+      projectId,
+      raisedBy,
+      raiserRole,
+      defendantId,
+      defendantRole,
+      testBypassReason,
+    } = input;
+
+    try {
+      if (testBypassReason) {
+        try {
+          await this.auditLogsService.logCustom(
+            'DISPUTE_TEST_BYPASS',
+            'Dispute',
+            savedDispute.id,
+            {
+              actorId: raisedBy,
+              bypassReason: testBypassReason,
+              disputeTestMode: process.env.DISPUTE_TEST_MODE === 'true',
+            },
+            undefined,
+            raisedBy,
+          );
+        } catch (error) {
+          this.logger.warn(
+            `Failed to persist dispute test bypass audit log for ${savedDispute.id}: ${
+              error instanceof Error ? error.message : 'unknown'
+            }`,
+          );
+        }
+      }
+
+      const assignment = await this.autoAssignStaff(savedDispute.id);
+      let availability: Awaited<ReturnType<typeof this.checkInitialAvailability>> | null = null;
       try {
-        await this.auditLogsService.logCustom(
-          'DISPUTE_TEST_BYPASS',
-          'Dispute',
-          savedDispute.id,
-          {
-            actorId: raisedBy,
-            bypassReason: testBypassReason,
-            disputeTestMode: process.env.DISPUTE_TEST_MODE === 'true',
-          },
-          undefined,
-          raisedBy,
+        availability = await this.checkInitialAvailability(
+          savedDispute,
+          project,
+          assignment?.staffId || '',
+          assignment?.complexity?.timeEstimation?.recommendedMinutes,
         );
       } catch (error) {
         this.logger.warn(
-          `Failed to persist dispute test bypass audit log for ${savedDispute.id}: ${
+          `Initial availability check failed for dispute ${savedDispute.id}: ${
             error instanceof Error ? error.message : 'unknown'
           }`,
         );
       }
-    }
 
-    const assignment = await this.autoAssignStaff(savedDispute.id);
-    let availability: Awaited<ReturnType<typeof this.checkInitialAvailability>> | null = null;
-    try {
-      availability = await this.checkInitialAvailability(
-        savedDispute,
-        project,
-        assignment?.staffId || '',
-        assignment?.complexity?.timeEstimation?.recommendedMinutes,
-      );
+      this.eventEmitter.emit(DISPUTE_EVENTS.CREATED, {
+        disputeId: savedDispute.id,
+        projectId,
+        raisedById: raisedBy,
+        raiserRole,
+        defendantId,
+        defendantRole,
+        category: savedDispute.category,
+        priority: savedDispute.priority,
+        resolutionDeadline: savedDispute.resolutionDeadline,
+        responseDeadline: savedDispute.responseDeadline,
+        assignedStaffId: assignment?.staffId || null,
+        availabilitySlots: availability?.slots || [],
+      });
+
+      const isUrgentDispute =
+        savedDispute.category === DisputeCategory.FRAUD ||
+        savedDispute.priority === DisputePriority.CRITICAL ||
+        (savedDispute.resolutionDeadline
+          ? savedDispute.resolutionDeadline.getTime() - Date.now() <=
+            URGENT_THRESHOLD_HOURS * 60 * 60 * 1000
+          : false);
+
+      if (isUrgentDispute) {
+        this.eventEmitter.emit(DISPUTE_EVENTS.URGENT_CREATED, {
+          disputeId: savedDispute.id,
+          category: savedDispute.category,
+          priority: savedDispute.priority,
+          assignedStaffId: assignment?.staffId || null,
+          resolutionDeadline: savedDispute.resolutionDeadline,
+        });
+      }
     } catch (error) {
       this.logger.warn(
-        `Initial availability check failed for dispute ${savedDispute.id}: ${
+        `Post-create side effects failed for dispute ${savedDispute.id}: ${
           error instanceof Error ? error.message : 'unknown'
         }`,
       );
     }
-
-    this.eventEmitter.emit(DISPUTE_EVENTS.CREATED, {
-      disputeId: savedDispute.id,
-      projectId,
-      raisedById: raisedBy,
-      raiserRole,
-      defendantId,
-      defendantRole,
-      category: savedDispute.category,
-      priority: savedDispute.priority,
-      resolutionDeadline: savedDispute.resolutionDeadline,
-      responseDeadline: savedDispute.responseDeadline,
-      assignedStaffId: assignment?.staffId || null,
-      availabilitySlots: availability?.slots || [],
-    });
-
-    const isUrgentDispute =
-      savedDispute.category === DisputeCategory.FRAUD ||
-      savedDispute.priority === DisputePriority.CRITICAL ||
-      (savedDispute.resolutionDeadline
-        ? savedDispute.resolutionDeadline.getTime() - Date.now() <=
-          URGENT_THRESHOLD_HOURS * 60 * 60 * 1000
-        : false);
-
-    if (isUrgentDispute) {
-      this.eventEmitter.emit(DISPUTE_EVENTS.URGENT_CREATED, {
-        disputeId: savedDispute.id,
-        category: savedDispute.category,
-        priority: savedDispute.priority,
-        assignedStaffId: assignment?.staffId || null,
-        resolutionDeadline: savedDispute.resolutionDeadline,
-      });
-    }
-
-    return savedDispute;
   }
 
   async createGroup(
@@ -4009,12 +4055,20 @@ export class DisputesService {
       });
 
       if (milestoneActiveCount === 0) {
+        const projectForReviewFlow = await queryRunner.manager.findOne(ProjectEntity, {
+          where: { id: dispute.projectId },
+          lock: { mode: 'pessimistic_read' },
+        });
+
         const milestone = await queryRunner.manager.findOne(MilestoneEntity, {
           where: { id: dispute.milestoneId },
           lock: { mode: 'pessimistic_write' },
         });
         if (milestone && milestone.status === MilestoneStatus.LOCKED) {
-          milestone.status = this.resolveMilestoneStatusAfterCancel(milestone);
+          milestone.status = this.resolveMilestoneStatusAfterCancel(
+            milestone,
+            projectForReviewFlow,
+          );
           await queryRunner.manager.save(MilestoneEntity, milestone);
           milestoneReleased = true;
         }
@@ -4235,15 +4289,41 @@ export class DisputesService {
     }
   }
 
-  private resolveMilestoneStatusAfterCancel(milestone: MilestoneEntity): MilestoneStatus {
-    if (
-      milestone.submittedAt ||
-      (milestone.proofOfWork && milestone.proofOfWork.trim().length > 0)
-    ) {
-      return MilestoneStatus.SUBMITTED;
+  private resolveMilestoneStatusAfterCancel(
+    milestone: MilestoneEntity,
+    project: Pick<ProjectEntity, 'brokerId' | 'clientId'> | null,
+  ): MilestoneStatus {
+    if (milestone.staffRecommendation === StaffRecommendation.REJECT) {
+      return MilestoneStatus.IN_PROGRESS;
     }
 
-    return MilestoneStatus.IN_PROGRESS;
+    const hasSubmittedAt = Boolean(milestone.submittedAt);
+    const hasSubmissionSignal =
+      hasSubmittedAt ||
+      Boolean(milestone.proofOfWork && milestone.proofOfWork.trim().length > 0);
+
+    const requiresBrokerReview = Boolean(project?.brokerId && project.brokerId !== project.clientId);
+    const brokerAcceptedLegacyFallback =
+      requiresBrokerReview &&
+      !milestone.staffRecommendation &&
+      Boolean(milestone.reviewedByStaffId) &&
+      hasSubmittedAt;
+    const brokerAlreadyAccepted =
+      milestone.staffRecommendation === StaffRecommendation.ACCEPT || brokerAcceptedLegacyFallback;
+
+    if (brokerAlreadyAccepted) {
+      return MilestoneStatus.PENDING_CLIENT_APPROVAL;
+    }
+
+    if (!hasSubmissionSignal) {
+      return MilestoneStatus.IN_PROGRESS;
+    }
+
+    if (requiresBrokerReview) {
+      return MilestoneStatus.PENDING_STAFF_REVIEW;
+    }
+
+    return MilestoneStatus.SUBMITTED;
   }
 
   /**

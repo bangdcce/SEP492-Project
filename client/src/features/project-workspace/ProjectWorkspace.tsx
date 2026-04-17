@@ -27,6 +27,7 @@ import {
   reviewSubmission,
   createMilestone,
   approveMilestone,
+  rejectMilestone,
   fetchProject,
   requestMilestoneReview,
   reviewMilestoneAsBroker,
@@ -173,8 +174,10 @@ type ProjectWorkspaceMember = {
 };
 
 // Helper to get current user from storage (session/local)
-const getCurrentUser = (): { id: string; role?: string } | null => {
-  return getStoredJson<{ id: string; role?: string }>(STORAGE_KEYS.USER);
+const getCurrentUser = (): { id: string; role?: string; email?: string | null } | null => {
+  return getStoredJson<{ id: string; role?: string; email?: string | null }>(
+    STORAGE_KEYS.USER,
+  );
 };
 
 export function ProjectWorkspace() {
@@ -1838,6 +1841,39 @@ export function ProjectWorkspace() {
     }
   };
 
+  const handleRejectMilestone = async (milestoneId: string, reason: string) => {
+    if (isProjectInteractionLocked) {
+      throw new Error(
+        isProjectCanceled
+          ? "Project is cancelled. Milestone review is locked."
+          : "Project is under dispute. Milestone review is locked.",
+      );
+    }
+
+    const trimmedReason = reason.trim();
+    if (!trimmedReason) {
+      throw new Error("Please provide a reason before rejecting this milestone.");
+    }
+
+    try {
+      setError(null);
+      const updatedMilestone = await rejectMilestone(milestoneId, trimmedReason);
+      setMilestones((prev) =>
+        prev.map((milestone) =>
+          milestone.id === milestoneId
+            ? { ...milestone, ...updatedMilestone }
+            : milestone,
+        ),
+      );
+      toast.success("Milestone sent back for revisions.");
+    } catch (err: unknown) {
+      const errorMessage =
+        err instanceof Error ? err.message : "Failed to reject milestone";
+      setError(errorMessage);
+      throw err;
+    }
+  };
+
   const handleBrokerReviewMilestone = async (
     milestoneId: string,
     payload: { recommendation: "ACCEPT" | "REJECT"; note: string },
@@ -2357,6 +2393,7 @@ export function ProjectWorkspace() {
                 hasIntermediateReviewer={hasBrokerReviewStep}
                 assignedReviewerLabel={assignedBrokerLabel}
                 onApprove={handleApproveMilestone}
+                onReject={handleRejectMilestone}
                 onRequestReview={handleRequestMilestoneReview}
                 onReviewerDecision={handleBrokerReviewMilestone}
                 canApprove={canApproveMilestone}
@@ -2372,6 +2409,7 @@ export function ProjectWorkspace() {
               projectStatus={project?.status ?? null}
               currency={project?.currency ?? "USD"}
               billingSetupHref={workspaceBillingHref}
+              currentUserEmail={currentUser?.email ?? null}
               onFunded={handleFundingSuccess}
               isChatOpen={isChatOpen}
             />
@@ -2400,7 +2438,13 @@ export function ProjectWorkspace() {
                     </h3>
                     <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">
                       Use dispute for quality, deadline, communication, or payment
-                      problems tied to <span className="font-medium">{activeMilestone.title}</span>.
+                      problems tied to milestone <span className="font-medium">{activeMilestone.title.replaceAll("&amp;", "&")}</span>
+                      {project?.title ? (
+                        <>
+                          {" "}in project <span className="font-medium">{project.title}</span>
+                        </>
+                      ) : null}
+                      .
                     </p>
                     {activeMilestoneDisputePolicy?.warrantyEndsAt ? (
                       <p className="mt-2 text-xs text-slate-500">

@@ -489,3 +489,16 @@ export const approveMilestone = async (
   console.log("[API] Milestone approved:", result);
   return result;
 };
+
+/**
+ * Reject a milestone and send it back for freelancer revisions.
+ * Endpoint: POST /projects/milestones/:id/reject
+ */
+export const rejectMilestone = async (
+  milestoneId: string,
+  reason: string,
+): Promise<Milestone> => {
+  return apiClient.post<Milestone>(`/projects/milestones/${milestoneId}/reject`, {
+    reason,
+  });
+};

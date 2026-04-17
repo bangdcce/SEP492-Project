@@ -17,9 +17,9 @@ import {
 } from "@/shared/components/ui/dialog";
 import { Textarea } from "@/shared/components/ui/textarea";
 import {
-  DISPUTE_DISCLAIMER_COPY,
   DISPUTE_DISCLAIMER_VERSION,
 } from "@/features/disputes/constants/disputeLegal";
+import { DisputeDisclaimerCheckbox } from "@/features/disputes/components/shared/DisputeDisclaimerCheckbox";
 import { INTERNAL_DEV_TOOLS_ENABLED } from "@/shared/utils/internalTools";
 
 const VERDICT_APPEAL_REASON_MIN_LENGTH = 200;
@@ -207,7 +207,7 @@ export const AppealDialog = memo(function AppealDialog({
                 maxLength={APPEAL_REASON_MAX_LENGTH}
                 wrap="soft"
                 onWheel={(event) => event.stopPropagation()}
-                className="field-sizing-fixed min-h-48 max-h-72 overflow-y-auto resize-y whitespace-pre-wrap break-words leading-relaxed text-sm"
+                className="field-sizing-fixed min-h-48 max-h-72 overflow-y-auto resize-y whitespace-pre-wrap wrap-break-word leading-relaxed text-sm"
               />
               <div className="flex justify-between text-xs text-slate-400">
                 <span>
@@ -251,23 +251,18 @@ export const AppealDialog = memo(function AppealDialog({
               <div className="text-xs font-medium uppercase tracking-wider text-slate-500">
                 Reason
               </div>
-              <p className="mt-2 max-h-56 overflow-y-auto whitespace-pre-wrap break-all [overflow-wrap:anywhere] text-sm text-slate-700 leading-relaxed">
+              <p className="mt-2 max-h-56 overflow-y-auto whitespace-pre-wrap break-all wrap-anywhere text-sm text-slate-700 leading-relaxed">
                 {reason.trim()}
               </p>
             </div>
 
-            <label className="flex items-start gap-3 rounded-lg border border-slate-200 bg-white p-3 text-sm text-slate-700 min-w-0 overflow-hidden">
-              <input
-                data-testid="appeal-disclaimer-checkbox"
-                type="checkbox"
-                checked={disclaimerAccepted}
-                onChange={(event) => setDisclaimerAccepted(event.target.checked)}
-                className="mt-0.5"
-              />
-              <span className="min-w-0 break-words [overflow-wrap:anywhere]">
-                {DISPUTE_DISCLAIMER_COPY}
-              </span>
-            </label>
+            <DisputeDisclaimerCheckbox
+              id="appeal-disclaimer-checkbox"
+              testId="appeal-disclaimer-checkbox"
+              checked={disclaimerAccepted}
+              onCheckedChange={setDisclaimerAccepted}
+              disabled={submitting}
+            />
 
             <div className="flex items-center justify-between pt-1">
               <button

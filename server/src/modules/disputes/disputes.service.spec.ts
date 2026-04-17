@@ -29,6 +29,7 @@ import {
   LegalSignatureEntity,
   MilestoneEntity,
   MilestoneStatus,
+  StaffRecommendation,
   ProjectEntity,
   TaskEntity,
   TransactionEntity,
@@ -352,6 +353,112 @@ describe('DisputesService', () => {
           allowed: true,
         }),
       );
+    });
+  });
+
+  describe('cancel dispute milestone status restore', () => {
+    it('restores PENDING_CLIENT_APPROVAL when broker already accepted before lock', () => {
+      const status = (service as any).resolveMilestoneStatusAfterCancel(
+        {
+          submittedAt: new Date('2026-04-01T08:00:00.000Z'),
+          proofOfWork: 'https://repo.example/work',
+          reviewedByStaffId: 'broker-1',
+          staffRecommendation: StaffRecommendation.ACCEPT,
+        } as MilestoneEntity,
+        {
+          brokerId: 'broker-1',
+          clientId: 'client-1',
+        } as ProjectEntity,
+      );
+
+      expect(status).toBe(MilestoneStatus.PENDING_CLIENT_APPROVAL);
+    });
+
+    it('restores PENDING_CLIENT_APPROVAL for legacy broker-approved snapshots missing recommendation enum', () => {
+      const status = (service as any).resolveMilestoneStatusAfterCancel(
+        {
+          submittedAt: new Date('2026-04-01T08:00:00.000Z'),
+          proofOfWork: 'https://repo.example/work',
+          reviewedByStaffId: 'broker-1',
+          staffRecommendation: null,
+          staffReviewNote: 'Approved by broker (legacy)',
+        } as MilestoneEntity,
+        {
+          brokerId: 'broker-1',
+          clientId: 'client-1',
+        } as ProjectEntity,
+      );
+
+      expect(status).toBe(MilestoneStatus.PENDING_CLIENT_APPROVAL);
+    });
+
+    it('restores IN_PROGRESS when broker explicitly rejected even if proof links remain', () => {
+      const status = (service as any).resolveMilestoneStatusAfterCancel(
+        {
+          submittedAt: null,
+          proofOfWork: 'https://repo.example/work',
+          reviewedByStaffId: 'broker-1',
+          staffRecommendation: StaffRecommendation.REJECT,
+          staffReviewNote: 'Needs major fixes',
+        } as unknown as MilestoneEntity,
+        {
+          brokerId: 'broker-1',
+          clientId: 'client-1',
+        } as ProjectEntity,
+      );
+
+      expect(status).toBe(MilestoneStatus.IN_PROGRESS);
+    });
+
+    it('restores PENDING_STAFF_REVIEW when broker review is required but not completed', () => {
+      const status = (service as any).resolveMilestoneStatusAfterCancel(
+        {
+          submittedAt: new Date('2026-04-01T08:00:00.000Z'),
+          proofOfWork: 'https://repo.example/work',
+          reviewedByStaffId: null,
+          staffRecommendation: null,
+        } as MilestoneEntity,
+        {
+          brokerId: 'broker-1',
+          clientId: 'client-1',
+        } as ProjectEntity,
+      );
+
+      expect(status).toBe(MilestoneStatus.PENDING_STAFF_REVIEW);
+    });
+
+    it('restores SUBMITTED when no broker review is required', () => {
+      const status = (service as any).resolveMilestoneStatusAfterCancel(
+        {
+          submittedAt: new Date('2026-04-01T08:00:00.000Z'),
+          proofOfWork: 'https://repo.example/work',
+          reviewedByStaffId: null,
+          staffRecommendation: null,
+        } as MilestoneEntity,
+        {
+          brokerId: 'client-1',
+          clientId: 'client-1',
+        } as ProjectEntity,
+      );
+
+      expect(status).toBe(MilestoneStatus.SUBMITTED);
+    });
+
+    it('restores IN_PROGRESS when there is no submission evidence', () => {
+      const status = (service as any).resolveMilestoneStatusAfterCancel(
+        {
+          submittedAt: null,
+          proofOfWork: null,
+          reviewedByStaffId: null,
+          staffRecommendation: null,
+        } as unknown as MilestoneEntity,
+        {
+          brokerId: 'broker-1',
+          clientId: 'client-1',
+        } as ProjectEntity,
+      );
+
+      expect(status).toBe(MilestoneStatus.IN_PROGRESS);
     });
   });
 

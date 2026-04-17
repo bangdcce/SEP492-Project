@@ -646,6 +646,87 @@ describe('ProjectsService', () => {
     expect(milestoneRepository.save).toHaveBeenCalledWith(milestone);
   });
 
+  it('allows the project client to reject a submitted milestone with revision reason', async () => {
+    const milestone = {
+      id: 'milestone-1',
+      projectId: 'project-1',
+      title: 'Kickoff',
+      status: MilestoneStatus.PENDING_CLIENT_APPROVAL,
+      feedback: null,
+      submittedAt: new Date('2026-04-12T09:00:00.000Z'),
+      reviewedByStaffId: 'broker-1',
+      staffRecommendation: 'ACCEPT',
+      staffReviewNote: 'Looks good',
+    } as MilestoneEntity;
+    const project = {
+      id: 'project-1',
+      requestId: 'request-1',
+      clientId: 'client-1',
+      brokerId: 'broker-1',
+      freelancerId: 'freelancer-1',
+      staffId: 'staff-1',
+      status: ProjectStatus.IN_PROGRESS,
+    } as ProjectEntity;
+
+    milestoneRepository.findOne.mockResolvedValue(milestone);
+    projectRepository.findOne.mockResolvedValue(project);
+
+    const result = await service.rejectMilestone(
+      'milestone-1',
+      'client-1',
+      'Please update the API docs and re-submit.',
+    );
+
+    expect(result.status).toBe(MilestoneStatus.REVISIONS_REQUIRED);
+    expect(result.feedback).toBe('Please update the API docs and re-submit.');
+    expect(result.submittedAt).toBeNull();
+    expect(result.reviewedByStaffId).toBeNull();
+    expect(result.staffRecommendation).toBeNull();
+    expect(result.staffReviewNote).toBeNull();
+    expect(milestoneRepository.save).toHaveBeenCalledWith(milestone);
+    expect(notificationsService.createMany).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({
+          userId: 'freelancer-1',
+          title: 'Milestone sent back for revisions',
+          relatedType: 'Project',
+          relatedId: 'project-1',
+        }),
+        expect.objectContaining({
+          userId: 'broker-1',
+          title: 'Milestone sent back for revisions',
+          relatedType: 'Project',
+          relatedId: 'project-1',
+        }),
+      ]),
+    );
+  });
+
+  it('rejects milestone rejection attempts from non-client users', async () => {
+    const milestone = {
+      id: 'milestone-1',
+      projectId: 'project-1',
+      title: 'Kickoff',
+      status: MilestoneStatus.SUBMITTED,
+    } as MilestoneEntity;
+    const project = {
+      id: 'project-1',
+      clientId: 'client-1',
+      brokerId: 'broker-1',
+      freelancerId: 'freelancer-1',
+      status: ProjectStatus.IN_PROGRESS,
+    } as ProjectEntity;
+
+    milestoneRepository.findOne.mockResolvedValue(milestone);
+    projectRepository.findOne.mockResolvedValue(project);
+
+    await expect(
+      service.rejectMilestone('milestone-1', 'broker-1', 'Need fixes.'),
+    ).rejects.toThrow('Only the project client can reject this milestone');
+
+    expect(milestoneRepository.save).not.toHaveBeenCalled();
+  });
+
   it('approves a submitted milestone and releases escrow without changing the response contract', async () => {
     const milestone = {
       id: 'milestone-1',

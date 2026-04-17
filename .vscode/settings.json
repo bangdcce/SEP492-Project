@@ -64,5 +64,6 @@
   "terminal.integrated.automationProfile.windows": {
     "path": "powershell.exe",
     "args": []
-  }
+  },
+  "python-envs.defaultEnvManager": "ms-python.python:system"
 }
