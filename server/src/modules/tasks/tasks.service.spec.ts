@@ -305,10 +305,130 @@ describe('TasksService.reviewSubmission', () => {
 
     expect(taskRepository.update).toHaveBeenCalledWith('task-1', {
       status: TaskStatus.IN_PROGRESS,
-      submittedAt: null,
+      submittedAt: expect.any(Function),
     });
     expect(result.submission.status).toBe(TaskSubmissionStatus.REQUEST_CHANGES);
     expect(result.task.status).toBe(TaskStatus.IN_PROGRESS);
+  });
+});
+
+describe('TasksService.submitWork', () => {
+  const fixedNow = new Date('2026-04-19T09:30:00.000Z');
+
+  const createService = () => {
+    const taskRepository = {
+      update: jest.fn().mockResolvedValue(undefined),
+    };
+    const milestoneRepository = {
+      findOne: jest.fn().mockResolvedValue({
+        id: 'milestone-1',
+        projectId: 'project-1',
+        status: 'IN_PROGRESS',
+        dueDate: new Date('2026-04-19T09:00:00.000Z'),
+        title: 'Milestone 1',
+      }),
+    };
+    const escrowRepository = {};
+    const projectRepository = {
+      findOne: jest.fn().mockResolvedValue({
+        id: 'project-1',
+        brokerId: 'broker-1',
+        freelancerId: 'freelancer-1',
+      }),
+    };
+    const submissionRepository = {
+      count: jest.fn().mockResolvedValue(0),
+      createQueryBuilder: jest.fn().mockReturnValue({
+        select: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        orderBy: jest.fn().mockReturnThis(),
+        limit: jest.fn().mockReturnThis(),
+        getOne: jest.fn().mockResolvedValue(null),
+      }),
+      create: jest.fn().mockImplementation((value) => value),
+      save: jest.fn().mockImplementation(async (value) => value),
+    };
+
+    const service = new TasksService(
+      taskRepository as any,
+      milestoneRepository as any,
+      escrowRepository as any,
+      projectRepository as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      submissionRepository as any,
+      { query: jest.fn() } as any,
+      { logSystemIncident: jest.fn() } as any,
+      { assertMilestoneUnlockedForWorkspace: jest.fn().mockResolvedValue(undefined) } as any,
+      {
+        createSystemMessageOnce: jest.fn().mockResolvedValue({ id: 'system-message-1' }),
+      } as any,
+      {
+        createMany: jest.fn().mockResolvedValue([]),
+      } as any,
+    );
+
+    jest.spyOn(service as any, 'getTaskOrThrow').mockResolvedValue({
+      id: 'task-1',
+      title: 'Prepare release notes',
+      projectId: 'project-1',
+      milestoneId: 'milestone-1',
+      dueDate: new Date('2026-04-19T09:00:00.000Z'),
+      assignedTo: 'freelancer-1',
+    });
+    jest
+      .spyOn(service as any, 'assertMilestoneEscrowFundedForWorkspace')
+      .mockResolvedValue(undefined);
+    jest
+      .spyOn(service as any, 'assertMilestoneInteractionAllowed')
+      .mockResolvedValue(undefined);
+
+    return {
+      service,
+      taskRepository,
+      projectRepository,
+      submissionRepository,
+    };
+  };
+
+  afterEach(() => {
+    jest.useRealTimers();
+    jest.clearAllMocks();
+  });
+
+  it('blocks freelancer submissions after the due date passes', async () => {
+    jest.useFakeTimers().setSystemTime(fixedNow);
+    const { service } = createService();
+
+    await expect(
+      service.submitWork(
+        'task-1',
+        {
+          content: 'Uploaded final release note package',
+          attachments: [],
+        },
+        'freelancer-1',
+      ),
+    ).rejects.toThrow('New freelancer submissions are locked for this task.');
+
+    expect((service as any).workspaceChatService.createSystemMessageOnce).toHaveBeenCalledWith(
+      'project-1',
+      expect.stringContaining('Submission locked: Task "Prepare release notes" passed its deadline'),
+      { taskId: 'task-1' },
+    );
+    expect((service as any).notificationsService.createMany).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({
+          title: 'Task submission locked after due date',
+          relatedType: 'Task',
+          relatedId: 'task-1',
+        }),
+      ]),
+    );
+    expect((service as any).submissionRepository.save).not.toHaveBeenCalled();
   });
 });
 

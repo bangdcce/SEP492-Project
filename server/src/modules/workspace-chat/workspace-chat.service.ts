@@ -320,6 +320,52 @@ export class WorkspaceChatService {
     });
   }
 
+  async createSystemMessageOnce(
+    projectId: string,
+    content: string,
+    options?: { taskId?: string | null },
+  ): Promise<WorkspaceChatMessage | null> {
+    await this.assertProjectExists(projectId);
+
+    const trimmedContent = content?.trim() ?? '';
+    if (!trimmedContent) {
+      throw new BadRequestException('Message content or attachments are required');
+    }
+
+    const existingQuery = this.workspaceMessageRepo
+      .createQueryBuilder('message')
+      .select('message.id', 'id')
+      .where('message.projectId = :projectId', { projectId })
+      .andWhere('message.senderId IS NULL')
+      .andWhere('message.messageType = :messageType', {
+        messageType: WorkspaceMessageType.SYSTEM,
+      })
+      .andWhere('message.content = :content', {
+        content: trimmedContent,
+      });
+
+    if (options?.taskId) {
+      existingQuery.andWhere('message.taskId = :taskId', { taskId: options.taskId });
+    } else {
+      existingQuery.andWhere('message.taskId IS NULL');
+    }
+
+    const existing = await existingQuery.getRawOne<{ id: string }>();
+
+    if (existing) {
+      return null;
+    }
+
+    return this.persistMessage({
+      projectId,
+      senderId: null,
+      content: trimmedContent,
+      attachments: [],
+      taskId: options?.taskId ?? null,
+      messageType: WorkspaceMessageType.SYSTEM,
+    });
+  }
+
   async togglePin(
     projectId: string,
     messageId: string,

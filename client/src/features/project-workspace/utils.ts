@@ -1,5 +1,7 @@
 import type { Task, TaskSubmission } from "./types";
 
+export type TaskActionOwner = "FREELANCER" | "BROKER" | "CLIENT";
+
 export const calculateProgress = (tasks?: Task[] | null): number => {
   if (!tasks || tasks.length === 0) return 0;
   const doneCount = tasks.filter((t) => t.status === "DONE").length;
@@ -77,6 +79,60 @@ export const getLatestApprovedSubmission = (
   }
 
   return [...approvedSubmissions].sort(sortSubmissionsDescending)[0] ?? null;
+};
+
+export const getLatestActionableSubmission = (
+  task?: Pick<Task, "submissions"> | null
+): TaskSubmission | null => {
+  const actionableSubmissions =
+    task?.submissions?.filter(
+      (submission) =>
+        submission.status === "PENDING" ||
+        submission.status === "PENDING_CLIENT_REVIEW"
+    ) ?? [];
+
+  if (actionableSubmissions.length === 0) {
+    return null;
+  }
+
+  return [...actionableSubmissions].sort(sortSubmissionsDescending)[0] ?? null;
+};
+
+export const getTaskActionOwner = (
+  task?: Pick<Task, "status" | "submissions"> | null
+): TaskActionOwner | null => {
+  if (!task || task.status === "DONE") {
+    return null;
+  }
+
+  const actionableSubmission = getLatestActionableSubmission(task);
+  if (actionableSubmission?.status === "PENDING_CLIENT_REVIEW") {
+    return "CLIENT";
+  }
+
+  if (actionableSubmission?.status === "PENDING") {
+    return "BROKER";
+  }
+
+  if (task.status === "TODO" || task.status === "IN_PROGRESS") {
+    return "FREELANCER";
+  }
+
+  return null;
+};
+
+export const getTaskActionLaneLabel = (
+  owner?: TaskActionOwner | null
+): string => {
+  switch (owner) {
+    case "BROKER":
+      return "Broker review";
+    case "CLIENT":
+      return "Client review";
+    case "FREELANCER":
+    default:
+      return "Freelancer queue";
+  }
 };
 
 export const getSubmissionEvidenceUrl = (

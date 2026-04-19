@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Layers, CalendarDays, X } from "lucide-react";
 import { WorkspaceDatePicker } from "../shared/WorkspaceDatePicker";
 import { INTERNAL_DEV_TOOLS_ENABLED } from "@/shared/utils/internalTools";
@@ -20,6 +20,8 @@ type CreateTaskModalProps = {
   specFeatureId: string;
   startDate: string;
   dueDate: string;
+  milestoneStartDate?: string | null;
+  milestoneDueDate?: string | null;
   isSubmitting: boolean;
   onClose: () => void;
   onSubmit: () => void;
@@ -28,6 +30,83 @@ type CreateTaskModalProps = {
   onChangeSpecFeature: (value: string) => void;
   onChangeStartDate: (value: string) => void;
   onChangeDueDate: (value: string) => void;
+};
+
+const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+const parseDateValue = (value?: string | null): Date | null => {
+  if (!value) {
+    return null;
+  }
+
+  const normalizedValue = value.trim();
+  if (!normalizedValue) {
+    return null;
+  }
+
+  const parsedDate = DATE_ONLY_PATTERN.test(normalizedValue)
+    ? (() => {
+        const [year, month, day] = normalizedValue.split("-").map(Number);
+        return new Date(year, month - 1, day);
+      })()
+    : new Date(normalizedValue);
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return null;
+  }
+
+  parsedDate.setHours(0, 0, 0, 0);
+  return parsedDate;
+};
+
+const formatDateValue = (value: Date) => {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const clampDateValue = (
+  value: Date,
+  minDate?: Date | null,
+  maxDate?: Date | null,
+) => {
+  const nextValue = new Date(value.getTime());
+  nextValue.setHours(0, 0, 0, 0);
+
+  if (minDate && nextValue.getTime() < minDate.getTime()) {
+    return new Date(minDate.getTime());
+  }
+
+  if (maxDate && nextValue.getTime() > maxDate.getTime()) {
+    return new Date(maxDate.getTime());
+  }
+
+  return nextValue;
+};
+
+const getLaterDate = (left?: Date | null, right?: Date | null) => {
+  if (!left) {
+    return right ?? null;
+  }
+
+  if (!right) {
+    return left;
+  }
+
+  return left.getTime() >= right.getTime() ? left : right;
+};
+
+const getEarlierDate = (left?: Date | null, right?: Date | null) => {
+  if (!left) {
+    return right ?? null;
+  }
+
+  if (!right) {
+    return left;
+  }
+
+  return left.getTime() <= right.getTime() ? left : right;
 };
 
 export function CreateTaskModal({
@@ -39,6 +118,8 @@ export function CreateTaskModal({
   specFeatureId,
   startDate,
   dueDate,
+  milestoneStartDate,
+  milestoneDueDate,
   isSubmitting,
   onClose,
   onSubmit,
@@ -58,6 +139,67 @@ export function CreateTaskModal({
   const selectedFeature = specFeatures.find((feature) => feature.id === specFeatureId);
   const hasSpecFeatures = specFeatures.length > 0;
   const isTestAutofillEnabled = INTERNAL_DEV_TOOLS_ENABLED;
+  const milestoneStartBoundary = useMemo(
+    () => parseDateValue(milestoneStartDate),
+    [milestoneStartDate],
+  );
+  const milestoneDueBoundary = useMemo(
+    () => parseDateValue(milestoneDueDate),
+    [milestoneDueDate],
+  );
+  const selectedStartBoundary = useMemo(() => parseDateValue(startDate), [startDate]);
+  const selectedDueBoundary = useMemo(() => parseDateValue(dueDate), [dueDate]);
+  const effectiveStartBoundary = useMemo(
+    () =>
+      selectedStartBoundary
+        ? clampDateValue(
+            selectedStartBoundary,
+            milestoneStartBoundary,
+            milestoneDueBoundary,
+          )
+        : null,
+    [milestoneDueBoundary, milestoneStartBoundary, selectedStartBoundary],
+  );
+  const effectiveDueBoundary = useMemo(
+    () =>
+      selectedDueBoundary
+        ? clampDateValue(
+            selectedDueBoundary,
+            milestoneStartBoundary,
+            milestoneDueBoundary,
+          )
+        : null,
+    [milestoneDueBoundary, milestoneStartBoundary, selectedDueBoundary],
+  );
+  const startPickerMinDate = milestoneStartBoundary
+    ? formatDateValue(milestoneStartBoundary)
+    : null;
+  const startPickerMaxDate = useMemo(() => {
+    const maxDate = getEarlierDate(effectiveDueBoundary, milestoneDueBoundary);
+    return maxDate ? formatDateValue(maxDate) : null;
+  }, [effectiveDueBoundary, milestoneDueBoundary]);
+  const duePickerMinDate = useMemo(() => {
+    const minDate = getLaterDate(effectiveStartBoundary, milestoneStartBoundary);
+    return minDate ? formatDateValue(minDate) : null;
+  }, [effectiveStartBoundary, milestoneStartBoundary]);
+  const duePickerMaxDate = milestoneDueBoundary
+    ? formatDateValue(milestoneDueBoundary)
+    : null;
+  const milestoneScheduleHint = useMemo(() => {
+    if (milestoneStartBoundary && milestoneDueBoundary) {
+      return `Task dates must stay between ${milestoneStartBoundary.toLocaleDateString()} and ${milestoneDueBoundary.toLocaleDateString()}.`;
+    }
+
+    if (milestoneStartBoundary) {
+      return `Task dates cannot be earlier than ${milestoneStartBoundary.toLocaleDateString()}.`;
+    }
+
+    if (milestoneDueBoundary) {
+      return `Task dates cannot be later than ${milestoneDueBoundary.toLocaleDateString()}.`;
+    }
+
+    return null;
+  }, [milestoneDueBoundary, milestoneStartBoundary]);
 
   const [isAutoFilling, setIsAutoFilling] = useState(false);
   const [demoStepIndex, setDemoStepIndex] = useState(0);
@@ -80,7 +222,7 @@ export function CreateTaskModal({
     }
   };
 
-  const formatDateInput = (value: Date) => value.toISOString().slice(0, 10);
+  const formatDateInput = (value: Date) => formatDateValue(value);
 
   const buildAutofillDraft = () => {
     const complexityWeight: Record<string, number> = {
@@ -97,10 +239,17 @@ export function CreateTaskModal({
     })[0];
 
     const now = new Date();
-    const startDate = formatDateInput(now);
-    const dueDateSeed = new Date(now);
-    dueDateSeed.setDate(now.getDate() + 3);
-    const dueDate = formatDateInput(dueDateSeed);
+    const boundedStartDate = clampDateValue(
+      now,
+      milestoneStartBoundary,
+      milestoneDueBoundary,
+    );
+    const dueDateSeed = new Date(boundedStartDate.getTime());
+    dueDateSeed.setDate(boundedStartDate.getDate() + 3);
+    const boundedDueDate = getLaterDate(
+      clampDateValue(dueDateSeed, milestoneStartBoundary, milestoneDueBoundary),
+      boundedStartDate,
+    )!;
     const featureTitle = preferredFeature?.title || "Core Task";
 
     return {
@@ -108,8 +257,8 @@ export function CreateTaskModal({
       title: `[TEST] ${featureTitle} - UI flow simulation`,
       description:
         "Demo task generated by test autofill to preview realistic board workflow.\n- Validate UI states\n- Capture screenshots\n- Prepare quick feedback",
-      startDate,
-      dueDate,
+      startDate: formatDateInput(boundedStartDate),
+      dueDate: formatDateInput(boundedDueDate),
     };
   };
 
@@ -289,6 +438,8 @@ export function CreateTaskModal({
                   value={startDate || null}
                   onChange={(value) => onChangeStartDate(value ?? "")}
                   placeholder="Set start date"
+                  minDate={startPickerMinDate}
+                  maxDate={startPickerMaxDate}
                   disabled={isSubmitting}
                 />
               </div>
@@ -303,11 +454,16 @@ export function CreateTaskModal({
                   value={dueDate || null}
                   onChange={(value) => onChangeDueDate(value ?? "")}
                   placeholder="Set due date"
+                  minDate={duePickerMinDate}
+                  maxDate={duePickerMaxDate}
                   disabled={isSubmitting}
                 />
               </div>
             </div>
           </div>
+          {milestoneScheduleHint ? (
+            <p className="text-xs text-slate-500">{milestoneScheduleHint}</p>
+          ) : null}
 
           {/* Description */}
           <div>
