@@ -451,7 +451,13 @@ export class TasksService implements OnModuleInit {
   }
 
   private isSubmissionDeadlinePassed(deadline: Date | null, referenceDate = new Date()): boolean {
-    return Boolean(deadline) && referenceDate.getTime() > deadline!.getTime();
+    if (!deadline) {
+      return false;
+    }
+
+    const lockAt = new Date(deadline);
+    lockAt.setHours(23, 59, 59, 999);
+    return referenceDate.getTime() > lockAt.getTime();
   }
 
   private async getMilestoneSubmissionDeadlineContext(

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { format, formatDistanceToNow } from "date-fns";
+import { endOfDay, format, formatDistanceToNow } from "date-fns";
 import {
   X,
   Layers,
@@ -600,14 +600,15 @@ export function TaskDetailModal({
 
   const dueDate = task.dueDate ? new Date(task.dueDate) : null;
   const dueDateLabel = dueDate ? format(dueDate, "MMM d, yyyy") : "";
+  const dueDateEnd = dueDate ? endOfDay(dueDate) : null;
   const isDueDateOverdue =
-    !!dueDate && dueDate.getTime() < Date.now() && task.status !== "DONE";
+    !!dueDateEnd && dueDateEnd.getTime() < Date.now() && task.status !== "DONE";
   const isSubmissionDeadlinePassed =
-    Boolean(dueDate) && dueDate.getTime() < Date.now();
+    Boolean(dueDateEnd) && dueDateEnd.getTime() < Date.now();
   const submissionDeadlineLockMessage = dueDate
-    ? `Submission is locked because the due date passed on ${format(
+    ? `Submission is locked because the due date passed at the end of ${format(
         dueDate,
-        "MMM d, yyyy HH:mm",
+        "MMM d, yyyy",
       )}.`
     : "Submission is locked because the due date has passed.";
   const totalSubtasks = subtasks.length;

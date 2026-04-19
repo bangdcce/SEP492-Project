@@ -385,6 +385,17 @@ describe('TasksService.submitWork', () => {
     jest
       .spyOn(service as any, 'assertMilestoneInteractionAllowed')
       .mockResolvedValue(undefined);
+    jest.spyOn(service as any, 'findTaskWithWorkspaceRelations').mockResolvedValue({
+      id: 'task-1',
+      title: 'Prepare release notes',
+      projectId: 'project-1',
+      milestoneId: 'milestone-1',
+      dueDate: new Date('2026-04-19T09:00:00.000Z'),
+      assignedTo: 'freelancer-1',
+      parentTaskId: null,
+      status: TaskStatus.IN_REVIEW,
+    });
+    jest.spyOn(service as any, 'recordWorkspaceSystemMessage').mockResolvedValue(undefined);
 
     return {
       service,
@@ -399,8 +410,34 @@ describe('TasksService.submitWork', () => {
     jest.clearAllMocks();
   });
 
-  it('blocks freelancer submissions after the due date passes', async () => {
-    jest.useFakeTimers().setSystemTime(fixedNow);
+  it('allows freelancer submissions until the end of the due date', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-04-19T15:00:00.000Z'));
+    const { service, submissionRepository } = createService();
+
+    await expect(
+      service.submitWork(
+        'task-1',
+        {
+          content: 'Uploaded final release note package',
+          attachments: [],
+        },
+        'freelancer-1',
+      ),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        submission: expect.objectContaining({
+          content: 'Uploaded final release note package',
+        }),
+      }),
+    );
+
+    expect(submissionRepository.save).toHaveBeenCalled();
+    expect((service as any).workspaceChatService.createSystemMessageOnce).not.toHaveBeenCalled();
+    expect((service as any).notificationsService.createMany).not.toHaveBeenCalled();
+  });
+
+  it('blocks freelancer submissions after the due date ends', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-04-20T00:30:00.000Z'));
     const { service } = createService();
 
     await expect(
