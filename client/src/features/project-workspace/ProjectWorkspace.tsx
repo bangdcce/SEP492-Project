@@ -53,9 +53,17 @@ import { CalendarView } from "./components/calendar/CalendarView";
 import { MilestoneApprovalCard } from "./components/milestone/MilestoneApprovalCard";
 import { MilestoneFundingCard } from "./components/milestone/MilestoneFundingCard";
 import { ProjectReviewActionsCard } from "./components/review/ProjectReviewActionsCard";
-import { ProjectOverview } from "./components/overview/ProjectOverview";
+import {
+  ProjectOverview,
+  type ProjectOverviewBoardFocus,
+} from "./components/overview/ProjectOverview";
 import { WorkspaceChatDrawer } from "./components/chat/WorkspaceChatDrawer";
-import { calculateProgress, getLatestApprovedSubmission } from "./utils";
+import {
+  calculateProgress,
+  getLatestApprovedSubmission,
+  getTaskActionOwner,
+  type TaskActionOwner,
+} from "./utils";
 import { buildMilestoneInteractionGateMap } from "./milestone-interaction";
 import {
   BOARD_COLUMNS,
@@ -83,6 +91,9 @@ import {
 
 const WORKSPACE_CHAT_NAMESPACE = "/ws/workspace";
 type WorkspaceViewMode = "summary" | "board" | "calendar";
+type WorkspaceTaskActionFilter = "ALL" | TaskActionOwner;
+type WorkspaceMilestoneSelection = string | null;
+const ALL_WORKSPACE_MILESTONES_KEY = "__all__";
 
 const parseWorkspaceViewMode = (value: string | null): WorkspaceViewMode => {
   if (value === "board" || value === "calendar") {
@@ -118,6 +129,15 @@ const WORKSPACE_TASK_PRIORITY_FILTER_OPTIONS: Array<{
   { value: "HIGH", label: "High" },
   { value: "URGENT", label: "Urgent" },
 ];
+const WORKSPACE_TASK_ACTION_FILTER_OPTIONS: Array<{
+  value: WorkspaceTaskActionFilter;
+  label: string;
+}> = [
+  { value: "ALL", label: "All queues" },
+  { value: "FREELANCER", label: "Freelancer queue" },
+  { value: "BROKER", label: "Broker review" },
+  { value: "CLIENT", label: "Client review" },
+];
 const DISPUTE_PARTICIPANT_ROLES = new Set(["CLIENT", "BROKER", "FREELANCER"]);
 
 const normalizeMilestoneKey = (value?: string | null) =>
@@ -130,6 +150,42 @@ const normalizeTaskDate = (value?: string | null): Date | null => {
 
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+const normalizeBoundaryDate = (value?: string | null): Date | null => {
+  const parsedDate = normalizeTaskDate(value);
+  if (!parsedDate) {
+    return null;
+  }
+
+  parsedDate.setHours(0, 0, 0, 0);
+  return parsedDate;
+};
+
+const formatDateInputValue = (value: Date) => {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const clampDateToRange = (
+  value: Date,
+  minDate?: Date | null,
+  maxDate?: Date | null,
+) => {
+  const normalizedValue = new Date(value.getTime());
+  normalizedValue.setHours(0, 0, 0, 0);
+
+  if (minDate && normalizedValue.getTime() < minDate.getTime()) {
+    return new Date(minDate.getTime());
+  }
+
+  if (maxDate && normalizedValue.getTime() > maxDate.getTime()) {
+    return new Date(maxDate.getTime());
+  }
+
+  return normalizedValue;
 };
 
 const isTaskOverdue = (task: Task): boolean => {
@@ -233,6 +289,8 @@ export function ProjectWorkspace() {
   const [selectedPriorityFilter, setSelectedPriorityFilter] = useState<
     TaskPriority | "ALL"
   >("ALL");
+  const [selectedActionOwnerFilter, setSelectedActionOwnerFilter] =
+    useState<WorkspaceTaskActionFilter>("ALL");
   const [isOverdueOnlyFilter, setIsOverdueOnlyFilter] = useState(false);
   const [showSubtasksInWorkspaceViews, setShowSubtasksInWorkspaceViews] =
     useState(true);
@@ -261,28 +319,42 @@ export function ProjectWorkspace() {
     () => parseWorkspaceViewMode(searchParams.get("view")),
     [searchParams],
   );
-  const requestedMilestoneId = useMemo(
-    () => normalizeMilestoneKey(searchParams.get("milestone")),
+  const requestedMilestoneSelection = useMemo<WorkspaceMilestoneSelection>(
+    () => {
+      const requestedMilestone = searchParams.get("milestone");
+      if (requestedMilestone === ALL_WORKSPACE_MILESTONES_KEY) {
+        return ALL_WORKSPACE_MILESTONES_KEY;
+      }
+
+      return normalizeMilestoneKey(requestedMilestone);
+    },
     [searchParams],
   );
+  const isAllMilestonesMode =
+    requestedMilestoneSelection === ALL_WORKSPACE_MILESTONES_KEY;
   const selectedMilestoneId = useMemo(() => {
     if (milestones.length === 0) {
       return null;
     }
 
+    if (isAllMilestonesMode) {
+      return null;
+    }
+
     const requestedMilestoneExists = Boolean(
-      requestedMilestoneId &&
+      requestedMilestoneSelection &&
         milestones.some(
-          (milestone) => normalizeMilestoneKey(milestone.id) === requestedMilestoneId,
+          (milestone) =>
+            normalizeMilestoneKey(milestone.id) === requestedMilestoneSelection,
         ),
     );
 
-    if (requestedMilestoneId && requestedMilestoneExists) {
-      return requestedMilestoneId;
+    if (requestedMilestoneSelection && requestedMilestoneExists) {
+      return requestedMilestoneSelection;
     }
 
     return milestones[0]?.id ?? null;
-  }, [milestones, requestedMilestoneId]);
+  }, [isAllMilestonesMode, milestones, requestedMilestoneSelection]);
 
   const updateWorkspaceSearchParams = useCallback(
     ({
@@ -290,16 +362,20 @@ export function ProjectWorkspace() {
       nextMilestoneId,
     }: {
       nextViewMode?: WorkspaceViewMode;
-      nextMilestoneId?: string | null;
+      nextMilestoneId?: WorkspaceMilestoneSelection;
     }) => {
       const resolvedViewMode = nextViewMode ?? viewMode;
       const resolvedMilestoneId =
-        nextMilestoneId === undefined ? selectedMilestoneId : nextMilestoneId;
+        nextMilestoneId === undefined
+          ? requestedMilestoneSelection
+          : nextMilestoneId;
       const nextSearchParams = new URLSearchParams(searchParams);
 
       nextSearchParams.set("view", resolvedViewMode);
 
-      if (resolvedMilestoneId) {
+      if (resolvedMilestoneId === ALL_WORKSPACE_MILESTONES_KEY) {
+        nextSearchParams.set("milestone", ALL_WORKSPACE_MILESTONES_KEY);
+      } else if (resolvedMilestoneId) {
         nextSearchParams.set("milestone", resolvedMilestoneId);
       } else {
         nextSearchParams.delete("milestone");
@@ -309,11 +385,11 @@ export function ProjectWorkspace() {
         setSearchParams(nextSearchParams, { replace: true });
       }
     },
-    [searchParams, selectedMilestoneId, setSearchParams, viewMode],
+    [requestedMilestoneSelection, searchParams, setSearchParams, viewMode],
   );
 
   const setSelectedMilestoneId = useCallback(
-    (id: string | null) => {
+    (id: WorkspaceMilestoneSelection) => {
       updateWorkspaceSearchParams({ nextMilestoneId: id });
     },
     [updateWorkspaceSearchParams],
@@ -895,6 +971,68 @@ export function ProjectWorkspace() {
         : null,
     [milestones, selectedMilestoneKey],
   );
+  const activeMilestoneStartBoundary = useMemo(
+    () => normalizeBoundaryDate(activeMilestone?.startDate),
+    [activeMilestone?.startDate],
+  );
+  const activeMilestoneDueBoundary = useMemo(
+    () => normalizeBoundaryDate(activeMilestone?.dueDate),
+    [activeMilestone?.dueDate],
+  );
+  const getTaskDateRangeValidationError = useCallback(
+    (startDateValue?: string | null, dueDateValue?: string | null) => {
+      const nextStartDate = normalizeBoundaryDate(startDateValue);
+      const nextDueDate = normalizeBoundaryDate(dueDateValue);
+
+      if (
+        nextStartDate &&
+        nextDueDate &&
+        nextStartDate.getTime() > nextDueDate.getTime()
+      ) {
+        return "Task start date cannot be after the due date.";
+      }
+
+      if (
+        activeMilestoneStartBoundary &&
+        nextStartDate &&
+        nextStartDate.getTime() < activeMilestoneStartBoundary.getTime()
+      ) {
+        return `Task start date must be on or after ${formatOptionalDate(activeMilestone.startDate)}.`;
+      }
+
+      if (
+        activeMilestoneDueBoundary &&
+        nextStartDate &&
+        nextStartDate.getTime() > activeMilestoneDueBoundary.getTime()
+      ) {
+        return `Task start date must be on or before ${formatOptionalDate(activeMilestone.dueDate)}.`;
+      }
+
+      if (
+        activeMilestoneStartBoundary &&
+        nextDueDate &&
+        nextDueDate.getTime() < activeMilestoneStartBoundary.getTime()
+      ) {
+        return `Task due date must be on or after ${formatOptionalDate(activeMilestone.startDate)}.`;
+      }
+
+      if (
+        activeMilestoneDueBoundary &&
+        nextDueDate &&
+        nextDueDate.getTime() > activeMilestoneDueBoundary.getTime()
+      ) {
+        return `Task due date must be on or before ${formatOptionalDate(activeMilestone.dueDate)}.`;
+      }
+
+      return null;
+    },
+    [
+      activeMilestone?.dueDate,
+      activeMilestone?.startDate,
+      activeMilestoneDueBoundary,
+      activeMilestoneStartBoundary,
+    ],
+  );
   const activeMilestoneInteractionGate = useMemo(
     () =>
       selectedMilestoneKey ? milestoneInteractionGates[selectedMilestoneKey] ?? null : null,
@@ -1126,11 +1264,52 @@ export function ProjectWorkspace() {
       return;
     }
 
+    const draftStartDate = normalizeBoundaryDate(newStartDate);
+    const draftDueDate = normalizeBoundaryDate(newDueDate);
+    const boundedStartDate = draftStartDate
+      ? clampDateToRange(
+          draftStartDate,
+          activeMilestoneStartBoundary,
+          activeMilestoneDueBoundary,
+        )
+      : null;
+    const boundedDueDate = draftDueDate
+      ? clampDateToRange(
+          draftDueDate,
+          activeMilestoneStartBoundary,
+          activeMilestoneDueBoundary,
+        )
+      : null;
+    const resolvedDueDate =
+      boundedStartDate &&
+      boundedDueDate &&
+      boundedDueDate.getTime() < boundedStartDate.getTime()
+        ? boundedStartDate
+        : boundedDueDate;
+
+    if (draftStartDate && boundedStartDate) {
+      const nextStartDate = formatDateInputValue(boundedStartDate);
+      if (nextStartDate !== newStartDate) {
+        setNewStartDate(nextStartDate);
+      }
+    }
+
+    if (draftDueDate && resolvedDueDate) {
+      const nextDueDate = formatDateInputValue(resolvedDueDate);
+      if (nextDueDate !== newDueDate) {
+        setNewDueDate(nextDueDate);
+      }
+    }
+
     setIsModalOpen(true);
   }, [
     activeMilestone,
+    activeMilestoneDueBoundary,
+    activeMilestoneStartBoundary,
     canCreateTasksForSelectedMilestone,
     isAssignedBroker,
+    newDueDate,
+    newStartDate,
     taskCommandUnavailableMessage,
   ]);
 
@@ -1161,17 +1340,42 @@ export function ProjectWorkspace() {
       normalizedStart.setHours(0, 0, 0, 0);
       const normalizedEnd = new Date(end);
       normalizedEnd.setHours(0, 0, 0, 0);
-      const dueSource =
+      const rawDueSource =
         normalizedEnd.getTime() > normalizedStart.getTime()
           ? new Date(normalizedEnd.getTime() - 24 * 60 * 60 * 1000)
           : normalizedStart;
+      rawDueSource.setHours(0, 0, 0, 0);
 
-      setNewStartDate(normalizedStart.toISOString().slice(0, 10));
-      setNewDueDate(dueSource.toISOString().slice(0, 10));
+      const boundedStart = clampDateToRange(
+        normalizedStart,
+        activeMilestoneStartBoundary,
+        activeMilestoneDueBoundary,
+      );
+      const boundedDue = clampDateToRange(
+        rawDueSource,
+        activeMilestoneStartBoundary,
+        activeMilestoneDueBoundary,
+      );
+      const resolvedDue =
+        boundedDue.getTime() < boundedStart.getTime() ? boundedStart : boundedDue;
+
+      if (
+        boundedStart.getTime() !== normalizedStart.getTime() ||
+        resolvedDue.getTime() !== rawDueSource.getTime()
+      ) {
+        toast.warning(
+          "Task dates were adjusted to stay inside the selected milestone schedule.",
+        );
+      }
+
+      setNewStartDate(formatDateInputValue(boundedStart));
+      setNewDueDate(formatDateInputValue(resolvedDue));
       setIsModalOpen(true);
     },
     [
       activeMilestone,
+      activeMilestoneDueBoundary,
+      activeMilestoneStartBoundary,
       canCreateTasksForSelectedMilestone,
       isAssignedBroker,
       taskCommandUnavailableMessage,
@@ -1243,7 +1447,9 @@ export function ProjectWorkspace() {
     const workspacePath = workspaceRoutePattern.replace(":projectId", projectId);
     const returnParams = new URLSearchParams();
     returnParams.set("view", viewMode);
-    if (selectedMilestoneId) {
+    if (isAllMilestonesMode) {
+      returnParams.set("milestone", ALL_WORKSPACE_MILESTONES_KEY);
+    } else if (selectedMilestoneId) {
       returnParams.set("milestone", selectedMilestoneId);
     }
 
@@ -1255,7 +1461,14 @@ export function ProjectWorkspace() {
     }
 
     return `${billingBaseRoute}?${billingParams.toString()}`;
-  }, [activeMilestone?.title, currentRole, projectId, selectedMilestoneId, viewMode]);
+  }, [
+    activeMilestone?.title,
+    currentRole,
+    isAllMilestonesMode,
+    projectId,
+    selectedMilestoneId,
+    viewMode,
+  ]);
 
   const allTasks = boardMeta.allTasks;
   const activeAssigneeFilterId = useMemo(
@@ -1285,6 +1498,13 @@ export function ProjectWorkspace() {
         return false;
       }
 
+      if (
+        selectedActionOwnerFilter !== "ALL" &&
+        getTaskActionOwner(task) !== selectedActionOwnerFilter
+      ) {
+        return false;
+      }
+
       if (selectedStatusFilter !== "ALL" && task.status !== selectedStatusFilter) {
         return false;
       }
@@ -1310,6 +1530,7 @@ export function ProjectWorkspace() {
       activeAssigneeFilterId,
       isOverdueOnlyFilter,
       searchQuery,
+      selectedActionOwnerFilter,
       selectedMilestoneId,
       selectedPriorityFilter,
       selectedStatusFilter,
@@ -1329,6 +1550,7 @@ export function ProjectWorkspace() {
     if (
       !searchQuery.trim() &&
       !activeAssigneeFilterId &&
+      selectedActionOwnerFilter === "ALL" &&
       selectedStatusFilter === "ALL" &&
       selectedPriorityFilter === "ALL" &&
       !isOverdueOnlyFilter &&
@@ -1350,6 +1572,7 @@ export function ProjectWorkspace() {
     activeAssigneeFilterId,
     isOverdueOnlyFilter,
     searchQuery,
+    selectedActionOwnerFilter,
     selectedMilestoneId,
     selectedPriorityFilter,
     selectedStatusFilter,
@@ -1361,6 +1584,7 @@ export function ProjectWorkspace() {
       Boolean(
         searchQuery.trim() ||
           activeAssigneeFilterId ||
+          selectedActionOwnerFilter !== "ALL" ||
           selectedStatusFilter !== "ALL" ||
           selectedPriorityFilter !== "ALL" ||
           isOverdueOnlyFilter ||
@@ -1370,6 +1594,7 @@ export function ProjectWorkspace() {
       activeAssigneeFilterId,
       isOverdueOnlyFilter,
       searchQuery,
+      selectedActionOwnerFilter,
       selectedPriorityFilter,
       selectedStatusFilter,
       showSubtasksInWorkspaceViews,
@@ -1381,9 +1606,27 @@ export function ProjectWorkspace() {
     setIsMyTasksFilter(false);
     setSelectedStatusFilter("ALL");
     setSelectedPriorityFilter("ALL");
+    setSelectedActionOwnerFilter("ALL");
     setIsOverdueOnlyFilter(false);
     setShowSubtasksInWorkspaceViews(true);
   }, []);
+  const handleOpenOverviewBoardFocus = useCallback(
+    ({ actionOwner, overdueOnly }: ProjectOverviewBoardFocus) => {
+      setSearchQuery("");
+      setSelectedAssigneeId(null);
+      setIsMyTasksFilter(false);
+      setSelectedPriorityFilter("ALL");
+      setSelectedActionOwnerFilter(actionOwner);
+      setSelectedStatusFilter("ALL");
+      setIsOverdueOnlyFilter(overdueOnly);
+      setShowSubtasksInWorkspaceViews(true);
+      updateWorkspaceSearchParams({
+        nextViewMode: "board",
+        nextMilestoneId: ALL_WORKSPACE_MILESTONES_KEY,
+      });
+    },
+    [updateWorkspaceSearchParams],
+  );
 
   const selectedTask = useMemo(
     () => (selectedTaskId ? boardMeta.taskMap.get(selectedTaskId) ?? null : null),
@@ -1802,7 +2045,7 @@ export function ProjectWorkspace() {
     return () => {
       active = false;
     };
-  }, [handleFundingSuccess, requestedMilestoneId, searchParams, setSearchParams]);
+  }, [handleFundingSuccess, searchParams, setSearchParams]);
 
   const handleRequestMilestoneReview = async (milestoneId: string) => {
     if (isProjectInteractionLocked) {
@@ -2079,6 +2322,16 @@ export function ProjectWorkspace() {
       );
     }
 
+    const taskDateRangeValidationError = getTaskDateRangeValidationError(
+      newStartDate,
+      newDueDate,
+    );
+    if (taskDateRangeValidationError) {
+      setError(taskDateRangeValidationError);
+      toast.warning(taskDateRangeValidationError);
+      return;
+    }
+
     try {
       setIsSubmitting(true);
       setError(null);
@@ -2128,13 +2381,14 @@ export function ProjectWorkspace() {
     selectedMilestoneId,
     specFeatureOptions.length,
     taskCommandUnavailableMessage,
+    getTaskDateRangeValidationError,
     upsertTaskIntoBoard,
   ]);
 
   return (
     <div
       className={`space-y-8 pb-20 transition-[padding] duration-200 ${
-        isChatOpen ? "xl:pr-[25rem]" : ""
+        isChatOpen ? "2xl:pr-80" : ""
       }`}
     >
       <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
@@ -2158,7 +2412,7 @@ export function ProjectWorkspace() {
             </p>
           )}
         </div>
-        <div className="flex flex-wrap items-center gap-3 xl:justify-end">
+        <div className="flex w-full flex-wrap items-center gap-2 xl:w-auto xl:justify-end">
           {/* View Contract Button */}
           {contractHref && (
             <Link
@@ -2230,7 +2484,7 @@ export function ProjectWorkspace() {
           {canMutateMilestoneStructure && (
             <button
               onClick={openCreateMilestoneModal}
-              className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-700 transition-colors hover:bg-emerald-100"
+              className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-700 transition-colors hover:bg-emerald-100"
             >
               <PlusCircle className="h-4 w-4" />
               Add Milestone
@@ -2240,7 +2494,7 @@ export function ProjectWorkspace() {
           {!isReadOnly && canCreateTasksForSelectedMilestone && (
             <button
               onClick={openCreateModal}
-              className="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors shadow-sm"
+              className="shrink-0 rounded-lg bg-teal-600 px-4 py-2 text-white shadow-sm transition-colors hover:bg-teal-700"
             >
               + New Task
             </button>
@@ -2488,6 +2742,12 @@ export function ProjectWorkspace() {
               }
             />
           )}
+          {viewMode !== "summary" && isAllMilestonesMode ? (
+            <div className="rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800">
+              Showing tasks across all milestones. Select a milestone tab to focus a
+              single milestone again.
+            </div>
+          ) : null}
           {activeMilestone && viewMode === "board" && (
             <div className="border border-gray-200 bg-white rounded-xl p-4 shadow-sm">
               <div className="flex items-center justify-between mb-2">
@@ -2589,15 +2849,16 @@ export function ProjectWorkspace() {
               projectId={projectId}
               milestones={milestones}
               tasks={allTasks}
+              onOpenBoardFocus={handleOpenOverviewBoardFocus}
             />
           ) : viewMode === "board" ? (
             <DragDropContext onDragEnd={handleDragEnd}>
               {/* JIRA STYLE TOOLBAR */}
-              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6 bg-white p-2 rounded-lg border border-slate-200 shadow-sm">
+              <div className="mb-6 flex flex-col gap-3 rounded-lg border border-slate-200 bg-white p-2 shadow-sm xl:flex-row xl:items-center xl:justify-between">
                 {/* LEFT: SEARCH & QUICK FILTERS */}
-                <div className="flex items-center gap-4 w-full sm:w-auto">
+                <div className="flex w-full flex-wrap items-center gap-3 xl:flex-1">
                   {/* Search Input (Integrated look) */}
-                  <div className="relative group w-full sm:w-64">
+                  <div className="group relative w-full sm:w-64 xl:max-w-sm">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 group-focus-within:text-teal-600 transition-colors" />
                     <input
                       type="text"
@@ -2627,7 +2888,7 @@ export function ProjectWorkspace() {
                         setIsMyTasksFilter(newState);
                         if (newState) setSelectedAssigneeId(null); // Clear specific assignee if selecting "Mine"
                       }}
-                      className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-all ${
+                      className={`flex shrink-0 items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-all ${
                         isMyTasksFilter
                           ? "bg-teal-50 text-teal-700 ring-1 ring-teal-200"
                           : "text-slate-600 hover:bg-slate-100"
@@ -2647,8 +2908,8 @@ export function ProjectWorkspace() {
                 </div>
 
                 {/* RIGHT: ASSIGNEES & CLEAR */}
-                <div className="flex items-center gap-3 w-full sm:w-auto justify-between sm:justify-end">
-                  <div className="flex items-center -space-x-2 overflow-hidden py-1 pl-1">
+                <div className="flex w-full flex-wrap items-center gap-2 xl:w-auto xl:justify-end">
+                  <div className="flex shrink-0 items-center -space-x-2 overflow-hidden py-1 pl-1">
                     {uniqueAssignees.map((assignee) => {
                       const isSelected = selectedAssigneeId === assignee.id;
                       return (
@@ -2687,7 +2948,7 @@ export function ProjectWorkspace() {
                         event.target.value as KanbanColumnKey | "ALL",
                       )
                     }
-                    className="rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-600"
+                    className="min-w-[7.25rem] shrink-0 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-600"
                     title="Filter by status"
                   >
                     {WORKSPACE_TASK_STATUS_FILTER_OPTIONS.map((option) => (
@@ -2704,7 +2965,7 @@ export function ProjectWorkspace() {
                         event.target.value as TaskPriority | "ALL",
                       )
                     }
-                    className="rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-600"
+                    className="min-w-[7.25rem] shrink-0 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-600"
                     title="Filter by priority"
                   >
                     {WORKSPACE_TASK_PRIORITY_FILTER_OPTIONS.map((option) => (
@@ -2714,9 +2975,26 @@ export function ProjectWorkspace() {
                     ))}
                   </select>
 
+                  <select
+                    value={selectedActionOwnerFilter}
+                    onChange={(event) =>
+                      setSelectedActionOwnerFilter(
+                        event.target.value as WorkspaceTaskActionFilter,
+                      )
+                    }
+                    className="min-w-[8.25rem] shrink-0 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-600"
+                    title="Filter by action owner"
+                  >
+                    {WORKSPACE_TASK_ACTION_FILTER_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+
                   <button
                     onClick={() => setIsOverdueOnlyFilter((current) => !current)}
-                    className={`rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                    className={`shrink-0 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors ${
                       isOverdueOnlyFilter
                         ? "bg-red-50 text-red-700 ring-1 ring-red-200"
                         : "bg-slate-100 text-slate-600 hover:bg-slate-200"
@@ -2729,7 +3007,7 @@ export function ProjectWorkspace() {
                     onClick={() =>
                       setShowSubtasksInWorkspaceViews((current) => !current)
                     }
-                    className={`rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                    className={`shrink-0 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors ${
                       showSubtasksInWorkspaceViews
                         ? "bg-teal-50 text-teal-700 ring-1 ring-teal-200"
                         : "bg-slate-100 text-slate-600 hover:bg-slate-200"
@@ -2742,7 +3020,7 @@ export function ProjectWorkspace() {
                   {hasActiveWorkspaceTaskFilters && (
                     <button
                       onClick={clearWorkspaceTaskFilters}
-                      className="px-3 py-1.5 text-xs font-medium text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors"
+                      className="shrink-0 rounded-md px-3 py-1.5 text-xs font-medium text-slate-500 transition-colors hover:bg-red-50 hover:text-red-600"
                     >
                       Clear filters
                     </button>
@@ -2792,7 +3070,7 @@ export function ProjectWorkspace() {
                         event.target.value as KanbanColumnKey | "ALL",
                       )
                     }
-                    className="rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-600"
+                    className="min-w-[7.25rem] shrink-0 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-600"
                     title="Filter by status"
                   >
                     {WORKSPACE_TASK_STATUS_FILTER_OPTIONS.map((option) => (
@@ -2809,7 +3087,7 @@ export function ProjectWorkspace() {
                         event.target.value as TaskPriority | "ALL",
                       )
                     }
-                    className="rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-600"
+                    className="min-w-[7.25rem] shrink-0 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-600"
                     title="Filter by priority"
                   >
                     {WORKSPACE_TASK_PRIORITY_FILTER_OPTIONS.map((option) => (
@@ -2819,9 +3097,26 @@ export function ProjectWorkspace() {
                     ))}
                   </select>
 
+                  <select
+                    value={selectedActionOwnerFilter}
+                    onChange={(event) =>
+                      setSelectedActionOwnerFilter(
+                        event.target.value as WorkspaceTaskActionFilter,
+                      )
+                    }
+                    className="min-w-[8.25rem] shrink-0 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-600"
+                    title="Filter by action owner"
+                  >
+                    {WORKSPACE_TASK_ACTION_FILTER_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+
                   <button
                     onClick={() => setIsOverdueOnlyFilter((current) => !current)}
-                    className={`rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                    className={`shrink-0 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors ${
                       isOverdueOnlyFilter
                         ? "bg-red-50 text-red-700 ring-1 ring-red-200"
                         : "bg-slate-100 text-slate-600 hover:bg-slate-200"
@@ -2834,7 +3129,7 @@ export function ProjectWorkspace() {
                     onClick={() =>
                       setShowSubtasksInWorkspaceViews((current) => !current)
                     }
-                    className={`rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                    className={`shrink-0 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors ${
                       showSubtasksInWorkspaceViews
                         ? "bg-teal-50 text-teal-700 ring-1 ring-teal-200"
                         : "bg-slate-100 text-slate-600 hover:bg-slate-200"
@@ -2857,7 +3152,9 @@ export function ProjectWorkspace() {
               <CalendarView
                 {...({
                   tasks: calendarTasks,
-                  selectedMilestoneLabel: activeMilestone?.title ?? null,
+                  selectedMilestoneLabel:
+                    activeMilestone?.title ??
+                    (isAllMilestonesMode ? "All milestones" : null),
                   canRescheduleTasks:
                     !isReadOnly && !selectedMilestoneTaskMutationReason,
                   canCreateTasks: canCreateTasksForSelectedMilestone,
@@ -2903,6 +3200,8 @@ export function ProjectWorkspace() {
         title={newTitle}
         description={newDescription}
         milestoneId={selectedMilestoneId || undefined}
+        milestoneStartDate={activeMilestone?.startDate}
+        milestoneDueDate={activeMilestone?.dueDate}
         specFeatures={specFeatureOptions}
         specFeatureId={newSpecFeatureId}
         startDate={newStartDate}

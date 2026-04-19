@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   ArrowUpRight,
   TrendingDown,
@@ -16,6 +16,11 @@ import {
   addDays,
 } from "date-fns";
 import { formatCurrency } from "@/shared/utils/formatters";
+import {
+  getTaskActionLaneLabel,
+  getTaskActionOwner,
+  type TaskActionOwner,
+} from "../../utils";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TYPES
@@ -25,7 +30,13 @@ interface ProjectOverviewProps {
   projectId?: string;
   milestones: Milestone[];
   tasks: Task[];
+  onOpenBoardFocus?: (focus: ProjectOverviewBoardFocus) => void;
 }
+
+export type ProjectOverviewBoardFocus = {
+  actionOwner: TaskActionOwner | "ALL";
+  overdueOnly: boolean;
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // HELPER FUNCTIONS
@@ -84,7 +95,98 @@ function SectionHeader({ title, action }: { title: string; action?: string }) {
   );
 }
 
+function ActionRequiredButton({
+  label,
+  value,
+  detail,
+  tone = "slate",
+  onClick,
+  disabled = false,
+}: {
+  label: string;
+  value: ReactNode;
+  detail?: ReactNode;
+  tone?: "slate" | "amber" | "blue" | "red";
+  onClick?: () => void;
+  disabled?: boolean;
+}) {
+  const toneClasses = {
+    slate: "border-slate-200 bg-slate-50/80 hover:border-slate-300 hover:bg-slate-100/80",
+    amber: "border-amber-200 bg-amber-50/80 hover:border-amber-300 hover:bg-amber-100/70",
+    blue: "border-blue-200 bg-blue-50/80 hover:border-blue-300 hover:bg-blue-100/70",
+    red: "border-red-200 bg-red-50/80 hover:border-red-300 hover:bg-red-100/70",
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={`w-full rounded-xl border px-4 py-4 text-left transition-colors ${
+        disabled
+          ? "cursor-default border-slate-200 bg-slate-50/60 text-slate-400"
+          : `${toneClasses[tone]} text-slate-900`
+      }`}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+            {label}
+          </p>
+          <div className="mt-3 min-w-0">{value}</div>
+        </div>
+        {!disabled && onClick ? (
+          <span className="shrink-0 rounded-full border border-white/70 bg-white px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-600 shadow-sm">
+            Open board
+          </span>
+        ) : null}
+      </div>
+      {detail ? (
+        <div className="mt-3 text-sm leading-5 text-slate-600">{detail}</div>
+      ) : null}
+    </button>
+  );
+}
+
 const ACTIVITY_LIMIT = 5;
+
+const getTaskTimelineValue = (task: Pick<Task, "dueDate" | "startDate">) => {
+  const rawValue = task.dueDate ?? task.startDate ?? null;
+  if (!rawValue) {
+    return Number.MAX_SAFE_INTEGER;
+  }
+
+  const parsedValue = new Date(rawValue).getTime();
+  return Number.isNaN(parsedValue) ? Number.MAX_SAFE_INTEGER : parsedValue;
+};
+
+const formatTaskTimelineDate = (task: Pick<Task, "dueDate" | "startDate">) => {
+  const rawValue = task.dueDate ?? task.startDate ?? null;
+  if (!rawValue) {
+    return "No due date";
+  }
+
+  const parsedValue = new Date(rawValue);
+  return Number.isNaN(parsedValue.getTime())
+    ? rawValue
+    : parsedValue.toLocaleDateString();
+};
+
+const isTaskOverdue = (task: Pick<Task, "status" | "dueDate" | "startDate">) => {
+  if (task.status === "DONE") {
+    return false;
+  }
+
+  const dueDate = new Date(task.dueDate ?? task.startDate ?? "");
+  if (Number.isNaN(dueDate.getTime())) {
+    return false;
+  }
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  dueDate.setHours(0, 0, 0, 0);
+  return dueDate.getTime() < today.getTime();
+};
 
 const humanizeActivityValue = (value?: string) => {
   if (!value) return "";
@@ -137,7 +239,41 @@ function StatusDonutChart({
 }) {
   const total = data.reduce((acc, item) => acc + item.value, 0);
   const [hoveredLabel, setHoveredLabel] = useState<string | null>(null);
-  let accumulatedOffset = 25; // Start at 12 o'clock
+  const chartSegments = useMemo(() => {
+    return data.reduce<
+      Array<
+        (typeof data)[number] & {
+          percent: number;
+          offset: number;
+        }
+      >
+    >((segments, slice, index) => {
+      const percent = total > 0 ? (slice.value / total) * 100 : 0;
+      if (percent <= 0) {
+        return segments;
+      }
+
+      const offset =
+        25 -
+        data
+          .slice(0, index)
+          .reduce(
+            (accumulatedPercent, currentSlice) =>
+              accumulatedPercent +
+              (total > 0 ? (currentSlice.value / total) * 100 : 0),
+            0,
+          );
+
+      return [
+        ...segments,
+        {
+          ...slice,
+          percent,
+          offset,
+        },
+      ];
+    }, []);
+  }, [data, total]);
 
   return (
     <div className="flex items-center gap-8">
@@ -155,14 +291,8 @@ function StatusDonutChart({
             />
           )}
 
-          {data.map((slice) => {
-            const percent = total > 0 ? (slice.value / total) * 100 : 0;
-            const strokeDasharray = `${percent} ${100 - percent}`;
-            const offset = accumulatedOffset;
-            accumulatedOffset -= percent; // Move clockwise
-
-            if (percent === 0) return null;
-
+          {chartSegments.map((slice) => {
+            const strokeDasharray = `${slice.percent} ${100 - slice.percent}`;
             const isDimmed = hoveredLabel && hoveredLabel !== slice.label;
             const isHovered = hoveredLabel === slice.label;
 
@@ -176,7 +306,7 @@ function StatusDonutChart({
                 stroke={slice.color}
                 strokeWidth={isHovered ? "6" : "5"}
                 strokeDasharray={strokeDasharray}
-                strokeDashoffset={offset}
+                strokeDashoffset={slice.offset}
                 className="transition-all duration-300 ease-in-out cursor-pointer"
                 style={{
                   opacity: isDimmed ? 0.3 : 1,
@@ -455,9 +585,12 @@ export function ProjectOverview({
   projectId,
   milestones,
   tasks,
+  onOpenBoardFocus,
 }: ProjectOverviewProps) {
   const [recentActivity, setRecentActivity] = useState<ProjectRecentActivity[]>([]);
-  const [isLoadingRecentActivity, setIsLoadingRecentActivity] = useState(false);
+  const [isLoadingRecentActivity, setIsLoadingRecentActivity] = useState(
+    Boolean(projectId),
+  );
 
   useEffect(() => {
     if (!projectId) {
@@ -465,7 +598,6 @@ export function ProjectOverview({
     }
 
     let cancelled = false;
-    setIsLoadingRecentActivity(true);
 
     fetchProjectRecentActivity(projectId)
       .then((activity) => {
@@ -558,17 +690,54 @@ export function ProjectOverview({
     ];
   }, [tasks]);
 
-  // Mock Workload Data
-  const teamWorkload = useMemo(() => {
-    const assigneeCounts: Record<string, number> = {};
-    tasks.forEach((t) => {
-      const name = t.assignee?.fullName || "Unassigned";
-      assigneeCounts[name] = (assigneeCounts[name] || 0) + 1;
-    });
-    return Object.entries(assigneeCounts)
-      .sort(([, a], [, b]) => b - a)
-      .slice(0, 3)
-      .map(([name, count]) => ({ name, count }));
+  const actionRequired = useMemo(() => {
+    let waitingForFreelancer = 0;
+    let waitingForBroker = 0;
+    let waitingForClient = 0;
+    let overdue = 0;
+    let nextDueTask: Task | null = null;
+
+    for (const task of tasks) {
+      if (task.status === "DONE") {
+        continue;
+      }
+
+      const actionOwner = getTaskActionOwner(task);
+      if (actionOwner === "FREELANCER") {
+        waitingForFreelancer += 1;
+      } else if (actionOwner === "BROKER") {
+        waitingForBroker += 1;
+      } else if (actionOwner === "CLIENT") {
+        waitingForClient += 1;
+      }
+
+      const taskIsOverdue = isTaskOverdue(task);
+      if (taskIsOverdue) {
+        overdue += 1;
+      }
+
+      if (
+        taskIsOverdue ||
+        getTaskTimelineValue(task) === Number.MAX_SAFE_INTEGER
+      ) {
+        continue;
+      }
+
+      if (
+        !nextDueTask ||
+        getTaskTimelineValue(task) < getTaskTimelineValue(nextDueTask)
+      ) {
+        nextDueTask = task;
+      }
+    }
+
+    return {
+      waitingForFreelancer,
+      waitingForBroker,
+      waitingForClient,
+      overdue,
+      nextDueTask,
+    };
   }, [tasks]);
 
   const priorityData = useMemo(() => {
@@ -609,7 +778,6 @@ export function ProjectOverview({
     ];
 
     return config.map((c) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const count = counts[c.key as keyof typeof counts] || 0;
       const percent = total > 0 ? Math.round((count / total) * 100) : 0;
       return {
@@ -705,35 +873,121 @@ export function ProjectOverview({
           />
         </div>
 
-        {/* Team Workload */}
+        {/* Action Required */}
         <div className="bg-white border border-gray-300 rounded-[3px] p-5 shadow-sm">
-          <SectionHeader title="Team Workload" />
-          <div className="space-y-4">
-            {teamWorkload.map((member) => (
-              <div
-                key={member.name}
-                className="flex items-center justify-between group hover:bg-gray-50 p-2 rounded-md -mx-2 transition-colors cursor-default"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-xs font-bold text-slate-600 border border-slate-200 group-hover:border-slate-300 transition-colors">
-                    {member.name.charAt(0)}
+          <SectionHeader title="Action Required" />
+          <div className="grid gap-3 sm:grid-cols-2">
+            <ActionRequiredButton
+              label="Waiting for freelancer"
+              value={
+                <p className="text-3xl font-bold text-slate-900">
+                  {actionRequired.waitingForFreelancer}
+                </p>
+              }
+              detail="Open tasks not yet submitted for review."
+              onClick={() =>
+                onOpenBoardFocus?.({
+                  actionOwner: "FREELANCER",
+                  overdueOnly: false,
+                })
+              }
+              disabled={
+                actionRequired.waitingForFreelancer === 0 || !onOpenBoardFocus
+              }
+            />
+            <ActionRequiredButton
+              label="Waiting for broker"
+              value={
+                <p className="text-3xl font-bold text-slate-900">
+                  {actionRequired.waitingForBroker}
+                </p>
+              }
+              detail="Tasks waiting for broker review."
+              tone="amber"
+              onClick={() =>
+                onOpenBoardFocus?.({
+                  actionOwner: "BROKER",
+                  overdueOnly: false,
+                })
+              }
+              disabled={actionRequired.waitingForBroker === 0 || !onOpenBoardFocus}
+            />
+            <ActionRequiredButton
+              label="Waiting for client"
+              value={
+                <p className="text-3xl font-bold text-slate-900">
+                  {actionRequired.waitingForClient}
+                </p>
+              }
+              detail="Tasks broker-approved and pending client sign-off."
+              tone="blue"
+              onClick={() =>
+                onOpenBoardFocus?.({
+                  actionOwner: "CLIENT",
+                  overdueOnly: false,
+                })
+              }
+              disabled={actionRequired.waitingForClient === 0 || !onOpenBoardFocus}
+            />
+            <ActionRequiredButton
+              label="Overdue"
+              value={
+                <p className="text-3xl font-bold text-slate-900">
+                  {actionRequired.overdue}
+                </p>
+              }
+              detail="Open tasks already past their deadline."
+              tone="red"
+              onClick={() =>
+                onOpenBoardFocus?.({
+                  actionOwner: "ALL",
+                  overdueOnly: true,
+                })
+              }
+              disabled={actionRequired.overdue === 0 || !onOpenBoardFocus}
+            />
+          </div>
+          <div className="mt-3">
+            <ActionRequiredButton
+              label="Next due"
+              value={
+                actionRequired.nextDueTask ? (
+                  <div className="min-w-0">
+                    <p className="truncate text-base font-semibold text-slate-900">
+                      {actionRequired.nextDueTask.title}
+                    </p>
+                    <p className="mt-1 text-xs font-medium uppercase tracking-[0.18em] text-slate-500">
+                      {getTaskActionLaneLabel(
+                        getTaskActionOwner(actionRequired.nextDueTask),
+                      )}
+                    </p>
                   </div>
-                  <span className="text-sm font-medium text-slate-700 group-hover:text-slate-900 transition-colors">
-                    {member.name}
+                ) : (
+                  <p className="text-base font-semibold text-slate-500">
+                    No open deadlines
+                  </p>
+                )
+              }
+              detail={
+                actionRequired.nextDueTask ? (
+                  <span>
+                    Due {formatTaskTimelineDate(actionRequired.nextDueTask)}
                   </span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="bg-blue-50 text-blue-700 text-xs font-semibold px-2 py-0.5 rounded-full border border-blue-100 group-hover:bg-blue-100 transition-colors">
-                    {member.count} tasks
-                  </div>
-                </div>
-              </div>
-            ))}
-            {teamWorkload.length === 0 && (
-              <p className="text-sm text-gray-500 text-center py-4">
-                No tasks assigned yet.
-              </p>
-            )}
+                ) : (
+                  "Every open task is done or has no deadline yet."
+                )
+              }
+              onClick={() =>
+                actionRequired.nextDueTask
+                  ? onOpenBoardFocus?.({
+                      actionOwner:
+                        getTaskActionOwner(actionRequired.nextDueTask) ?? "ALL",
+                      overdueOnly: false,
+                    })
+                  : undefined
+              }
+              disabled={!actionRequired.nextDueTask || !onOpenBoardFocus}
+            />
           </div>
         </div>
       </div>

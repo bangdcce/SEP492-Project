@@ -266,3 +266,41 @@ describe('WorkspaceChatService.emailChatExport', () => {
     );
   });
 });
+
+describe('WorkspaceChatService.createSystemMessageOnce', () => {
+  let service: WorkspaceChatService;
+  let workspaceMessageRepo: ReturnType<typeof createRepositoryMock>;
+  let projectRepo: ReturnType<typeof createRepositoryMock>;
+  let taskRepo: ReturnType<typeof createRepositoryMock>;
+
+  beforeEach(() => {
+    workspaceMessageRepo = createRepositoryMock();
+    projectRepo = createRepositoryMock();
+    taskRepo = createRepositoryMock();
+
+    service = new WorkspaceChatService(
+      workspaceMessageRepo as any,
+      projectRepo as any,
+      taskRepo as any,
+      { logCustom: jest.fn().mockResolvedValue(undefined) } as any,
+      { sendWorkspaceChatExportEmail: jest.fn().mockResolvedValue(undefined) } as any,
+    );
+
+    projectRepo.findOne.mockResolvedValue({ id: 'project-1' });
+    workspaceMessageRepo.createQueryBuilder.mockReturnValue({
+      select: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      getRawOne: jest.fn().mockResolvedValue({ id: 'message-1' }),
+    });
+  });
+
+  it('returns null when the same system message already exists for the task', async () => {
+    const result = await service.createSystemMessageOnce('project-1', 'Locked notice', {
+      taskId: 'task-1',
+    });
+
+    expect(result).toBeNull();
+    expect(workspaceMessageRepo.save).not.toHaveBeenCalled();
+  });
+});

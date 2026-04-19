@@ -602,6 +602,14 @@ export function TaskDetailModal({
   const dueDateLabel = dueDate ? format(dueDate, "MMM d, yyyy") : "";
   const isDueDateOverdue =
     !!dueDate && dueDate.getTime() < Date.now() && task.status !== "DONE";
+  const isSubmissionDeadlinePassed =
+    Boolean(dueDate) && dueDate.getTime() < Date.now();
+  const submissionDeadlineLockMessage = dueDate
+    ? `Submission is locked because the due date passed on ${format(
+        dueDate,
+        "MMM d, yyyy HH:mm",
+      )}.`
+    : "Submission is locked because the due date has passed.";
   const totalSubtasks = subtasks.length;
   const completedSubtasks = subtasks.filter((subtask) => subtask.status === "DONE").length;
   const unfinishedSubtasks = subtasks.filter((subtask) => subtask.status !== "DONE");
@@ -651,6 +659,7 @@ export function TaskDetailModal({
   const canSubmitNewVersion = Boolean(
     isFreelancer &&
       allowTaskMutations &&
+      !isSubmissionDeadlinePassed &&
       !openReviewSubmission &&
       task.status !== "DONE"
   );
@@ -1759,6 +1768,10 @@ export function TaskDetailModal({
                             Broker approval is blocked until {unfinishedSubtaskCount} unfinished subtasks are marked DONE.
                           </div>
                         ) : null}
+                      </div>
+                    ) : isFreelancer && isSubmissionDeadlinePassed ? (
+                      <div className="rounded-md border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                        {submissionDeadlineLockMessage}
                       </div>
                     ) : isFreelancer ? (
                       <div className="rounded-md border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">

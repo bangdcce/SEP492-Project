@@ -258,6 +258,8 @@ const ACTIVE_SUBMISSION_REVIEW_STATUSES = [
 const TASK_ESCROW_FUNDING_LOCK_MESSAGE =
   'Milestone workspace is locked until escrow is fully funded.';
 
+const TASK_SUBMISSION_REMINDER_WINDOW_MS = 24 * 60 * 60 * 1000;
+
 const TASK_WORKSPACE_RELATIONS = [
   'assignee',
   'reporter',
@@ -349,6 +351,175 @@ export class TasksService implements OnModuleInit {
         }`,
       );
     }
+  }
+
+  private async recordWorkspaceSystemMessageOnce(
+    projectId: string,
+    content: string,
+    taskId?: string | null,
+  ): Promise<boolean> {
+    if (!this.workspaceChatService) {
+      return false;
+    }
+
+    try {
+      const message = await this.workspaceChatService.createSystemMessageOnce(projectId, content, {
+        taskId: taskId ?? null,
+      });
+      return Boolean(message);
+    } catch (error) {
+      this.logger.warn(
+        `Workspace one-time audit message skipped for project ${projectId}: ${
+          error instanceof Error ? error.message : 'unknown error'
+        }`,
+      );
+      return false;
+    }
+  }
+
+  private async getProjectParticipantIds(projectId: string): Promise<string[]> {
+    const project = await this.projectRepository.findOne({
+      where: { id: projectId },
+      select: ['id', 'clientId', 'brokerId', 'freelancerId'],
+    });
+
+    if (!project) {
+      return [];
+    }
+
+    return Array.from(
+      new Set([project.clientId, project.brokerId, project.freelancerId].filter(Boolean)),
+    ).filter((userId): userId is string => Boolean(userId));
+  }
+
+  private async notifyProjectParticipants(
+    projectId: string,
+    title: string,
+    body: string,
+    relatedType: string,
+    relatedId: string,
+  ): Promise<void> {
+    if (!this.notificationsService) {
+      return;
+    }
+
+    try {
+      const recipientIds = await this.getProjectParticipantIds(projectId);
+      if (recipientIds.length === 0) {
+        return;
+      }
+
+      await this.notificationsService.createMany(
+        recipientIds.map((userId) => ({
+          userId,
+          title,
+          body,
+          relatedType,
+          relatedId,
+        })),
+      );
+    } catch (error) {
+      this.logger.warn(
+        `Project participant notification skipped for project ${projectId}: ${
+          error instanceof Error ? error.message : 'unknown error'
+        }`,
+      );
+    }
+  }
+
+  private formatDeadlineForDisplay(value: Date): string {
+    return `${value.toLocaleString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+      timeZone: 'UTC',
+    })} UTC`;
+  }
+
+  private buildNullableTimestampUpdate(value: Date | null): Date | (() => string) {
+    return value ?? (() => 'NULL');
+  }
+
+  private resolveSubmissionDeadline(
+    task: Pick<TaskEntity, 'dueDate'>,
+    milestone?: Pick<MilestoneEntity, 'dueDate'> | null,
+  ): Date | null {
+    return task.dueDate ?? milestone?.dueDate ?? null;
+  }
+
+  private isSubmissionDeadlinePassed(deadline: Date | null, referenceDate = new Date()): boolean {
+    return Boolean(deadline) && referenceDate.getTime() > deadline!.getTime();
+  }
+
+  private async getMilestoneSubmissionDeadlineContext(
+    milestoneId: string,
+  ): Promise<Pick<MilestoneEntity, 'id' | 'projectId' | 'status' | 'dueDate' | 'title'>> {
+    const milestone = await this.milestoneRepository.findOne({
+      where: { id: milestoneId },
+      select: ['id', 'projectId', 'status', 'dueDate', 'title'],
+    });
+
+    if (!milestone) {
+      throw new NotFoundException('Milestone not found');
+    }
+
+    return milestone;
+  }
+
+  private async hasSubmissionWorkflowStarted(taskId: string): Promise<boolean> {
+    const submissionCount = await this.submissionRepository.count({
+      where: {
+        taskId,
+        status: In([...ACTIVE_SUBMISSION_REVIEW_STATUSES, ...FINAL_APPROVED_SUBMISSION_STATUSES]),
+      },
+    });
+
+    return submissionCount > 0;
+  }
+
+  private async announceSubmissionDeadlineReminder(
+    task: Pick<TaskEntity, 'id' | 'title' | 'projectId'>,
+    deadline: Date,
+  ): Promise<void> {
+    const deadlineLabel = this.formatDeadlineForDisplay(deadline);
+    const message = `Reminder: Freelancer submission for task "${task.title}" is due by ${deadlineLabel}. After that deadline passes, no new submission can be sent.`;
+    const created = await this.recordWorkspaceSystemMessageOnce(task.projectId, message, task.id);
+
+    if (!created) {
+      return;
+    }
+
+    await this.notifyProjectParticipants(
+      task.projectId,
+      'Task submission deadline approaching',
+      `Task "${task.title}" must be submitted by ${deadlineLabel}. After the deadline, submissions are locked.`,
+      'Task',
+      task.id,
+    );
+  }
+
+  private async announceSubmissionDeadlineClosed(
+    task: Pick<TaskEntity, 'id' | 'title' | 'projectId'>,
+    deadline: Date,
+  ): Promise<void> {
+    const deadlineLabel = this.formatDeadlineForDisplay(deadline);
+    const message = `Submission locked: Task "${task.title}" passed its deadline at ${deadlineLabel}, so the freelancer can no longer submit a new version.`;
+    const created = await this.recordWorkspaceSystemMessageOnce(task.projectId, message, task.id);
+
+    if (!created) {
+      return;
+    }
+
+    await this.notifyProjectParticipants(
+      task.projectId,
+      'Task submission locked after due date',
+      `Task "${task.title}" passed its deadline at ${deadlineLabel}. New freelancer submissions are no longer allowed.`,
+      'Task',
+      task.id,
+    );
   }
 
   private async notifyTaskStatusTransition(
@@ -594,18 +765,11 @@ export class TasksService implements OnModuleInit {
   }
 
   private async assertMilestoneAllowsTaskWorkById(milestoneId: string): Promise<MilestoneEntity> {
-    const milestone = await this.milestoneRepository.findOne({
-      where: { id: milestoneId },
-      select: ['id', 'projectId', 'status'],
-    });
-
-    if (!milestone) {
-      throw new NotFoundException('Milestone not found');
-    }
+    const milestone = await this.getMilestoneSubmissionDeadlineContext(milestoneId);
 
     await this.assertMilestoneInteractionAllowed(milestone.id);
     this.assertMilestoneAllowsTaskWork(milestone);
-    return milestone;
+    return milestone as MilestoneEntity;
   }
 
   private getClientReviewDueAt(referenceDate: Date): Date {
@@ -1101,6 +1265,8 @@ export class TasksService implements OnModuleInit {
     const task = await this.getTaskOrThrow(taskId);
 
     await this.assertMilestoneEscrowFundedForWorkspace(task.milestoneId);
+    const milestone = await this.getMilestoneSubmissionDeadlineContext(task.milestoneId);
+    const submissionDeadline = this.resolveSubmissionDeadline(task, milestone);
 
     const project = await this.projectRepository.findOne({
       where: { id: task.projectId },
@@ -1127,7 +1293,23 @@ export class TasksService implements OnModuleInit {
       );
     }
 
-    await this.assertMilestoneAllowsTaskWorkById(task.milestoneId);
+    await this.assertMilestoneInteractionAllowed(task.milestoneId);
+    this.assertMilestoneAllowsTaskWork(milestone);
+
+    if (this.isSubmissionDeadlinePassed(submissionDeadline)) {
+      if (submissionDeadline) {
+        await this.announceSubmissionDeadlineClosed(task, submissionDeadline);
+      }
+
+      throw new ForbiddenException(
+        submissionDeadline
+          ? `The submission deadline passed at ${this.formatDeadlineForDisplay(
+              submissionDeadline,
+            )}. New freelancer submissions are locked for this task.`
+          : 'New freelancer submissions are locked for this task.',
+      );
+    }
+
     await this.ensureNoOpenSubmissionReview(taskId);
 
     const latestSubmission = await this.submissionRepository
@@ -1164,7 +1346,7 @@ export class TasksService implements OnModuleInit {
 
     await this.taskRepository.update(taskId, {
       status: TaskStatus.IN_REVIEW,
-      submittedAt: null,
+      submittedAt: this.buildNullableTimestampUpdate(null),
     });
 
     const updatedTask = await this.findTaskWithWorkspaceRelations(taskId);
@@ -1334,7 +1516,9 @@ export class TasksService implements OnModuleInit {
 
     await this.taskRepository.update(taskId, {
       status: resolvedTaskStatus,
-      submittedAt: this.isFinalApprovedSubmissionStatus(submission.status) ? reviewTimestamp : null,
+      submittedAt: this.buildNullableTimestampUpdate(
+        this.isFinalApprovedSubmissionStatus(submission.status) ? reviewTimestamp : null,
+      ),
     });
 
     if (previousTaskStatus !== resolvedTaskStatus) {
@@ -1780,7 +1964,9 @@ export class TasksService implements OnModuleInit {
     // Step 2: Update the task status
     await this.taskRepository.update(id, {
       status,
-      submittedAt: status === TaskStatus.DONE ? new Date() : null,
+      submittedAt: this.buildNullableTimestampUpdate(
+        status === TaskStatus.DONE ? new Date() : null,
+      ),
     });
 
     // Step 3: Refetch the updated task
@@ -1907,7 +2093,7 @@ export class TasksService implements OnModuleInit {
       ].includes(milestone.status)
     ) {
       milestone.status = progress === 0 ? MilestoneStatus.PENDING : MilestoneStatus.IN_PROGRESS;
-      milestone.submittedAt = null;
+      milestone.submittedAt = null as never;
       milestone.reviewedByStaffId = null;
       milestone.staffRecommendation = null;
       milestone.staffReviewNote = null;
@@ -2138,6 +2324,88 @@ export class TasksService implements OnModuleInit {
     }
 
     return updated;
+  }
+
+  @Cron('*/5 * * * *')
+  async remindUpcomingTaskSubmissionDeadlines(): Promise<void> {
+    const now = new Date();
+    const reminderCutoff = new Date(now.getTime() + TASK_SUBMISSION_REMINDER_WINDOW_MS);
+    const upcomingTasks = await this.taskRepository
+      .createQueryBuilder('task')
+      .select(['task.id', 'task.title', 'task.projectId', 'task.milestoneId', 'task.dueDate'])
+      .where('task.parentTaskId IS NULL')
+      .andWhere('task.status != :doneStatus', { doneStatus: TaskStatus.DONE })
+      .andWhere('task.dueDate IS NOT NULL')
+      .andWhere('task.dueDate > :now', { now })
+      .andWhere('task.dueDate <= :reminderCutoff', { reminderCutoff })
+      .orderBy('task.dueDate', 'ASC')
+      .take(100)
+      .getMany();
+
+    for (const task of upcomingTasks) {
+      try {
+        const milestone = await this.getMilestoneSubmissionDeadlineContext(task.milestoneId);
+        if (!TASK_CREATION_ALLOWED_MILESTONE_STATUSES.has(milestone.status)) {
+          continue;
+        }
+
+        const submissionDeadline = this.resolveSubmissionDeadline(task, milestone);
+        if (!submissionDeadline || this.isSubmissionDeadlinePassed(submissionDeadline, now)) {
+          continue;
+        }
+
+        const hasLockedSubmissionFlow = await this.hasSubmissionWorkflowStarted(task.id);
+        if (hasLockedSubmissionFlow) {
+          continue;
+        }
+
+        await this.announceSubmissionDeadlineReminder(task, submissionDeadline);
+      } catch (error) {
+        this.logger.warn(
+          `Upcoming submission reminder skipped for task ${task.id}: ${
+            error instanceof Error ? error.message : 'unknown error'
+          }`,
+        );
+      }
+    }
+  }
+
+  @Cron('*/5 * * * *')
+  async lockExpiredTaskSubmissionWindows(): Promise<void> {
+    const now = new Date();
+    const overdueTasks = await this.taskRepository
+      .createQueryBuilder('task')
+      .select(['task.id', 'task.title', 'task.projectId', 'task.milestoneId', 'task.dueDate'])
+      .where('task.parentTaskId IS NULL')
+      .andWhere('task.status != :doneStatus', { doneStatus: TaskStatus.DONE })
+      .andWhere('task.dueDate IS NOT NULL')
+      .andWhere('task.dueDate <= :now', { now })
+      .orderBy('task.dueDate', 'ASC')
+      .take(100)
+      .getMany();
+
+    for (const task of overdueTasks) {
+      try {
+        const milestone = await this.getMilestoneSubmissionDeadlineContext(task.milestoneId);
+        const submissionDeadline = this.resolveSubmissionDeadline(task, milestone);
+        if (!submissionDeadline || !this.isSubmissionDeadlinePassed(submissionDeadline, now)) {
+          continue;
+        }
+
+        const hasLockedSubmissionFlow = await this.hasSubmissionWorkflowStarted(task.id);
+        if (hasLockedSubmissionFlow) {
+          continue;
+        }
+
+        await this.announceSubmissionDeadlineClosed(task, submissionDeadline);
+      } catch (error) {
+        this.logger.warn(
+          `Submission lock announcement skipped for task ${task.id}: ${
+            error instanceof Error ? error.message : 'unknown error'
+          }`,
+        );
+      }
+    }
   }
 
   @Cron('*/5 * * * *')
