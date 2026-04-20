@@ -22,7 +22,7 @@ skinparam sequence {
 
 title View Public Landing Page Sequence Diagram
 
-actor "Visitor" as Actor
+actor "Guest" as Actor
 boundary "LandingPage" as Page
 participant "ReactRouter" as Router
 

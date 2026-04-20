@@ -86,7 +86,8 @@ export class KycService {
     }
 
     const documentNumberHash = hashDocumentNumber(dto.documentNumber);
-    const enforceDocumentUniqueness = process.env.KYC_ENFORCE_DOCUMENT_UNIQUENESS === 'true';
+    const enforceDocumentUniqueness =
+      process.env.KYC_ENFORCE_DOCUMENT_UNIQUENESS !== 'false';
 
     if (enforceDocumentUniqueness) {
       const existingDocumentOwner = await this.kycRepo.findOne({

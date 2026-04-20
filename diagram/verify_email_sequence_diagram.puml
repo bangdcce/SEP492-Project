@@ -27,8 +27,8 @@ title Verify Email Sequence Diagram
 
 actor "User" as Actor
 boundary "VerifyEmailPage" as Page
-participant "AuthController" as Controller
-participant "EmailVerificationService" as VerifyService
+participant ":AuthController" as Controller
+participant ":EmailVerificationService" as VerifyService
 database "Database" as DB
 
 Actor -> Page : 1. Open verification link from email

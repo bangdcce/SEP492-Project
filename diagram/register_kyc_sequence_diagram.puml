@@ -27,11 +27,11 @@ title Register KYC (Identity Verification) Sequence Diagram
 actor "User" as Actor
 boundary "KYCPage" as Page
 participant "WebClient (fetch)" as Http
-participant "KycController" as Controller
-participant "JwtAuthGuard" as Guard
-participant "KycService" as Service
-participant "FptAiService" as Ai
-participant "Supabase Storage" as Storage
+participant ":KycController" as Controller
+participant ":JwtAuthGuard" as Guard
+participant ":KycService" as Service
+participant ":FptAiService" as Ai
+participant ":Supabase Storage" as Storage
 database "Database" as DB
 
 Actor -> Page : 1. Open Identity Verification (KYC) page

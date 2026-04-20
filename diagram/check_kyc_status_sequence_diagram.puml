@@ -25,10 +25,10 @@ title Check KYC Status Sequence Diagram
 actor User
 boundary "KYCStatusPage" as Page
 participant "apiClient" as API
-participant "KycController" as Controller
-participant "JwtAuthGuard" as JWTGuard
-participant "KycService" as Service
-participant "SupabaseStorage" as Storage
+participant ":KycController" as Controller
+participant ":JwtAuthGuard" as JWTGuard
+participant ":KycService" as Service
+participant ":SupabaseStorage" as Storage
 database "Database" as DB
 
 User -> Page : 1. Open KYC Status page

@@ -25,12 +25,12 @@ title View List KYC User Request Sequence Diagram
 actor "Admin" as Admin
 boundary "AdminKYCPage" as Page
 participant "apiClient" as API
-participant "KycController" as Controller
-participant "JwtAuthGuard" as JWTGuard
-participant "RolesGuard" as RoleGuard
-participant "KycService" as Service
+participant ":KycController" as Controller
+participant ":JwtAuthGuard" as JWTGuard
+participant ":RolesGuard" as RoleGuard
+participant ":KycService" as Service
 database "Database" as DB
-participant "SupabaseStorage" as Storage
+participant ":SupabaseStorage" as Storage
 
 Admin -> Page : 1. Open the KYC management page
 activate Admin

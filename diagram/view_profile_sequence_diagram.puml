@@ -28,9 +28,9 @@ title View Profile Sequence Diagram
 actor "User" as Actor
 boundary "ProfilePage" as Page
 participant "apiClient" as API
-participant "AuthController" as Controller
-participant "JwtAuthGuard" as Guard
-participant "AuthService" as Service
+participant ":AuthController" as Controller
+participant ":JwtAuthGuard" as Guard
+participant ":AuthService" as Service
 database "Database" as DB
 
 Actor -> Page : 1. Access profile page
