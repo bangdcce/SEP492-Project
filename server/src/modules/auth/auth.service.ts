@@ -623,7 +623,7 @@ export class AuthService {
     }
 
     if (user.isBanned) {
-      throw new UnauthorizedException('This account has been banned. Please contact support.');
+      throw new UnauthorizedException('You have been banned. Check your email for more details.');
     }
 
     // Check if email is verified
@@ -781,6 +781,28 @@ export class AuthService {
       throw new UnauthorizedException({
         error: 'SESSION_REVOKED',
         message: 'Session owner no longer exists',
+      });
+    }
+
+    if (user.status === UserStatus.DELETED) {
+      await this.authSessionRepository.update(
+        { userId: user.id, isRevoked: false },
+        { isRevoked: true, revokedAt: new Date() },
+      );
+      throw new UnauthorizedException({
+        error: 'ACCOUNT_DELETED',
+        message: 'This account has been deleted',
+      });
+    }
+
+    if (user.isBanned) {
+      await this.authSessionRepository.update(
+        { userId: user.id, isRevoked: false },
+        { isRevoked: true, revokedAt: new Date() },
+      );
+      throw new UnauthorizedException({
+        error: 'ACCOUNT_BANNED',
+        message: 'You have been banned. Check your email for more details.',
       });
     }
 

@@ -11,6 +11,7 @@ import { UserEntity, UserRole } from '../../database/entities/user.entity';
 import { KycVerificationEntity } from '../../database/entities/kyc-verification.entity';
 import { ProfileEntity } from '../../database/entities/profile.entity';
 import { UserSkillEntity } from '../../database/entities/user-skill.entity';
+import { AuthSessionEntity } from '../../database/entities/auth-session.entity';
 import { ProjectEntity, ProjectStatus } from '../../database/entities/project.entity';
 import {
   ProjectRequestCommercialFeature,
@@ -41,6 +42,8 @@ export class UsersService {
     private profileRepo: Repository<ProfileEntity>,
     @InjectRepository(UserSkillEntity)
     private userSkillRepo: Repository<UserSkillEntity>,
+    @InjectRepository(AuthSessionEntity)
+    private authSessionRepo: Repository<AuthSessionEntity>,
     @InjectRepository(ProjectEntity)
     private projectRepo: Repository<ProjectEntity>,
     @InjectRepository(ProjectRequestEntity)
@@ -289,6 +292,13 @@ export class UsersService {
     user.bannedBy = adminId;
 
     await this.userRepo.save(user);
+    await this.authSessionRepo.update(
+      { userId: user.id, isRevoked: false },
+      {
+        isRevoked: true,
+        revokedAt: new Date(),
+      },
+    );
     await this.sendBanStatusEmail({
       user,
       reason: dto.reason,

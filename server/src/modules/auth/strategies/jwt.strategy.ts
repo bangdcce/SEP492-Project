@@ -4,7 +4,7 @@ import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { Repository } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
-import { UserEntity } from '../../../database/entities/user.entity';
+import { UserEntity, UserStatus } from '../../../database/entities/user.entity';
 import { Request } from 'express';
 
 /**
@@ -117,6 +117,20 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
 
     if (!user) {
       throw new UnauthorizedException('User not found');
+    }
+
+    if (user.status === UserStatus.DELETED) {
+      throw new UnauthorizedException({
+        error: 'ACCOUNT_DELETED',
+        message: 'This account has been deleted',
+      });
+    }
+
+    if (user.isBanned) {
+      throw new UnauthorizedException({
+        error: 'ACCOUNT_BANNED',
+        message: 'You have been banned. Check your email for more details.',
+      });
     }
 
     return user;
