@@ -28,11 +28,11 @@ title Edit Profile Sequence Diagram
 actor "User" as Actor
 boundary "ProfilePage" as Page
 participant "Auth API" as API
-participant "AuthController" as Controller
-participant "JwtAuthGuard" as Guard
-participant "AuthService" as Service
-participant "ProfileCtrl" as ProfileController
-participant "Storage" as Storage
+participant ":AuthController" as Controller
+participant ":JwtAuthGuard" as Guard
+participant ":AuthService" as Service
+participant ":ProfileCtrl" as ProfileController
+participant ":Storage" as Storage
 database "Database" as DB
 
 Actor -> Page : 1. Click "Edit Profile" button

@@ -29,13 +29,13 @@ actor "Admin" as Admin
 boundary "AdminKYCPage" as Page
 participant "KYCVerificationModal" as Modal
 participant "apiClient" as API
-participant "KycController" as Controller
-participant "JwtAuthGuard" as JWTGuard
-participant "RolesGuard" as RoleGuard
-participant "KycService" as Service
+participant ":KycController" as Controller
+participant ":JwtAuthGuard" as JWTGuard
+participant ":RolesGuard" as RoleGuard
+participant ":KycService" as Service
 database "Database" as DB
-participant "SupabaseStorage" as Storage
-participant "WatermarkUtil" as Watermark
+participant ":SupabaseStorage" as Storage
+participant ":WatermarkUtil" as Watermark
 
 Admin -> Page : 1. Click "Review" button on KYC row
 activate Admin

@@ -27,11 +27,11 @@ title User Login Sequence Diagram
 
 actor "User" as Actor
 boundary "SignInPage" as Page
-participant "AuthController" as Controller
-participant "AuthService" as Service
-participant "JwtService" as JwtService
-participant "EmailVerificationService" as EmailVerify
-participant "AuditLogsService" as AuditLogs
+participant ":AuthController" as Controller
+participant ":AuthService" as Service
+participant ":JwtService" as JwtService
+participant ":EmailVerificationService" as EmailVerify
+participant ":AuditLogsService" as AuditLogs
 database "Database" as DB
 
 Actor -> Page : 1. Access Sign In Page

@@ -29,11 +29,11 @@ actor "User" as Actor
 boundary "SignUpPage" as Page
 participant "AuthApi" as AuthApi
 participant "ApiClient" as ApiClient
-participant "CaptchaGuard" as CaptchaGuard
-participant "AuthController" as Controller
-participant "AuthService" as Service
-participant "EmailVerificationService" as EmailVerify
-participant "AuditLogsService" as AuditLogs
+participant ":CaptchaGuard" as CaptchaGuard
+participant ":AuthController" as Controller
+participant ":AuthService" as Service
+participant ":EmailVerificationService" as EmailVerify
+participant ":AuditLogsService" as AuditLogs
 database "Database" as DB
 
 Actor -> Page : 1. Access the sign up page

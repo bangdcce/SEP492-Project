@@ -28,10 +28,10 @@ title View Current Wizard Questions Sequence Diagram
 actor Admin
 boundary "AdminWizardPage" as Page
 participant "apiClient" as API
-participant "WizardAdminController" as Controller
-participant "JwtAuthGuard" as JWTGuard
-participant "RolesGuard" as RoleGuard
-participant "WizardService" as Service
+participant ":WizardAdminController" as Controller
+participant ":JwtAuthGuard" as JWTGuard
+participant ":RolesGuard" as RoleGuard
+participant ":WizardService" as Service
 database "Database" as DB
 
 Admin -> Page : 1. Access Admin Wizard Questions page

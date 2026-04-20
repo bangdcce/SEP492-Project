@@ -28,8 +28,8 @@ title Delete Account Sequence Diagram
 actor "User" as Actor
 boundary "ProfilePage" as Page
 participant "DeleteAccountModal" as Modal
-participant "AuthController" as Controller
-participant "AuthService" as Service
+participant ":AuthController" as Controller
+participant ":AuthService" as Service
 database "Database" as DB
 
 Actor -> Page : 1. Access profile page

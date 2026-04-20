@@ -28,8 +28,8 @@ title User Logout Sequence Diagram
 actor "User" as Actor
 boundary "Header" as Page
 participant "Auth API" as Api
-participant "AuthController" as Controller
-participant "AuthService" as Service
+participant ":AuthController" as Controller
+participant ":AuthService" as Service
 database "Database" as DB
 
 Actor -> Page : 1. Open user menu

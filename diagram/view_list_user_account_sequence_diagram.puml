@@ -28,10 +28,10 @@ title View List User Account Sequence Diagram
 actor "Admin" as Admin
 boundary "AdminUsersPage" as Page
 participant "apiClient" as API
-participant "UsersController" as Controller
-participant "JwtAuthGuard" as JWTGuard
-participant "RolesGuard" as RoleGuard
-participant "UsersService" as Service
+participant ":UsersController" as Controller
+participant ":JwtAuthGuard" as JWTGuard
+participant ":RolesGuard" as RoleGuard
+participant ":UsersService" as Service
 database "Database" as DB
 
 Admin -> Page : 1. Access Admin Users page
