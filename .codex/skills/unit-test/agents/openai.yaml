@@ -1,8 +1,0 @@
-interface:
-  display_name: "Unit Test"
-  short_description: "Generate Jest tests + UTC matrix"
-  brand_color: "#0EA5E9"
-  default_prompt: "Use $unit-test to scan the backend code, reuse or implement focused Jest unit tests (N/A/B), then generate one single-sheet Excel UTC workbook per requested business function using the template in docs/template/unit-test. Keep each business flow on one worksheet, avoid helper tabs, match the repo's actual test command instead of assuming yarn, and make the UTC rows trace cleanly to executed Jest cases. Write UTC cases in a detailed template style with quoted string inputs, readable summaries for complex arrays/objects, explicit null/boundary cases only when the code really defines them, compact return rows, and explicit return/exception/log confirmations. Do not invent worksheet-only input groups such as Action, Request status, Current status, or other synthetic workflow labels; keep inputs to real call parameters plus minimal necessary viewer/context. Do not leave core business-input rows blank in active UTC columns: give them a real value or explicitly model null/omitted input. When terminal evidence is expected, include concise per-case logs and assert the exact same log text in the Jest test. Prefer user-meaningful service/controller flows over internal-only DTO validation unless the user explicitly asks for validation coverage."
-
-policy:
-  allow_implicit_invocation: true
