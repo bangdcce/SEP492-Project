@@ -605,6 +605,303 @@ describe('TasksService subtask DONE permissions', () => {
   });
 });
 
+describe('TasksService.createTask schedule validation', () => {
+  const createService = () => {
+    const taskRepository = {
+      create: jest.fn().mockImplementation((value) => value),
+      save: jest.fn().mockImplementation(async (value) => ({
+        id: 'task-1',
+        ...value,
+      })),
+    };
+    const milestoneRepository = {
+      findOne: jest.fn().mockResolvedValue({
+        id: 'milestone-1',
+        projectId: 'project-1',
+        status: 'IN_PROGRESS',
+        title: 'Milestone 1',
+        startDate: new Date('2026-04-22T00:00:00.000Z'),
+        dueDate: new Date('2026-04-25T00:00:00.000Z'),
+      }),
+    };
+    const escrowRepository = {};
+    const projectRepository = {
+      findOne: jest.fn().mockResolvedValue({
+        id: 'project-1',
+        brokerId: 'broker-1',
+      }),
+    };
+    const calendarEventRepository = {};
+    const historyRepository = {};
+    const commentRepository = {};
+    const attachmentRepository = {};
+    const taskLinkRepository = {};
+    const submissionRepository = {};
+    const dataSource = {
+      query: jest.fn(),
+    };
+    const auditLogsService = {
+      logSystemIncident: jest.fn(),
+    };
+    const milestoneInteractionPolicyService = {
+      assertMilestoneUnlockedForWorkspace: jest.fn(),
+    };
+
+    const service = new TasksService(
+      taskRepository as any,
+      milestoneRepository as any,
+      escrowRepository as any,
+      projectRepository as any,
+      calendarEventRepository as any,
+      historyRepository as any,
+      commentRepository as any,
+      attachmentRepository as any,
+      taskLinkRepository as any,
+      submissionRepository as any,
+      dataSource as any,
+      auditLogsService as any,
+      milestoneInteractionPolicyService as any,
+    );
+
+    jest
+      .spyOn(service as any, 'assertMilestoneEscrowFundedForWorkspace')
+      .mockResolvedValue(undefined);
+    jest
+      .spyOn(service as any, 'assertMilestoneInteractionAllowed')
+      .mockResolvedValue(undefined);
+    jest.spyOn(service as any, 'syncTaskToCalendar').mockResolvedValue(null);
+    jest
+      .spyOn(service as any, 'findTaskWithWorkspaceRelations')
+      .mockResolvedValue({
+        id: 'task-1',
+        title: 'Implement notifications API',
+        projectId: 'project-1',
+        milestoneId: 'milestone-1',
+        status: TaskStatus.TODO,
+      });
+    jest
+      .spyOn(service as any, 'recordWorkspaceSystemMessage')
+      .mockResolvedValue(undefined);
+    jest
+      .spyOn(service as any, 'calculateMilestoneProgress')
+      .mockResolvedValue({ progress: 0, totalTasks: 1, completedTasks: 0 });
+    jest.spyOn(service as any, 'emitTaskRealtimeEvent').mockImplementation(() => undefined);
+
+    return { service, taskRepository, milestoneRepository };
+  };
+
+  const basePayload = {
+    title: 'Implement notifications API',
+    description: 'Add broker notification workflow.',
+    projectId: 'project-1',
+    milestoneId: 'milestone-1',
+    startDate: '2026-04-22T00:00:00.000Z',
+    dueDate: '2026-04-24T00:00:00.000Z',
+    requesterId: 'broker-1',
+    requesterRole: UserRole.BROKER,
+  };
+
+  afterEach(() => {
+    jest.clearAllMocks();
+    jest.useRealTimers();
+  });
+
+  it('rejects missing description or schedule fields', async () => {
+    const { service, taskRepository } = createService();
+
+    await expect(
+      service.createTask({
+        ...basePayload,
+        description: '   ',
+        startDate: undefined,
+      } as any),
+    ).rejects.toThrow(
+      'title, description, projectId, milestoneId, startDate and dueDate are required',
+    );
+    expect(taskRepository.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects dates outside the milestone schedule', async () => {
+    const { service, taskRepository } = createService();
+
+    await expect(
+      service.createTask({
+        ...basePayload,
+        dueDate: '2026-04-26T00:00:00.000Z',
+      }),
+    ).rejects.toThrow('Task due date must be on or before the milestone due date.');
+    expect(taskRepository.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects task creation after the milestone due date has passed', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-04-23T00:00:00.000Z'));
+    const { service, taskRepository, milestoneRepository } = createService();
+    milestoneRepository.findOne.mockResolvedValue({
+      id: 'milestone-1',
+      projectId: 'project-1',
+      status: 'PENDING',
+      title: 'Milestone 1',
+      startDate: new Date('2026-04-22T00:00:00.000Z'),
+      dueDate: new Date('2026-04-22T00:00:00.000Z'),
+    });
+
+    await expect(service.createTask(basePayload)).rejects.toThrow(
+      'Task creation is locked because the milestone due date passed at the end of Apr 22, 2026.',
+    );
+    expect(taskRepository.create).not.toHaveBeenCalled();
+  });
+
+  it('normalizes the validated schedule before persisting', async () => {
+    const { service, taskRepository } = createService();
+
+    await service.createTask({
+      ...basePayload,
+      startDate: '2026-04-22T09:15:00.000Z',
+      dueDate: '2026-04-24T16:45:00.000Z',
+    });
+
+    expect(taskRepository.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'Implement notifications API',
+        description: 'Add broker notification workflow.',
+        startDate: new Date('2026-04-22T00:00:00.000Z'),
+        dueDate: new Date('2026-04-24T00:00:00.000Z'),
+      }),
+    );
+  });
+});
+
+describe('TasksService.updateTask schedule validation', () => {
+  const createService = () => {
+    const currentTask = {
+      id: 'task-1',
+      title: 'Implement notifications API',
+      milestoneId: 'milestone-1',
+      projectId: 'project-1',
+      parentTaskId: null,
+      status: TaskStatus.IN_PROGRESS,
+      priority: 'MEDIUM',
+      storyPoints: null,
+      description: 'Existing description',
+      assignedTo: null,
+      labels: null,
+      startDate: new Date('2026-04-22T00:00:00.000Z'),
+      dueDate: new Date('2026-04-24T00:00:00.000Z'),
+    };
+    const taskRepository = {
+      findOne: jest.fn().mockResolvedValue(currentTask),
+      update: jest.fn().mockResolvedValue(undefined),
+    };
+    const milestoneRepository = {};
+    const escrowRepository = {};
+    const projectRepository = {};
+    const calendarEventRepository = {};
+    const historyRepository = {};
+    const commentRepository = {};
+    const attachmentRepository = {};
+    const taskLinkRepository = {};
+    const submissionRepository = {
+      count: jest.fn().mockResolvedValue(0),
+    };
+    const dataSource = {
+      query: jest.fn(),
+    };
+    const auditLogsService = {
+      logSystemIncident: jest.fn(),
+    };
+    const milestoneInteractionPolicyService = {
+      assertMilestoneUnlockedForWorkspace: jest.fn(),
+    };
+
+    const service = new TasksService(
+      taskRepository as any,
+      milestoneRepository as any,
+      escrowRepository as any,
+      projectRepository as any,
+      calendarEventRepository as any,
+      historyRepository as any,
+      commentRepository as any,
+      attachmentRepository as any,
+      taskLinkRepository as any,
+      submissionRepository as any,
+      dataSource as any,
+      auditLogsService as any,
+      milestoneInteractionPolicyService as any,
+    );
+
+    jest
+      .spyOn(service as any, 'assertMilestoneAllowsTaskWorkById')
+      .mockResolvedValue({
+        id: 'milestone-1',
+        startDate: new Date('2026-04-22T00:00:00.000Z'),
+        dueDate: new Date('2026-04-25T00:00:00.000Z'),
+      });
+    jest
+      .spyOn(service as any, 'assertMilestoneEscrowFundedForWorkspace')
+      .mockResolvedValue(undefined);
+    jest.spyOn(service as any, 'createHistory').mockResolvedValue(undefined);
+    jest
+      .spyOn(service as any, 'findTaskWithWorkspaceRelations')
+      .mockResolvedValue(currentTask);
+    jest
+      .spyOn(service as any, 'calculateMilestoneProgress')
+      .mockResolvedValue({ progress: 50, totalTasks: 2, completedTasks: 1 });
+    jest.spyOn(service as any, 'emitTaskRealtimeEvent').mockImplementation(() => undefined);
+
+    return { service, taskRepository };
+  };
+
+  afterEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('rejects clearing a required task start date', async () => {
+    const { service, taskRepository } = createService();
+
+    await expect(
+      service.updateTask(
+        'task-1',
+        { startDate: null } as any,
+        'broker-1',
+        UserRole.BROKER,
+      ),
+    ).rejects.toThrow('Task start date is required.');
+    expect(taskRepository.update).not.toHaveBeenCalled();
+  });
+
+  it('rejects due dates outside the milestone schedule', async () => {
+    const { service, taskRepository } = createService();
+
+    await expect(
+      service.updateTask(
+        'task-1',
+        { dueDate: '2026-04-26T00:00:00.000Z' } as any,
+        'broker-1',
+        UserRole.BROKER,
+      ),
+    ).rejects.toThrow('Task due date must be on or before the milestone due date.');
+    expect(taskRepository.update).not.toHaveBeenCalled();
+  });
+
+  it('normalizes valid date updates before persistence', async () => {
+    const { service, taskRepository } = createService();
+
+    await service.updateTask(
+      'task-1',
+      { startDate: '2026-04-23T09:15:00.000Z' } as any,
+      'broker-1',
+      UserRole.BROKER,
+    );
+
+    expect(taskRepository.update).toHaveBeenCalledWith(
+      'task-1',
+      expect.objectContaining({
+        startDate: new Date('2026-04-23T00:00:00.000Z'),
+      }),
+    );
+  });
+});
+
 describe('TasksService.deleteTask', () => {
   const createService = () => {
     const taskRepository = {

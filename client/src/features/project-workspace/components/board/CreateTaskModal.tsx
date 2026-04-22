@@ -2,6 +2,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Layers, CalendarDays, X } from "lucide-react";
 import { WorkspaceDatePicker } from "../shared/WorkspaceDatePicker";
 import { INTERNAL_DEV_TOOLS_ENABLED } from "@/shared/utils/internalTools";
+import {
+  clampTaskDateValue,
+  formatTaskDateValue,
+  getEarlierTaskDate,
+  getLaterTaskDate,
+  parseTaskDateValue,
+} from "../../utils/task-date-constraints";
 
 export type SpecFeatureOption = {
   id: string;
@@ -30,83 +37,6 @@ type CreateTaskModalProps = {
   onChangeSpecFeature: (value: string) => void;
   onChangeStartDate: (value: string) => void;
   onChangeDueDate: (value: string) => void;
-};
-
-const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
-
-const parseDateValue = (value?: string | null): Date | null => {
-  if (!value) {
-    return null;
-  }
-
-  const normalizedValue = value.trim();
-  if (!normalizedValue) {
-    return null;
-  }
-
-  const parsedDate = DATE_ONLY_PATTERN.test(normalizedValue)
-    ? (() => {
-        const [year, month, day] = normalizedValue.split("-").map(Number);
-        return new Date(year, month - 1, day);
-      })()
-    : new Date(normalizedValue);
-
-  if (Number.isNaN(parsedDate.getTime())) {
-    return null;
-  }
-
-  parsedDate.setHours(0, 0, 0, 0);
-  return parsedDate;
-};
-
-const formatDateValue = (value: Date) => {
-  const year = value.getFullYear();
-  const month = String(value.getMonth() + 1).padStart(2, "0");
-  const day = String(value.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-};
-
-const clampDateValue = (
-  value: Date,
-  minDate?: Date | null,
-  maxDate?: Date | null,
-) => {
-  const nextValue = new Date(value.getTime());
-  nextValue.setHours(0, 0, 0, 0);
-
-  if (minDate && nextValue.getTime() < minDate.getTime()) {
-    return new Date(minDate.getTime());
-  }
-
-  if (maxDate && nextValue.getTime() > maxDate.getTime()) {
-    return new Date(maxDate.getTime());
-  }
-
-  return nextValue;
-};
-
-const getLaterDate = (left?: Date | null, right?: Date | null) => {
-  if (!left) {
-    return right ?? null;
-  }
-
-  if (!right) {
-    return left;
-  }
-
-  return left.getTime() >= right.getTime() ? left : right;
-};
-
-const getEarlierDate = (left?: Date | null, right?: Date | null) => {
-  if (!left) {
-    return right ?? null;
-  }
-
-  if (!right) {
-    return left;
-  }
-
-  return left.getTime() <= right.getTime() ? left : right;
 };
 
 export function CreateTaskModal({
@@ -139,20 +69,21 @@ export function CreateTaskModal({
   const selectedFeature = specFeatures.find((feature) => feature.id === specFeatureId);
   const hasSpecFeatures = specFeatures.length > 0;
   const isTestAutofillEnabled = INTERNAL_DEV_TOOLS_ENABLED;
+  const [showValidationErrors, setShowValidationErrors] = useState(false);
   const milestoneStartBoundary = useMemo(
-    () => parseDateValue(milestoneStartDate),
+    () => parseTaskDateValue(milestoneStartDate),
     [milestoneStartDate],
   );
   const milestoneDueBoundary = useMemo(
-    () => parseDateValue(milestoneDueDate),
+    () => parseTaskDateValue(milestoneDueDate),
     [milestoneDueDate],
   );
-  const selectedStartBoundary = useMemo(() => parseDateValue(startDate), [startDate]);
-  const selectedDueBoundary = useMemo(() => parseDateValue(dueDate), [dueDate]);
+  const selectedStartBoundary = useMemo(() => parseTaskDateValue(startDate), [startDate]);
+  const selectedDueBoundary = useMemo(() => parseTaskDateValue(dueDate), [dueDate]);
   const effectiveStartBoundary = useMemo(
     () =>
       selectedStartBoundary
-        ? clampDateValue(
+        ? clampTaskDateValue(
             selectedStartBoundary,
             milestoneStartBoundary,
             milestoneDueBoundary,
@@ -163,7 +94,7 @@ export function CreateTaskModal({
   const effectiveDueBoundary = useMemo(
     () =>
       selectedDueBoundary
-        ? clampDateValue(
+        ? clampTaskDateValue(
             selectedDueBoundary,
             milestoneStartBoundary,
             milestoneDueBoundary,
@@ -172,18 +103,18 @@ export function CreateTaskModal({
     [milestoneDueBoundary, milestoneStartBoundary, selectedDueBoundary],
   );
   const startPickerMinDate = milestoneStartBoundary
-    ? formatDateValue(milestoneStartBoundary)
+    ? formatTaskDateValue(milestoneStartBoundary)
     : null;
   const startPickerMaxDate = useMemo(() => {
-    const maxDate = getEarlierDate(effectiveDueBoundary, milestoneDueBoundary);
-    return maxDate ? formatDateValue(maxDate) : null;
+    const maxDate = getEarlierTaskDate(effectiveDueBoundary, milestoneDueBoundary);
+    return maxDate ? formatTaskDateValue(maxDate) : null;
   }, [effectiveDueBoundary, milestoneDueBoundary]);
   const duePickerMinDate = useMemo(() => {
-    const minDate = getLaterDate(effectiveStartBoundary, milestoneStartBoundary);
-    return minDate ? formatDateValue(minDate) : null;
+    const minDate = getLaterTaskDate(effectiveStartBoundary, milestoneStartBoundary);
+    return minDate ? formatTaskDateValue(minDate) : null;
   }, [effectiveStartBoundary, milestoneStartBoundary]);
   const duePickerMaxDate = milestoneDueBoundary
-    ? formatDateValue(milestoneDueBoundary)
+    ? formatTaskDateValue(milestoneDueBoundary)
     : null;
   const milestoneScheduleHint = useMemo(() => {
     if (milestoneStartBoundary && milestoneDueBoundary) {
@@ -203,9 +134,7 @@ export function CreateTaskModal({
 
   const [isAutoFilling, setIsAutoFilling] = useState(false);
   const [demoStepIndex, setDemoStepIndex] = useState(0);
-  const autofillTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(
-    null,
-  );
+  const autofillTimerRef = useRef<number | null>(null);
 
   const demoStepLabels = [
     "Step 1: Pick a feature from approved scope",
@@ -222,7 +151,18 @@ export function CreateTaskModal({
     }
   };
 
-  const formatDateInput = (value: Date) => formatDateValue(value);
+  const formatDateInput = (value: Date) => formatTaskDateValue(value);
+  const trimmedTitle = title.trim();
+  const trimmedDescription = description.trim();
+  const isTitleMissing = !trimmedTitle;
+  const isStartDateMissing = !startDate;
+  const isDueDateMissing = !dueDate;
+  const isDescriptionMissing = !trimmedDescription;
+  const isFormValid =
+    !isTitleMissing &&
+    !isStartDateMissing &&
+    !isDueDateMissing &&
+    !isDescriptionMissing;
 
   const buildAutofillDraft = () => {
     const complexityWeight: Record<string, number> = {
@@ -239,15 +179,15 @@ export function CreateTaskModal({
     })[0];
 
     const now = new Date();
-    const boundedStartDate = clampDateValue(
+    const boundedStartDate = clampTaskDateValue(
       now,
       milestoneStartBoundary,
       milestoneDueBoundary,
     );
     const dueDateSeed = new Date(boundedStartDate.getTime());
     dueDateSeed.setDate(boundedStartDate.getDate() + 3);
-    const boundedDueDate = getLaterDate(
-      clampDateValue(dueDateSeed, milestoneStartBoundary, milestoneDueBoundary),
+    const boundedDueDate = getLaterTaskDate(
+      clampTaskDateValue(dueDateSeed, milestoneStartBoundary, milestoneDueBoundary),
       boundedStartDate,
     )!;
     const featureTitle = preferredFeature?.title || "Core Task";
@@ -316,6 +256,7 @@ export function CreateTaskModal({
       clearAutofillTimer();
       setIsAutoFilling(false);
       setDemoStepIndex(0);
+      setShowValidationErrors(false);
     }
   }, [open]);
 
@@ -333,6 +274,15 @@ export function CreateTaskModal({
   };
 
   if (!open) return null;
+
+  const handleSubmit = () => {
+    setShowValidationErrors(true);
+    if (!isFormValid) {
+      return;
+    }
+
+    onSubmit();
+  };
 
   return (
     <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 px-4">
@@ -378,6 +328,9 @@ export function CreateTaskModal({
               placeholder="e.g., Implement login form validation"
               disabled={isSubmitting}
             />
+            {showValidationErrors && isTitleMissing ? (
+              <p className="mt-1.5 text-xs text-red-600">Task title is required.</p>
+            ) : null}
           </div>
 
           {/* Related Feature (Spec Mapping) - Anti-Scope Creep */}
@@ -429,53 +382,70 @@ export function CreateTaskModal({
           {/* Date Range */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-sm font-medium text-gray-700 flex items-center gap-2">
-                <CalendarDays className="h-4 w-4 text-gray-500" />
-                Start Date
-              </label>
-              <div className="mt-1">
-                <WorkspaceDatePicker
-                  value={startDate || null}
-                  onChange={(value) => onChangeStartDate(value ?? "")}
-                  placeholder="Set start date"
-                  minDate={startPickerMinDate}
-                  maxDate={startPickerMaxDate}
-                  disabled={isSubmitting}
-                />
+                <label className="text-sm font-medium text-gray-700 flex items-center gap-2">
+                  <CalendarDays className="h-4 w-4 text-gray-500" />
+                  Start Date <span className="text-red-500">*</span>
+                </label>
+                <div className="mt-1">
+                  <WorkspaceDatePicker
+                    value={startDate || null}
+                    onChange={(value) => onChangeStartDate(value ?? "")}
+                    placeholder="Set start date"
+                    minDate={startPickerMinDate}
+                    maxDate={startPickerMaxDate}
+                    tone={showValidationErrors && isStartDateMissing ? "danger" : "default"}
+                    disabled={isSubmitting}
+                  />
+                </div>
+                {showValidationErrors && isStartDateMissing ? (
+                  <p className="mt-1.5 text-xs text-red-600">Start date is required.</p>
+                ) : null}
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-700 flex items-center gap-2">
+                  <CalendarDays className="h-4 w-4 text-gray-500" />
+                  Due Date <span className="text-red-500">*</span>
+                </label>
+                <div className="mt-1">
+                  <WorkspaceDatePicker
+                    value={dueDate || null}
+                    onChange={(value) => onChangeDueDate(value ?? "")}
+                    placeholder="Set due date"
+                    minDate={duePickerMinDate}
+                    maxDate={duePickerMaxDate}
+                    tone={showValidationErrors && isDueDateMissing ? "danger" : "default"}
+                    disabled={isSubmitting}
+                  />
+                </div>
+                {showValidationErrors && isDueDateMissing ? (
+                  <p className="mt-1.5 text-xs text-red-600">Due date is required.</p>
+                ) : null}
               </div>
             </div>
-            <div>
-              <label className="text-sm font-medium text-gray-700 flex items-center gap-2">
-                <CalendarDays className="h-4 w-4 text-gray-500" />
-                Due Date
-              </label>
-              <div className="mt-1">
-                <WorkspaceDatePicker
-                  value={dueDate || null}
-                  onChange={(value) => onChangeDueDate(value ?? "")}
-                  placeholder="Set due date"
-                  minDate={duePickerMinDate}
-                  maxDate={duePickerMaxDate}
-                  disabled={isSubmitting}
-                />
-              </div>
-            </div>
-          </div>
           {milestoneScheduleHint ? (
             <p className="text-xs text-slate-500">{milestoneScheduleHint}</p>
           ) : null}
 
           {/* Description */}
           <div>
-            <label className="text-sm font-medium text-gray-700">Description</label>
+            <label className="text-sm font-medium text-gray-700">
+              Description <span className="text-red-500">*</span>
+            </label>
             <textarea
               value={description}
               onChange={(e) => onChangeDescription(e.target.value)}
-              className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent resize-none"
+              className={`mt-1 w-full rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:border-transparent resize-none ${
+                showValidationErrors && isDescriptionMissing
+                  ? "border-red-300 focus:ring-red-500"
+                  : "border-gray-300 focus:ring-teal-500"
+              }`}
               placeholder="Describe what needs to be done..."
               rows={3}
               disabled={isSubmitting}
             />
+            {showValidationErrors && isDescriptionMissing ? (
+              <p className="mt-1.5 text-xs text-red-600">Description is required.</p>
+            ) : null}
           </div>
         </div>
 
@@ -546,8 +516,8 @@ export function CreateTaskModal({
             Cancel
           </button>
           <button
-            onClick={onSubmit}
-            disabled={isSubmitting || !title.trim()}
+            onClick={handleSubmit}
+            disabled={isSubmitting}
             className="px-5 py-2.5 rounded-lg bg-teal-600 text-white text-sm font-medium hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm"
           >
             {isSubmitting ? (

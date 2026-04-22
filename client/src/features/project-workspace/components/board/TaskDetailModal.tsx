@@ -47,6 +47,7 @@ import AttachmentGallery from "./AttachmentGallery";
 import { WorkspaceDatePicker } from "../shared/WorkspaceDatePicker";
 import "highlight.js/styles/github.css";
 import type {
+  Assignee,
   Task,
   TaskComment,
   TaskHistory,
@@ -81,6 +82,13 @@ import { getSubmissionApprovalDialogCopy } from "../../submission-review-flow";
 import { STORAGE_KEYS } from "@/constants";
 import { getStoredJson } from "@/shared/utils/storage";
 import { toast } from "sonner";
+import {
+  clampTaskDateValue,
+  formatTaskDateValue,
+  getEarlierTaskDate,
+  getLaterTaskDate,
+  parseTaskDateValue,
+} from "../../utils/task-date-constraints";
 
 // Helper for robust date parsing (force UTC if naked ISO)
 const normalizeToUTC = (d: string | Date | undefined): Date => {
@@ -99,12 +107,17 @@ const normalizeToUTC = (d: string | Date | undefined): Date => {
 type TaskDetailModalProps = {
   isOpen: boolean;
   task: Task | null;
+  milestoneStartDate?: string | null;
+  milestoneDueDate?: string | null;
+  fallbackAssignee?: Assignee | null;
   specFeatures?: SpecFeatureOption[];
   canReviewSubmissions?: boolean;
   canActAsBrokerReviewer?: boolean;
   canActAsClientReviewer?: boolean;
   allowTaskMutations?: boolean;
   taskMutationLockReason?: string | null;
+  allowComments?: boolean;
+  commentLockReason?: string | null;
   allowTaskStatusEditing?: boolean;
   onClose: () => void;
   onUpdate?: (updatedTask: Task) => void;
@@ -273,12 +286,17 @@ type TimelineItem =
 export function TaskDetailModal({
   isOpen,
   task: initialTask,
+  milestoneStartDate,
+  milestoneDueDate,
+  fallbackAssignee = null,
   specFeatures = [],
   canReviewSubmissions = false,
   canActAsBrokerReviewer,
   canActAsClientReviewer,
   allowTaskMutations = true,
   taskMutationLockReason = null,
+  allowComments = true,
+  commentLockReason = null,
   allowTaskStatusEditing = false,
   onClose,
   onUpdate,
@@ -356,11 +374,16 @@ export function TaskDetailModal({
   const canDeleteTask = Boolean(
     task && isBroker && task.status !== "DONE" && task.status !== "IN_REVIEW",
   );
+  const displayedAssignee =
+    task?.assignee?.fullName?.trim() ? task.assignee : fallbackAssignee;
   const isInteractionLocked = !allowTaskMutations;
+  const isCommentInteractionLocked = !allowComments;
   const canManageSubtasks = allowTaskMutations && !isFreelancer;
   const subtaskPermissionMessage = isFreelancer
     ? "Freelancers cannot create or link subtasks."
     : taskMutationLockReason || "Task changes are locked for this milestone.";
+  const commentPermissionMessage =
+    commentLockReason || "Comments are read-only while this milestone is locked.";
 
   useEffect(() => {
     setTask(initialTask);
@@ -528,7 +551,7 @@ export function TaskDetailModal({
 
           {isCommentOwner(comment) &&
           editingCommentId !== comment.id &&
-          !isInteractionLocked ? (
+          !isCommentInteractionLocked ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button
@@ -597,14 +620,62 @@ export function TaskDetailModal({
   const linkedFeature = task.specFeatureId
     ? specFeatures.find((feature) => feature.id === task.specFeatureId)
     : null;
+  const milestoneStartBoundary = parseTaskDateValue(milestoneStartDate);
+  const milestoneDueBoundary = parseTaskDateValue(milestoneDueDate);
+  const selectedStartBoundary = parseTaskDateValue(task.startDate ?? null);
+  const selectedDueBoundary = parseTaskDateValue(task.dueDate ?? null);
+  const effectiveStartBoundary = selectedStartBoundary
+    ? clampTaskDateValue(
+        selectedStartBoundary,
+        milestoneStartBoundary,
+        milestoneDueBoundary,
+      )
+    : null;
+  const effectiveDueBoundary = selectedDueBoundary
+    ? clampTaskDateValue(
+        selectedDueBoundary,
+        milestoneStartBoundary,
+        milestoneDueBoundary,
+      )
+    : null;
+  const startPickerMinDate = milestoneStartBoundary
+    ? formatTaskDateValue(milestoneStartBoundary)
+    : null;
+  const startPickerMaxDate = (() => {
+    const maxDate = getEarlierTaskDate(effectiveDueBoundary, milestoneDueBoundary);
+    return maxDate ? formatTaskDateValue(maxDate) : null;
+  })();
+  const duePickerMinDate = (() => {
+    const minDate = getLaterTaskDate(effectiveStartBoundary, milestoneStartBoundary);
+    return minDate ? formatTaskDateValue(minDate) : null;
+  })();
+  const duePickerMaxDate = milestoneDueBoundary
+    ? formatTaskDateValue(milestoneDueBoundary)
+    : null;
+  const milestoneScheduleHint = (() => {
+    if (milestoneStartBoundary && milestoneDueBoundary) {
+      return `Task dates must stay between ${milestoneStartBoundary.toLocaleDateString()} and ${milestoneDueBoundary.toLocaleDateString()}.`;
+    }
+
+    if (milestoneStartBoundary) {
+      return `Task dates cannot be earlier than ${milestoneStartBoundary.toLocaleDateString()}.`;
+    }
+
+    if (milestoneDueBoundary) {
+      return `Task dates cannot be later than ${milestoneDueBoundary.toLocaleDateString()}.`;
+    }
+
+    return null;
+  })();
 
   const dueDate = task.dueDate ? new Date(task.dueDate) : null;
   const dueDateLabel = dueDate ? format(dueDate, "MMM d, yyyy") : "";
   const dueDateEnd = dueDate ? endOfDay(dueDate) : null;
   const isDueDateOverdue =
     !!dueDateEnd && dueDateEnd.getTime() < Date.now() && task.status !== "DONE";
-  const isSubmissionDeadlinePassed =
-    Boolean(dueDateEnd) && dueDateEnd.getTime() < Date.now();
+  const isSubmissionDeadlinePassed = dueDateEnd
+    ? dueDateEnd.getTime() < Date.now()
+    : false;
   const submissionDeadlineLockMessage = dueDate
     ? `Submission is locked because the due date passed at the end of ${format(
         dueDate,
@@ -671,6 +742,15 @@ export function TaskDetailModal({
           fallbackMessage ||
           "Task changes are locked for this milestone."
       );
+      return false;
+    }
+
+    return true;
+  };
+
+  const ensureCommentMutationsAllowed = (fallbackMessage?: string) => {
+    if (!allowComments) {
+      toast.warning(commentLockReason || fallbackMessage || commentPermissionMessage);
       return false;
     }
 
@@ -767,7 +847,7 @@ export function TaskDetailModal({
 
   const handleSaveComment = async (content: string) => {
     if (!task) return;
-    if (!ensureTaskMutationsAllowed()) return;
+    if (!ensureCommentMutationsAllowed()) return;
     const html = content?.trim() ? content : commentDraft;
     if (!html.trim()) return;
 
@@ -791,7 +871,7 @@ export function TaskDetailModal({
     Boolean(currentUserId) && getCommentOwnerId(comment) === currentUserId;
 
   const handleStartEditingComment = (comment: TaskComment) => {
-    if (!ensureTaskMutationsAllowed()) return;
+    if (!ensureCommentMutationsAllowed()) return;
     setCommentPendingDelete(null);
     setEditingCommentId(comment.id);
   };
@@ -801,7 +881,7 @@ export function TaskDetailModal({
   };
 
   const handleUpdateComment = async (commentId: string, content: string) => {
-    if (!ensureTaskMutationsAllowed()) return;
+    if (!ensureCommentMutationsAllowed()) return;
     setUpdatingCommentId(commentId);
     try {
       const api = await import("../../api");
@@ -829,7 +909,7 @@ export function TaskDetailModal({
     if (!commentPendingDelete) {
       return;
     }
-    if (!ensureTaskMutationsAllowed()) return;
+    if (!ensureCommentMutationsAllowed()) return;
 
     const targetComment = commentPendingDelete;
     setDeletingCommentId(targetComment.id);
@@ -2144,7 +2224,7 @@ export function TaskDetailModal({
                          You
                      </div>
                      <div className="flex-1">
-                        {allowTaskMutations ? (
+                       {allowComments ? (
                           <RichTextEditor
                               className="mb-4"
                               onChange={setCommentDraft}
@@ -2154,7 +2234,7 @@ export function TaskDetailModal({
                           />
                         ) : (
                           <div className="mb-4 rounded-md border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
-                            Comments are read-only while this milestone is locked.
+                            {commentPermissionMessage}
                           </div>
                         )}
 
@@ -2250,10 +2330,10 @@ export function TaskDetailModal({
                   <div className="flex items-center justify-between">
                       <span className="text-sm text-gray-600 font-medium">Assignee</span>
                       <div className="flex items-center gap-2 cursor-pointer hover:bg-gray-100 p-1 rounded transition-colors group">
-                           {task.assignee ? (
+                           {displayedAssignee ? (
                               <>
-                                <img src={task.assignee.avatarUrl || `https://ui-avatars.com/api/?name=${task.assignee.fullName}`} alt="" className="w-5 h-5 rounded-full" />
-                                <span className="text-sm text-blue-700">{task.assignee.fullName}</span>
+                                <img src={displayedAssignee.avatarUrl || `https://ui-avatars.com/api/?name=${displayedAssignee.fullName}`} alt="" className="w-5 h-5 rounded-full" />
+                                <span className="text-sm text-blue-700">{displayedAssignee.fullName}</span>
                               </>
                            ) : (
                                <span className="text-sm text-gray-400 italic">Unassigned</span>
@@ -2388,11 +2468,19 @@ export function TaskDetailModal({
                       <span className="text-sm text-gray-600 font-medium">Start Date</span>
                       <WorkspaceDatePicker
                         value={task.startDate ?? null}
-                        onChange={(value) => void handleUpdate({ startDate: value })}
+                        onChange={(value) => {
+                          if (!value) {
+                            return;
+                          }
+                          void handleUpdate({ startDate: value });
+                        }}
                         placeholder="Set start date"
+                        minDate={startPickerMinDate}
+                        maxDate={startPickerMaxDate}
+                        allowClear={false}
                         disabled={isInteractionLocked}
                       />
-                  </div>
+                   </div>
 
                   {/* Due Date */}
                   <div className="space-y-2">
@@ -2407,9 +2495,17 @@ export function TaskDetailModal({
                       </div>
                       <WorkspaceDatePicker
                         value={task.dueDate ?? null}
-                        onChange={(value) => void handleUpdate({ dueDate: value })}
+                        onChange={(value) => {
+                          if (!value) {
+                            return;
+                          }
+                          void handleUpdate({ dueDate: value });
+                        }}
                         placeholder="Set due date"
+                        minDate={duePickerMinDate}
+                        maxDate={duePickerMaxDate}
                         tone={isDueDateOverdue ? "danger" : "default"}
+                        allowClear={false}
                         disabled={isInteractionLocked}
                       />
                       {isDueDateOverdue && dueDate ? (
@@ -2418,8 +2514,11 @@ export function TaskDetailModal({
                           Due since {dueDateLabel}
                         </p>
                       ) : null}
-                  </div>
-              </div>
+                      {milestoneScheduleHint ? (
+                        <p className="text-[11px] text-gray-500">{milestoneScheduleHint}</p>
+                      ) : null}
+                   </div>
+               </div>
               <div className="text-xs text-gray-400 pt-4 flex justify-between">
                   <span>Created {task.id ? format(new Date(), "MMM d, yyyy") : "-"}</span>
                   <span>Updated {format(new Date(), "MMM d, yyyy")}</span>

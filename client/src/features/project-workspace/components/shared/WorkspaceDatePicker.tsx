@@ -22,6 +22,7 @@ type WorkspaceDatePickerProps = {
   contentClassName?: string;
   tone?: "default" | "danger";
   align?: "start" | "center" | "end";
+  allowClear?: boolean;
 };
 
 const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
@@ -93,6 +94,7 @@ export function WorkspaceDatePicker({
   contentClassName,
   tone = "default",
   align = "start",
+  allowClear = true,
 }: WorkspaceDatePickerProps) {
   const [open, setOpen] = useState(false);
   const selectedDate = useMemo(() => parsePickerDate(value), [value]);
@@ -145,6 +147,9 @@ export function WorkspaceDatePicker({
   };
 
   const handleClear = () => {
+    if (!allowClear) {
+      return;
+    }
     onChange(null);
     setOpen(false);
   };
@@ -220,19 +225,21 @@ export function WorkspaceDatePicker({
           />
         </div>
 
-        <div className="flex justify-end border-t border-slate-200 bg-slate-50/80 px-2.5 py-1.5">
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={handleClear}
-            disabled={!hasValue}
-            className="text-slate-500 hover:text-slate-700"
-          >
-            <X className="h-4 w-4" />
-            Clear
-          </Button>
-        </div>
+        {allowClear ? (
+          <div className="flex justify-end border-t border-slate-200 bg-slate-50/80 px-2.5 py-1.5">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={handleClear}
+              disabled={!hasValue}
+              className="text-slate-500 hover:text-slate-700"
+            >
+              <X className="h-4 w-4" />
+              Clear
+            </Button>
+          </div>
+        ) : null}
       </PopoverContent>
     </Popover>
   );

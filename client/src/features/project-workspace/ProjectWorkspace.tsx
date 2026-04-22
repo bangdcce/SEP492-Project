@@ -162,6 +162,30 @@ const normalizeBoundaryDate = (value?: string | null): Date | null => {
   return parsedDate;
 };
 
+const getMilestoneTaskCreationDeadlineLockReason = (
+  milestone?: Pick<Milestone, "dueDate"> | null,
+) => {
+  const dueDate = normalizeBoundaryDate(milestone?.dueDate);
+  if (!dueDate) {
+    return null;
+  }
+
+  const lockAt = new Date(dueDate.getTime());
+  lockAt.setHours(23, 59, 59, 999);
+  if (Date.now() <= lockAt.getTime()) {
+    return null;
+  }
+
+  return `Task creation is locked because the milestone due date passed at the end of ${dueDate.toLocaleDateString(
+    undefined,
+    {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    },
+  )}.`;
+};
+
 const formatDateInputValue = (value: Date) => {
   const year = value.getFullYear();
   const month = String(value.getMonth() + 1).padStart(2, "0");
@@ -406,6 +430,7 @@ export function ProjectWorkspace() {
   const [currentUser, setCurrentUser] = useState<{
     id: string;
     role?: string;
+    email?: string | null;
   } | null>(() => getCurrentUser());
 
   useEffect(() => {
@@ -997,7 +1022,7 @@ export function ProjectWorkspace() {
         nextStartDate &&
         nextStartDate.getTime() < activeMilestoneStartBoundary.getTime()
       ) {
-        return `Task start date must be on or after ${formatOptionalDate(activeMilestone.startDate)}.`;
+        return `Task start date must be on or after ${formatOptionalDate(activeMilestone?.startDate)}.`;
       }
 
       if (
@@ -1005,7 +1030,7 @@ export function ProjectWorkspace() {
         nextStartDate &&
         nextStartDate.getTime() > activeMilestoneDueBoundary.getTime()
       ) {
-        return `Task start date must be on or before ${formatOptionalDate(activeMilestone.dueDate)}.`;
+        return `Task start date must be on or before ${formatOptionalDate(activeMilestone?.dueDate)}.`;
       }
 
       if (
@@ -1013,7 +1038,7 @@ export function ProjectWorkspace() {
         nextDueDate &&
         nextDueDate.getTime() < activeMilestoneStartBoundary.getTime()
       ) {
-        return `Task due date must be on or after ${formatOptionalDate(activeMilestone.startDate)}.`;
+        return `Task due date must be on or after ${formatOptionalDate(activeMilestone?.startDate)}.`;
       }
 
       if (
@@ -1021,7 +1046,7 @@ export function ProjectWorkspace() {
         nextDueDate &&
         nextDueDate.getTime() > activeMilestoneDueBoundary.getTime()
       ) {
-        return `Task due date must be on or before ${formatOptionalDate(activeMilestone.dueDate)}.`;
+        return `Task due date must be on or before ${formatOptionalDate(activeMilestone?.dueDate)}.`;
       }
 
       return null;
@@ -1131,6 +1156,25 @@ export function ProjectWorkspace() {
     activeMilestoneInteractionGate?.isUnlocked === false
       ? activeMilestoneInteractionGate.reason
       : null;
+  const selectedMilestoneTaskCreationReason = useMemo(() => {
+    if (selectedMilestoneInteractionReason) {
+      return selectedMilestoneInteractionReason;
+    }
+
+    const deadlineLockReason = getMilestoneTaskCreationDeadlineLockReason(activeMilestone);
+    if (deadlineLockReason) {
+      return deadlineLockReason;
+    }
+
+    if (
+      activeMilestone &&
+      !TASK_CREATION_ALLOWED_MILESTONE_STATUSES.has(activeMilestone.status)
+    ) {
+      return TASK_CREATION_LOCK_MESSAGE;
+    }
+
+    return null;
+  }, [activeMilestone, selectedMilestoneInteractionReason]);
   const selectedMilestoneTaskMutationReason = useMemo(() => {
     if (selectedMilestoneInteractionReason) {
       return selectedMilestoneInteractionReason;
@@ -1192,7 +1236,7 @@ export function ProjectWorkspace() {
       isReadOnly ||
       !activeMilestone ||
       !isAssignedBroker ||
-      Boolean(selectedMilestoneInteractionReason)
+      Boolean(selectedMilestoneTaskCreationReason)
     ) {
       return false;
     }
@@ -1202,7 +1246,7 @@ export function ProjectWorkspace() {
     activeMilestone,
     isAssignedBroker,
     isReadOnly,
-    selectedMilestoneInteractionReason,
+    selectedMilestoneTaskCreationReason,
   ]);
   const taskCommandUnavailableMessage = useMemo(() => {
     if (projectInteractionLockReason) {
@@ -1225,8 +1269,8 @@ export function ProjectWorkspace() {
       return "Select an editable milestone before creating tasks via chat.";
     }
 
-    if (selectedMilestoneInteractionReason) {
-      return selectedMilestoneInteractionReason;
+    if (selectedMilestoneTaskCreationReason) {
+      return selectedMilestoneTaskCreationReason;
     }
 
     if (!TASK_CREATION_ALLOWED_MILESTONE_STATUSES.has(activeMilestone.status)) {
@@ -1239,7 +1283,7 @@ export function ProjectWorkspace() {
     currentRole,
     isAssignedBroker,
     projectInteractionLockReason,
-    selectedMilestoneInteractionReason,
+    selectedMilestoneTaskCreationReason,
   ]);
 
   const openCreateModal = useCallback(() => {
@@ -1632,6 +1676,11 @@ export function ProjectWorkspace() {
     () => (selectedTaskId ? boardMeta.taskMap.get(selectedTaskId) ?? null : null),
     [boardMeta.taskMap, selectedTaskId],
   );
+  const selectedTaskMilestone = useMemo(
+    () =>
+      selectedTask?.milestoneId ? milestoneMap.get(selectedTask.milestoneId) ?? null : null,
+    [milestoneMap, selectedTask?.milestoneId],
+  );
   const selectedTaskInteractionReason = useMemo(
     () => getTaskInteractionLockReason(selectedTask?.milestoneId),
     [getTaskInteractionLockReason, selectedTask?.milestoneId],
@@ -2002,7 +2051,7 @@ export function ProjectWorkspace() {
 
     if (
       stripeCheckoutState !== "success" ||
-      !requestedMilestoneId ||
+      !selectedMilestoneId ||
       !stripeSessionId ||
       !stripePaymentMethodId
     ) {
@@ -2016,12 +2065,12 @@ export function ProjectWorkspace() {
     processedStripeSessionIdsRef.current.add(stripeSessionId);
     let active = true;
 
-    const syncStripeCheckout = async () => {
-      try {
-        const result = await completeStripeMilestoneFunding(requestedMilestoneId, {
-          paymentMethodId: stripePaymentMethodId,
-          sessionId: stripeSessionId,
-        });
+      const syncStripeCheckout = async () => {
+        try {
+        const result = await completeStripeMilestoneFunding(selectedMilestoneId, {
+            paymentMethodId: stripePaymentMethodId,
+            sessionId: stripeSessionId,
+          });
         if (!active) return;
         handleFundingSuccess(result);
         toast.success("Card payment completed and escrow funded");
@@ -2292,8 +2341,27 @@ export function ProjectWorkspace() {
       return;
     }
     const title = newTitle.trim();
+    const description = newDescription.trim();
     if (!title) {
       setError("Title is required");
+      return;
+    }
+    if (!description) {
+      const message = "Description is required.";
+      setError(message);
+      toast.warning(message);
+      return;
+    }
+    if (!newStartDate) {
+      const message = "Start date is required.";
+      setError(message);
+      toast.warning(message);
+      return;
+    }
+    if (!newDueDate) {
+      const message = "Due date is required.";
+      setError(message);
+      toast.warning(message);
       return;
     }
     if (!projectId) {
@@ -2337,7 +2405,7 @@ export function ProjectWorkspace() {
       setError(null);
       const created = await createTask({
         title,
-        description: newDescription,
+        description,
         projectId,
         milestoneId: selectedMilestoneId,
         specFeatureId: newSpecFeatureId || undefined,
@@ -3220,12 +3288,25 @@ export function ProjectWorkspace() {
       <TaskDetailModal
         isOpen={isTaskDetailOpen}
         task={selectedTask}
+        milestoneStartDate={selectedTaskMilestone?.startDate}
+        milestoneDueDate={selectedTaskMilestone?.dueDate}
+        fallbackAssignee={
+          project?.freelancer
+            ? {
+                id: project.freelancer.id,
+                fullName: project.freelancer.fullName ?? "Project Freelancer",
+                email: project.freelancer.email ?? undefined,
+              }
+            : null
+        }
         specFeatures={specFeatureOptions}
         canReviewSubmissions={Boolean(
           canReviewTaskSubmissions && !selectedTaskInteractionReason
         )}
         canActAsBrokerReviewer={canActAsBrokerReviewer}
         canActAsClientReviewer={canActAsClientReviewer}
+        allowComments={!selectedTaskInteractionReason}
+        commentLockReason={selectedTaskInteractionReason}
         allowTaskStatusEditing={!isReadOnly && !selectedTaskMutationReason}
         allowTaskMutations={!isReadOnly && !selectedTaskMutationReason}
         taskMutationLockReason={selectedTaskMutationReason}

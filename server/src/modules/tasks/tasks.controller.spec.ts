@@ -377,8 +377,11 @@ describe('TasksController', () => {
   describe('createTask', () => {
     const basePayload = {
       title: 'Implement notifications API',
+      description: 'Add broker notification workflow.',
       projectId: 'project-1',
       milestoneId: 'milestone-1',
+      startDate: '2026-04-22T00:00:00.000Z',
+      dueDate: '2026-04-24T00:00:00.000Z',
     };
 
     it('UC59-CREATETASK-UTCID01 allows broker role and forwards requester context to service', async () => {
@@ -400,8 +403,11 @@ describe('TasksController', () => {
       expect(tasksService.createTask).toHaveBeenCalledWith(
         expect.objectContaining({
           title: basePayload.title,
+          description: basePayload.description,
           projectId: basePayload.projectId,
           milestoneId: basePayload.milestoneId,
+          startDate: basePayload.startDate,
+          dueDate: basePayload.dueDate,
           reporterId: 'broker-1',
           requesterId: 'broker-1',
           requesterRole: UserRole.BROKER,
@@ -426,6 +432,25 @@ describe('TasksController', () => {
         ),
       ).rejects.toThrow(
         new ForbiddenException('Only brokers can create tasks in project workspace.'),
+      );
+      expect(tasksService.createTask).not.toHaveBeenCalled();
+    });
+
+    it('UC59-CREATETASK-UTCID04 rejects requests missing description or schedule fields before reaching the service', async () => {
+      await expect(
+        controller.createTask(
+          {
+            ...basePayload,
+            description: '   ',
+          } as any,
+          {
+            user: { id: 'broker-1', role: UserRole.BROKER },
+          } as any,
+        ),
+      ).rejects.toThrow(
+        new BadRequestException(
+          'title, description, projectId, milestoneId, startDate and dueDate are required',
+        ),
       );
       expect(tasksService.createTask).not.toHaveBeenCalled();
     });

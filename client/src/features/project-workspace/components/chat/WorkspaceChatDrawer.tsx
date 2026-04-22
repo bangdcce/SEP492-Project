@@ -3082,7 +3082,9 @@ export function WorkspaceChatDrawer({
 
       toast.success(successMessage || WORKSPACE_CHAT_EXPORT_EMAIL_SUCCESS_MESSAGE);
     } catch (error) {
-      toast.error(getApiErrorDetails(error).message || "Failed to email the chat log export.");
+      toast.error(
+        getApiErrorDetails(error, "Failed to email the chat log export.").message,
+      );
     }
   }, [
     emailWorkspaceChatExport,
