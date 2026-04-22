@@ -18,9 +18,13 @@ export const createWorkspaceChatExportFile = (
   fileName: string,
   workbookBuffer: ArrayBuffer | Uint8Array,
 ): File =>
-  new File([workbookBuffer], fileName, {
-    type: WORKSPACE_CHAT_EXPORT_MIME_TYPE,
-  });
+  new File(
+    [workbookBuffer instanceof Uint8Array ? Uint8Array.from(workbookBuffer) : workbookBuffer],
+    fileName,
+    {
+      type: WORKSPACE_CHAT_EXPORT_MIME_TYPE,
+    },
+  );
 
 export const emailWorkspaceChatExportFile = async (
   input: WorkspaceChatExportEmailInput,

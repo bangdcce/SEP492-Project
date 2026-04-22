@@ -304,9 +304,20 @@ export class TasksController {
       reporterId?: string;
     },
     @Req() req: AuthenticatedRequest,
-  ) {
-    if (!body?.title || !body?.projectId || !body?.milestoneId) {
-      throw new BadRequestException('title, projectId and milestoneId are required');
+    ) {
+    const title = body?.title?.trim();
+    const description = body?.description?.trim();
+    if (
+      !title ||
+      !description ||
+      !body?.projectId ||
+      !body?.milestoneId ||
+      !body?.startDate ||
+      !body?.dueDate
+    ) {
+      throw new BadRequestException(
+        'title, description, projectId, milestoneId, startDate and dueDate are required',
+      );
     }
 
     const currentUser = req.user;
@@ -325,8 +336,8 @@ export class TasksController {
     this.logger.log(`Creating task: ${body.title} for project ${body.projectId}`);
 
     return this.tasksService.createTask({
-      title: body.title,
-      description: body.description,
+      title,
+      description,
       projectId: body.projectId,
       milestoneId: body.milestoneId,
       specFeatureId: body.specFeatureId,

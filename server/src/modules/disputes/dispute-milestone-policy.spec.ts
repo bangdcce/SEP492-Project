@@ -97,4 +97,18 @@ describe('resolveMilestoneDisputePolicy', () => {
     expect(result.phase).toBe('CLOSED');
     expect(result.reason).toContain('after work starts');
   });
+
+  it('allows overdue pending milestones to open deadline disputes once escrow is funded', () => {
+    const result = resolveMilestoneDisputePolicy({
+      milestoneStatus: MilestoneStatus.PENDING,
+      escrowStatus: EscrowStatus.FUNDED,
+      dueDate: '2026-04-22T00:00:00.000Z',
+      now: new Date('2026-04-23T00:00:00.000Z'),
+    });
+
+    expect(result.canRaise).toBe(true);
+    expect(result.phase).toBe('PRE_DELIVERY');
+    expect(result.allowedCategories).toEqual([DisputeCategory.DEADLINE]);
+    expect(result.reason).toBeNull();
+  });
 });

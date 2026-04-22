@@ -443,6 +443,87 @@ export class TasksService implements OnModuleInit {
     return value ?? (() => 'NULL');
   }
 
+  private normalizeTaskBoundaryDate(
+    value?: string | Date | null,
+    fieldName = 'task date',
+  ): Date | null {
+    if (value === undefined || value === null || value === '') {
+      return null;
+    }
+
+    const parsedValue = value instanceof Date ? new Date(value.getTime()) : new Date(value);
+    if (Number.isNaN(parsedValue.getTime())) {
+      throw new BadRequestException(`Invalid ${fieldName}.`);
+    }
+
+    return new Date(
+      Date.UTC(
+        parsedValue.getUTCFullYear(),
+        parsedValue.getUTCMonth(),
+        parsedValue.getUTCDate(),
+      ),
+    );
+  }
+
+  private assertTaskScheduleWithinMilestone(
+    taskDates: {
+      startDate?: Date | null;
+      dueDate?: Date | null;
+    },
+    milestone: Pick<MilestoneEntity, 'startDate' | 'dueDate'>,
+  ): void {
+    const milestoneStartDate = this.normalizeTaskBoundaryDate(
+      milestone.startDate,
+      'milestone start date',
+    );
+    const milestoneDueDate = this.normalizeTaskBoundaryDate(
+      milestone.dueDate,
+      'milestone due date',
+    );
+    const normalizedStartDate = taskDates.startDate ?? null;
+    const normalizedDueDate = taskDates.dueDate ?? null;
+
+    if (
+      normalizedStartDate &&
+      normalizedDueDate &&
+      normalizedStartDate.getTime() > normalizedDueDate.getTime()
+    ) {
+      throw new BadRequestException('Task start date cannot be after the due date.');
+    }
+
+    if (
+      milestoneStartDate &&
+      normalizedStartDate &&
+      normalizedStartDate.getTime() < milestoneStartDate.getTime()
+    ) {
+      throw new BadRequestException('Task start date must be on or after the milestone start date.');
+    }
+
+    if (
+      milestoneDueDate &&
+      normalizedStartDate &&
+      normalizedStartDate.getTime() > milestoneDueDate.getTime()
+    ) {
+      throw new BadRequestException('Task start date must be on or before the milestone due date.');
+    }
+
+    if (
+      milestoneStartDate &&
+      normalizedDueDate &&
+      normalizedDueDate.getTime() < milestoneStartDate.getTime()
+    ) {
+      throw new BadRequestException('Task due date must be on or after the milestone start date.');
+    }
+
+    if (
+      milestoneDueDate &&
+      normalizedDueDate &&
+      normalizedDueDate.getTime() > milestoneDueDate.getTime()
+    ) {
+      throw new BadRequestException('Task due date must be on or before the milestone due date.');
+    }
+  }
+
   private resolveSubmissionDeadline(
     task: Pick<TaskEntity, 'dueDate'>,
     milestone?: Pick<MilestoneEntity, 'dueDate'> | null,
@@ -460,12 +541,40 @@ export class TasksService implements OnModuleInit {
     return referenceDate.getTime() > lockAt.getTime();
   }
 
+  private formatDeadlineDateOnlyForDisplay(value: Date): string {
+    return value.toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      timeZone: 'UTC',
+    });
+  }
+
+  private assertMilestoneTaskCreationDeadlineOpen(
+    milestone: Pick<MilestoneEntity, 'dueDate'>,
+    referenceDate = new Date(),
+  ): void {
+    if (!this.isSubmissionDeadlinePassed(milestone.dueDate ?? null, referenceDate)) {
+      return;
+    }
+
+    throw new ForbiddenException(
+      milestone.dueDate
+        ? `Task creation is locked because the milestone due date passed at the end of ${this.formatDeadlineDateOnlyForDisplay(
+            milestone.dueDate,
+          )}.`
+        : 'Task creation is locked because the milestone due date has passed.',
+    );
+  }
+
   private async getMilestoneSubmissionDeadlineContext(
     milestoneId: string,
-  ): Promise<Pick<MilestoneEntity, 'id' | 'projectId' | 'status' | 'dueDate' | 'title'>> {
+  ): Promise<
+    Pick<MilestoneEntity, 'id' | 'projectId' | 'status' | 'startDate' | 'dueDate' | 'title'>
+  > {
     const milestone = await this.milestoneRepository.findOne({
       where: { id: milestoneId },
-      select: ['id', 'projectId', 'status', 'dueDate', 'title'],
+      select: ['id', 'projectId', 'status', 'startDate', 'dueDate', 'title'],
     });
 
     if (!milestone) {
@@ -2162,6 +2271,21 @@ export class TasksService implements OnModuleInit {
     requesterId: string;
     requesterRole?: UserRole | string;
   }): Promise<TaskEntity> {
+    const normalizedTitle = data.title?.trim();
+    const normalizedDescription = data.description?.trim();
+    if (
+      !normalizedTitle ||
+      !normalizedDescription ||
+      !data.projectId ||
+      !data.milestoneId ||
+      !data.startDate ||
+      !data.dueDate
+    ) {
+      throw new BadRequestException(
+        'title, description, projectId, milestoneId, startDate and dueDate are required',
+      );
+    }
+
     const milestone = await this.milestoneRepository.findOne({
       where: { id: data.milestoneId },
     });
@@ -2200,15 +2324,30 @@ export class TasksService implements OnModuleInit {
       throw new ForbiddenException(TASK_CREATION_LOCK_MESSAGE);
     }
 
+    this.assertMilestoneTaskCreationDeadlineOpen(milestone);
+
+    const normalizedStartDate = this.normalizeTaskBoundaryDate(
+      data.startDate,
+      'task start date',
+    );
+    const normalizedDueDate = this.normalizeTaskBoundaryDate(data.dueDate, 'task due date');
+    this.assertTaskScheduleWithinMilestone(
+      {
+        startDate: normalizedStartDate,
+        dueDate: normalizedDueDate,
+      },
+      milestone,
+    );
+
     // Step A: Create the task
     const newTask = this.taskRepository.create({
-      title: data.title,
-      description: data.description,
+      title: normalizedTitle,
+      description: normalizedDescription,
       projectId: data.projectId,
       milestoneId: data.milestoneId,
       status: TaskStatus.TODO,
-      startDate: data.startDate ? new Date(data.startDate) : undefined,
-      dueDate: data.dueDate ? new Date(data.dueDate) : undefined,
+      startDate: normalizedStartDate ?? undefined,
+      dueDate: normalizedDueDate ?? undefined,
       priority: data.priority ?? TaskPriority.MEDIUM,
       storyPoints: data.storyPoints,
       labels: data.labels,
@@ -2219,8 +2358,13 @@ export class TasksService implements OnModuleInit {
     this.logger.log(`Task created: ${saved.id} - ${saved.title}`);
 
     // Step B: Sync with Calendar (create calendar event if dates provided)
-    if (data.startDate || data.dueDate) {
-      await this.syncTaskToCalendar(saved, data.startDate, data.dueDate, data.organizerId);
+    if (normalizedStartDate || normalizedDueDate) {
+      await this.syncTaskToCalendar(
+        saved,
+        normalizedStartDate?.toISOString(),
+        normalizedDueDate?.toISOString(),
+        data.organizerId,
+      );
     }
 
     const created = await this.findTaskWithWorkspaceRelations(saved.id);
@@ -2266,47 +2410,89 @@ export class TasksService implements OnModuleInit {
 
     this.assertSubtaskDoneTransitionAllowed(task, data.status, actorRole);
 
-    await this.assertMilestoneAllowsTaskWorkById(task.milestoneId);
+    const milestone = await this.assertMilestoneAllowsTaskWorkById(task.milestoneId);
     await this.assertMilestoneEscrowFundedForWorkspace(task.milestoneId);
 
+    const hasStartDateUpdate = Object.prototype.hasOwnProperty.call(data, 'startDate');
+    const hasDueDateUpdate = Object.prototype.hasOwnProperty.call(data, 'dueDate');
+    const nextStartDate = hasStartDateUpdate
+      ? this.normalizeTaskBoundaryDate(data.startDate as string | Date | null, 'task start date')
+      : this.normalizeTaskBoundaryDate(task.startDate, 'task start date');
+    const nextDueDate = hasDueDateUpdate
+      ? this.normalizeTaskBoundaryDate(data.dueDate as string | Date | null, 'task due date')
+      : this.normalizeTaskBoundaryDate(task.dueDate, 'task due date');
+
+    if (hasStartDateUpdate && !nextStartDate) {
+      throw new BadRequestException('Task start date is required.');
+    }
+
+    if (hasDueDateUpdate && !nextDueDate) {
+      throw new BadRequestException('Task due date is required.');
+    }
+
+    this.assertTaskScheduleWithinMilestone(
+      {
+        startDate: nextStartDate,
+        dueDate: nextDueDate,
+      },
+      milestone,
+    );
+
+    const updatePayload: Partial<TaskEntity> = { ...data };
+    if (hasStartDateUpdate) {
+      updatePayload.startDate = nextStartDate as TaskEntity['startDate'];
+    }
+    if (hasDueDateUpdate) {
+      updatePayload.dueDate = nextDueDate as TaskEntity['dueDate'];
+    }
+
     // [HISTORY] Check for changes
-    if (data.title && data.title !== task.title) {
-      await this.createHistory(id, 'title', task.title, data.title, actorId);
+    if (updatePayload.title && updatePayload.title !== task.title) {
+      await this.createHistory(id, 'title', task.title, updatePayload.title, actorId);
     }
-    if (data.priority && data.priority !== task.priority) {
-      await this.createHistory(id, 'priority', task.priority, data.priority, actorId);
+    if (updatePayload.priority && updatePayload.priority !== task.priority) {
+      await this.createHistory(id, 'priority', task.priority, updatePayload.priority, actorId);
     }
-    if (data.storyPoints !== undefined && data.storyPoints !== task.storyPoints) {
-      await this.createHistory(id, 'story points', task.storyPoints, data.storyPoints, actorId);
+    if (
+      updatePayload.storyPoints !== undefined &&
+      updatePayload.storyPoints !== task.storyPoints
+    ) {
+      await this.createHistory(
+        id,
+        'story points',
+        task.storyPoints,
+        updatePayload.storyPoints,
+        actorId,
+      );
     }
-    if (data.description && data.description !== task.description) {
+    if (updatePayload.description && updatePayload.description !== task.description) {
       // Don't log full description, just that it changed
       await this.createHistory(id, 'description', '...', 'Updated', actorId);
     }
-    if (data.assignedTo && data.assignedTo !== task.assignedTo) {
+    if (updatePayload.assignedTo && updatePayload.assignedTo !== task.assignedTo) {
       await this.createHistory(
         id,
         'assignee',
         task.assignedTo || 'Unassigned',
-        data.assignedTo,
+        updatePayload.assignedTo,
         actorId,
       );
     }
-    if (data.labels) {
+    if (updatePayload.labels) {
       const oldLabels = JSON.stringify(task.labels || []);
-      const newLabels = JSON.stringify(data.labels || []);
+      const newLabels = JSON.stringify(updatePayload.labels || []);
       if (oldLabels !== newLabels) {
         await this.createHistory(
           id,
           'labels',
           task.labels?.join(', ') || '',
-          data.labels.join(', '),
+          updatePayload.labels.join(', '),
           actorId,
         );
       }
     }
 
-    await this.taskRepository.update(id, data);
+    await this.taskRepository.update(id, updatePayload);
 
     const updated = await this.findTaskWithWorkspaceRelations(id);
 

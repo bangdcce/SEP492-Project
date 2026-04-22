@@ -107,9 +107,16 @@ export const resolveMilestoneDisputePolicy = (
       break;
     }
 
-    case MilestoneStatus.PENDING:
-      reason = 'Dispute opens after work starts or the milestone enters review.';
+    case MilestoneStatus.PENDING: {
+      const dueDate = toDate(input.dueDate);
+      if (dueDate && dueDate.getTime() < now.getTime()) {
+        phase = 'PRE_DELIVERY';
+        allowedCategories = [DisputeCategory.DEADLINE];
+      } else {
+        reason = 'Dispute opens after work starts or the milestone enters review.';
+      }
       break;
+    }
 
     case MilestoneStatus.LOCKED:
       reason = 'This milestone is already locked by an active dispute workflow.';

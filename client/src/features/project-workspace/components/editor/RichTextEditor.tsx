@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useRef, useState } from "react";
+import { forwardRef, lazy, Suspense, useEffect, useRef, useState } from "react";
 import type {
   ButtonHTMLAttributes,
   ChangeEvent,
@@ -29,6 +29,7 @@ import { TaskItem } from "@tiptap/extension-task-item";
 import { TextSelection } from "@tiptap/pm/state";
 import type { EditorView } from "@tiptap/pm/view";
 import { common, createLowlight } from "lowlight";
+import type { EmojiClickData } from "emoji-picker-react";
 import "highlight.js/styles/github.css";
 import {
   AtSign,
@@ -77,6 +78,7 @@ import {
 } from "../../utils/file-upload.service";
 
 const lowlight = createLowlight(common);
+const EmojiPicker = lazy(() => import("emoji-picker-react"));
 const CodeBlock = CodeBlockLowlight.extend({
   addNodeView() {
     return ReactNodeViewRenderer(CodeBlockComponent);
@@ -338,6 +340,7 @@ export default function RichTextEditor({
   const [hasContent, setHasContent] = useState(false);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [linkOpen, setLinkOpen] = useState(false);
+  const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const [linkUrl, setLinkUrl] = useState("");
   const [linkText, setLinkText] = useState("");
   const [linkError, setLinkError] = useState<string | null>(null);
@@ -644,6 +647,12 @@ export default function RichTextEditor({
       .focus()
       .insertTable({ rows: 3, cols: 3, withHeaderRow: true })
       .run();
+  };
+
+  const handleInsertEmoji = (emojiData: EmojiClickData) => {
+    if (!editor) return;
+    editor.chain().focus().insertContent(emojiData.emoji).run();
+    setEmojiPickerOpen(false);
   };
 
   const handleSetHeading = (value: string) => {
@@ -1083,12 +1092,40 @@ export default function RichTextEditor({
         >
           <AtSign className="h-4 w-4" />
         </ToolbarButton>
-        <ToolbarButton
-          label="Emoji"
-          onClick={() => editor.chain().focus().insertContent(":").run()}
-        >
-          <Smile className="h-4 w-4" />
-        </ToolbarButton>
+        <Popover open={emojiPickerOpen} onOpenChange={setEmojiPickerOpen}>
+          <PopoverTrigger asChild>
+            <ToolbarButton
+              label="Emoji"
+              isActive={emojiPickerOpen}
+            >
+              <Smile className="h-4 w-4" />
+            </ToolbarButton>
+          </PopoverTrigger>
+          <PopoverContent
+            align="start"
+            sideOffset={8}
+            className="w-auto border-gray-200 p-0 shadow-xl"
+          >
+            <Suspense
+              fallback={
+                <div className="flex h-[420px] w-[336px] items-center justify-center bg-white text-sm text-gray-500">
+                  Loading emoji picker...
+                </div>
+              }
+            >
+              <EmojiPicker
+                onEmojiClick={handleInsertEmoji}
+                autoFocusSearch={false}
+                lazyLoadEmojis
+                width={336}
+                height={420}
+                previewConfig={{
+                  defaultCaption: "Pick an emoji",
+                }}
+              />
+            </Suspense>
+          </PopoverContent>
+        </Popover>
         <ToolbarButton label="Table" onClick={handleInsertTable}>
           <LayoutGrid className="h-4 w-4" />
         </ToolbarButton>
