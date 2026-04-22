@@ -1,7 +1,0 @@
-interface:
-  display_name: "SEP492 Class Diagram"
-  short_description: "Create repo-compliant class diagrams fast"
-  default_prompt: "Use $sep492-class-diagram to add or update a class diagram for a SEP492 use case."
-
-policy:
-  allow_implicit_invocation: true
