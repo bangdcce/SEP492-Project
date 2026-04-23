@@ -19,6 +19,7 @@ import { UserEntity } from '../../database/entities/user.entity';
 import { AuthSessionEntity } from '../../database/entities/auth-session.entity';
 import { ProfileEntity } from '../../database/entities/profile.entity';
 import { UserSkillEntity } from '../../database/entities/user-skill.entity';
+import { UserSkillDomainEntity } from '../../database/entities/user-skill-domain.entity';
 import { SkillDomainEntity } from '../../database/entities/skill-domain.entity';
 import { SkillEntity } from '../../database/entities/skill.entity';
 import { ProjectEntity } from '../../database/entities/project.entity';
@@ -34,6 +35,7 @@ import { SigningCredentialsService } from './signing-credentials.service';
       AuthSessionEntity,
       ProfileEntity,
       UserSkillEntity,
+      UserSkillDomainEntity,
       SkillDomainEntity,
       SkillEntity,
       ProjectEntity,

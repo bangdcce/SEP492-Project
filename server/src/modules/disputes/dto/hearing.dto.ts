@@ -26,7 +26,6 @@ import {
   HearingParticipantRole,
   DisputePhase,
 } from 'src/database/entities';
-import { FollowUpActionDto, TransformFollowUpActions } from './follow-up-action.dto';
 
 /**
  * DTO ?? len l?ch phien ?i?u tr?n
@@ -124,13 +123,6 @@ export class UpdateHearingStatusDto {
   @MaxLength(5000)
   @IsNotEmpty()
   findings: string;
-
-  @TransformFollowUpActions()
-  @IsArray()
-  @ValidateNested({ each: true })
-  @Type(() => FollowUpActionDto)
-  @IsOptional()
-  pendingActions?: FollowUpActionDto[];
 
   @IsString()
   @MaxLength(2000)
@@ -313,13 +305,6 @@ export class EndHearingDto {
   @MaxLength(5000)
   @IsNotEmpty()
   findings: string;
-
-  @TransformFollowUpActions()
-  @IsArray()
-  @ValidateNested({ each: true })
-  @Type(() => FollowUpActionDto)
-  @IsOptional()
-  pendingActions?: FollowUpActionDto[];
 
   @IsString()
   @MaxLength(2000)

@@ -35,7 +35,7 @@ import {
   updateProfile,
   type DisputeDevSettingsSnapshot,
 } from "@/features/auth/api";
-import { CVUpload, SkillsDisplay } from "@/features/auth";
+import { CVUpload, DomainsDisplay, SkillsDisplay } from "@/features/auth";
 import { ROUTES, STORAGE_KEYS } from "@/constants";
 import { TrustScoreCard } from "@/features/trust-profile/components";
 import type { Certification } from "@/features/auth/types";
@@ -44,6 +44,7 @@ import { getStoredJson, setStoredJsonAuto } from "@/shared/utils/storage";
 import { DeleteAccountModal } from "@/shared/components/auth/DeleteAccountModal";
 import { apiClient } from "@/shared/api/client";
 import { Switch } from "@/shared/components/ui/switch";
+import { INTERNAL_DEV_TOOLS_ENABLED } from "@/shared/utils/internalTools";
 
 const MONTH_OPTIONS = [
   "Jan",
@@ -158,6 +159,9 @@ export default function ProfilePage() {
 
   const [avatarPreview, setAvatarPreview] = useState<string>("");
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
+
+  const canSelfDeleteAccount =
+    profile?.role !== "ADMIN" && profile?.role !== "STAFF";
 
   const normalizeCertifications = (
     certifications: unknown,
@@ -277,7 +281,11 @@ export default function ProfilePage() {
   }, [loadProfile, loadKycSummary, loadSigningCredentialStatus]);
 
   useEffect(() => {
-    if (!profile || !["STAFF", "ADMIN"].includes(profile.role)) {
+    if (
+      !INTERNAL_DEV_TOOLS_ENABLED ||
+      !profile ||
+      !["STAFF", "ADMIN"].includes(profile.role)
+    ) {
       setDisputeDevSettings(null);
       setDisputeDevTargetEmail("");
       return;
@@ -643,7 +651,9 @@ export default function ProfilePage() {
   );
   const hasPendingKycUpdate = !!kycSummary?.hasPendingUpdate;
   const hasRejectedKycUpdate = !!kycSummary?.hasRejectedUpdate;
-  const supportsDisputeDevMode = ["STAFF", "ADMIN"].includes(profile.role);
+  const supportsDisputeDevMode =
+    INTERNAL_DEV_TOOLS_ENABLED &&
+    ["STAFF", "ADMIN"].includes(profile.role);
   const updateSubmittedLabel = kycSummary?.updateSubmittedAt
     ? new Date(kycSummary.updateSubmittedAt).toLocaleDateString("en-US", {
         year: "numeric",
@@ -774,7 +784,7 @@ export default function ProfilePage() {
             )}
 
             {/* Delete Account Button */}
-            {!isEditing && (
+            {!isEditing && canSelfDeleteAccount && (
               <button
                 onClick={() => setShowDeleteModal(true)}
                 className="w-full mt-3 bg-white hover:bg-red-50 text-red-600 border border-red-300 font-medium py-3 rounded-lg flex items-center justify-center gap-2 transition-colors"
@@ -1474,6 +1484,9 @@ export default function ProfilePage() {
                     )}
                   </div>
 
+                  {/* Domains Display */}
+                  <DomainsDisplay userRole={profile.role} />
+
                   {/* Skills Display */}
                   <SkillsDisplay
                     isEditing={isEditing}
@@ -1526,11 +1539,13 @@ export default function ProfilePage() {
       </div>
 
       {/* Delete Account Modal */}
-      <DeleteAccountModal
-        isOpen={showDeleteModal}
-        onClose={() => setShowDeleteModal(false)}
-        userEmail={profile?.email || ""}
-      />
+      {canSelfDeleteAccount && (
+        <DeleteAccountModal
+          isOpen={showDeleteModal}
+          onClose={() => setShowDeleteModal(false)}
+          userEmail={profile?.email || ""}
+        />
+      )}
 
       <Dialog
         open={showInitializeSigningDialog}

@@ -8,9 +8,9 @@ import {
   DialogTitle,
 } from "@/shared/components/ui/dialog";
 import {
-  DISPUTE_DISCLAIMER_COPY,
   DISPUTE_DISCLAIMER_VERSION,
 } from "@/features/disputes/constants/disputeLegal";
+import { DisputeDisclaimerCheckbox } from "@/features/disputes/components/shared/DisputeDisclaimerCheckbox";
 
 interface AcceptVerdictDialogProps {
   open: boolean;
@@ -84,15 +84,13 @@ export const AcceptVerdictDialog = memo(function AcceptVerdictDialog({
               If both dispute parties accept the same Tier 1 verdict, the system can release the verdict funds to internal wallets immediately instead of waiting for the appeal deadline.
             </div>
 
-            <label className="flex items-start gap-3 rounded-lg border border-slate-200 bg-white p-3 text-sm text-slate-700">
-              <input
-                type="checkbox"
-                checked={disclaimerAccepted}
-                onChange={(event) => setDisclaimerAccepted(event.target.checked)}
-                className="mt-0.5"
-              />
-              <span>{DISPUTE_DISCLAIMER_COPY}</span>
-            </label>
+            <DisputeDisclaimerCheckbox
+              id="accept-verdict-disclaimer-checkbox"
+              testId="accept-verdict-disclaimer-checkbox"
+              checked={disclaimerAccepted}
+              onCheckedChange={setDisclaimerAccepted}
+              disabled={submitting}
+            />
 
             <div className="flex justify-end pt-1">
               <button

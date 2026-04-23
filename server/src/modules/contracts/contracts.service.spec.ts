@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { BadRequestException, ConflictException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
 import { createHash, createSign, generateKeyPairSync } from 'crypto';
 import { DataSource, QueryRunner } from 'typeorm';
 import { ContractsService } from './contracts.service';
@@ -10,7 +10,11 @@ import {
   ContractEntity,
   ContractStatus,
 } from '../../database/entities/contract.entity';
-import { ProjectEntity, ProjectStatus } from '../../database/entities/project.entity';
+import {
+  ProjectEntity,
+  ProjectStaffInviteStatus,
+  ProjectStatus,
+} from '../../database/entities/project.entity';
 import {
   ProjectSpecEntity,
   ProjectSpecStatus,
@@ -27,6 +31,8 @@ import { ProjectRequestEntity } from '../../database/entities/project-request.en
 import { ProjectRequestProposalEntity } from '../../database/entities/project-request-proposal.entity';
 import { DigitalSignatureEntity } from '../../database/entities/digital-signature.entity';
 import { EscrowEntity } from '../../database/entities/escrow.entity';
+import { DisputeEntity, DisputeStatus } from '../../database/entities/dispute.entity';
+import { DisputeInternalMembershipEntity } from '../../database/entities/dispute-internal-membership.entity';
 import { ContractArchiveStorageService } from './contract-archive.storage';
 import { NotificationsService } from '../notifications/notifications.service';
 import { SigningCredentialsService } from '../auth/signing-credentials.service';
@@ -48,6 +54,8 @@ describe('ContractsService', () => {
   };
   const mockProjectRequestsRepo = {};
   const mockProjectRequestProposalsRepo = { find: jest.fn() };
+  const mockDisputesRepo = { find: jest.fn() };
+  const mockDisputeInternalMembershipRepo = { findOne: jest.fn() };
   const mockAuditLogsService = { log: jest.fn() };
   const mockNotificationsService = {
     create: jest.fn().mockResolvedValue(undefined),
@@ -165,6 +173,19 @@ describe('ContractsService', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    mockManager.create.mockImplementation((_: unknown, data: unknown) => data);
+    mockManager.save.mockImplementation(async (...args: unknown[]) => {
+      if (args.length === 2) {
+        return args[1];
+      }
+      return args[0];
+    });
+    mockManager.findOne.mockImplementation(async () => null);
+    mockManager.find.mockImplementation(async () => []);
+    mockManager.update.mockImplementation(async () => undefined);
+    mockManager.delete.mockImplementation(async () => undefined);
+    mockDisputesRepo.find.mockResolvedValue([]);
+    mockDisputeInternalMembershipRepo.findOne.mockResolvedValue(null);
 
     queryRunner = {
       connect: jest.fn(),
@@ -195,6 +216,11 @@ describe('ContractsService', () => {
         { provide: getRepositoryToken(ProjectEntity), useValue: mockProjectsRepo },
         { provide: getRepositoryToken(ProjectSpecEntity), useValue: mockProjectSpecsRepo },
         { provide: getRepositoryToken(ProjectRequestEntity), useValue: mockProjectRequestsRepo },
+        { provide: getRepositoryToken(DisputeEntity), useValue: mockDisputesRepo },
+        {
+          provide: getRepositoryToken(DisputeInternalMembershipEntity),
+          useValue: mockDisputeInternalMembershipRepo,
+        },
         {
           provide: getRepositoryToken(ProjectRequestProposalEntity),
           useValue: mockProjectRequestProposalsRepo,
@@ -369,9 +395,411 @@ describe('ContractsService', () => {
         }),
       );
     });
+
+    it('rejects initialization when the spec does not exist', async () => {
+      await expect(service.initializeProjectAndContract(brokerUser, 'missing-spec')).rejects.toThrow(
+        'Spec not found',
+      );
+
+      expect(queryRunner.rollbackTransaction).toHaveBeenCalled();
+      expect(queryRunner.release).toHaveBeenCalled();
+    });
+
+    it('rejects initialization when the spec is already locked by another contract', async () => {
+      const spec = {
+        id: 'spec-locked',
+        requestId: 'request-locked',
+        lockedByContractId: 'contract-existing',
+        specPhase: SpecPhase.FULL_SPEC,
+        status: ProjectSpecStatus.ALL_SIGNED,
+      } as ProjectSpecEntity;
+      const request = {
+        id: 'request-locked',
+        brokerId: brokerUser.id,
+        clientId: 'client-uuid',
+      } as ProjectRequestEntity;
+
+      mockManager.findOne.mockImplementation(async (entity: unknown, options?: { where?: { id?: string } }) => {
+        if (entity === ProjectSpecEntity && options?.where?.id === spec.id) return spec;
+        if (entity === ProjectRequestEntity && options?.where?.id === request.id) return request;
+        return null;
+      });
+      mockManager.find.mockResolvedValue([]);
+
+      await expect(service.initializeProjectAndContract(brokerUser, spec.id)).rejects.toThrow(
+        'This spec is already locked by an existing contract.',
+      );
+
+      expect(queryRunner.rollbackTransaction).toHaveBeenCalled();
+    });
+
+    it('rejects initialization when the caller is not the request broker', async () => {
+      const spec = {
+        id: 'spec-auth',
+        requestId: 'request-auth',
+        lockedByContractId: null,
+        specPhase: SpecPhase.FULL_SPEC,
+        status: ProjectSpecStatus.ALL_SIGNED,
+      } as ProjectSpecEntity;
+      const request = {
+        id: 'request-auth',
+        brokerId: 'other-broker',
+        clientId: 'client-uuid',
+      } as ProjectRequestEntity;
+
+      mockManager.findOne.mockImplementation(async (entity: unknown, options?: { where?: { id?: string } }) => {
+        if (entity === ProjectSpecEntity && options?.where?.id === spec.id) return spec;
+        if (entity === ProjectRequestEntity && options?.where?.id === request.id) return request;
+        if (entity === ContractEntity) return null;
+        return null;
+      });
+      mockManager.find.mockResolvedValue([]);
+
+      await expect(service.initializeProjectAndContract(brokerUser, spec.id)).rejects.toThrow(
+        'Only Broker can initialize contract',
+      );
+
+      expect(queryRunner.rollbackTransaction).toHaveBeenCalled();
+    });
+
+    it('rejects phased-flow initialization when no accepted freelancer can be resolved', async () => {
+      const spec = {
+        id: 'spec-no-freelancer',
+        requestId: 'request-no-freelancer',
+        lockedByContractId: null,
+        specPhase: SpecPhase.FULL_SPEC,
+        status: ProjectSpecStatus.ALL_SIGNED,
+      } as ProjectSpecEntity;
+      const request = {
+        id: 'request-no-freelancer',
+        brokerId: brokerUser.id,
+        clientId: 'client-uuid',
+      } as ProjectRequestEntity;
+
+      mockManager.findOne.mockImplementation(async (entity: unknown, options?: { where?: { id?: string } }) => {
+        if (entity === ProjectSpecEntity && options?.where?.id === spec.id) return spec;
+        if (entity === ProjectRequestEntity && options?.where?.id === request.id) return request;
+        if (entity === ContractEntity) return null;
+        return null;
+      });
+      mockManager.find.mockResolvedValue([]);
+      mockProjectRequestProposalsRepo.find.mockResolvedValue([]);
+
+      await expect(service.initializeProjectAndContract(brokerUser, spec.id)).rejects.toThrow(
+        'Cannot initialize contract: no accepted freelancer found for this request.',
+      );
+
+      expect(queryRunner.rollbackTransaction).toHaveBeenCalled();
+    });
+  });
+
+  describe('listByUser', () => {
+    it('applies the archived-status filter and maps active contract summaries', async () => {
+      const createdAt = new Date('2026-03-02T00:00:00.000Z');
+      const activatedAt = new Date('2026-03-03T00:00:00.000Z');
+      const queryBuilder = {
+        leftJoinAndSelect: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        orderBy: jest.fn().mockReturnThis(),
+        getMany: jest.fn().mockResolvedValue([
+          {
+            id: 'contract-active',
+            projectId: 'project-uuid',
+            activatedAt,
+            title: 'Website Revamp',
+            status: ContractStatus.SENT,
+            legalSignatureStatus: 'NOT_STARTED',
+            provider: null,
+            verifiedAt: null,
+            certificateSerial: null,
+            createdAt,
+            project: {
+              requestId: 'request-uuid',
+              status: ProjectStatus.INITIALIZING,
+              title: 'Website Revamp',
+              client: { fullName: 'Client Name' },
+              freelancer: { fullName: 'Freelancer Name' },
+            },
+          },
+        ]),
+      };
+      mockContractsRepo.createQueryBuilder.mockReturnValue(queryBuilder);
+
+      const result = await service.listByUser('client-uuid');
+
+      expect(queryBuilder.andWhere).toHaveBeenCalledWith(
+        'contract.status <> :archivedStatus',
+        { archivedStatus: ContractStatus.ARCHIVED },
+      );
+      expect(result).toEqual([
+        {
+          id: 'contract-active',
+          projectId: 'project-uuid',
+          requestId: 'request-uuid',
+          activatedAt,
+          projectStatus: ProjectStatus.INITIALIZING,
+          projectTitle: 'Website Revamp',
+          title: 'Website Revamp',
+          status: ContractStatus.SENT,
+          legalSignatureStatus: 'NOT_STARTED',
+          provider: null,
+          verifiedAt: null,
+          certificateSerial: null,
+          createdAt,
+          clientName: 'Client Name',
+          freelancerName: 'Freelancer Name',
+        },
+      ]);
+    });
+
+    it('includes accepted supervising staff in the participant visibility brackets', async () => {
+      const queryBuilder = {
+        leftJoinAndSelect: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        orderBy: jest.fn().mockReturnThis(),
+        getMany: jest.fn().mockResolvedValue([]),
+      };
+      mockContractsRepo.createQueryBuilder.mockReturnValue(queryBuilder);
+
+      await service.listByUser('staff-uuid');
+
+      const staffVisibilityBrackets = queryBuilder.where.mock.calls[0][0];
+      const nestedQueryBuilder = {
+        where: jest.fn().mockReturnThis(),
+        orWhere: jest.fn().mockReturnThis(),
+      };
+
+      staffVisibilityBrackets.whereFactory(nestedQueryBuilder);
+
+      expect(nestedQueryBuilder.orWhere).toHaveBeenCalledWith(
+        'project.staffId = :userId AND project.staffInviteStatus = :acceptedInviteStatus',
+        {
+          userId: 'staff-uuid',
+          acceptedInviteStatus: ProjectStaffInviteStatus.ACCEPTED,
+        },
+      );
+    });
   });
 
   describe('findOneForUser', () => {
+    it('allows accepted supervising staff to view contract detail', async () => {
+      const project = buildProject({
+        staffId: 'staff-uuid',
+        staffInviteStatus: ProjectStaffInviteStatus.ACCEPTED,
+        client: { id: 'client-uuid', fullName: 'Client', email: 'client@example.com' } as any,
+        broker: { id: 'broker-uuid', fullName: 'Broker', email: 'broker@example.com' } as any,
+        freelancer: {
+          id: 'freelancer-uuid',
+          fullName: 'Freelancer',
+          email: 'freelancer@example.com',
+        } as any,
+        request: { specs: [] } as any,
+      });
+      const contract = {
+        id: 'contract-staff',
+        projectId: project.id,
+        sourceSpecId: 'spec-uuid',
+        title: 'Website Revamp',
+        status: ContractStatus.SENT,
+        contractUrl: 'contracts/project-uuid.pdf',
+        project,
+        milestoneSnapshot: buildSnapshot(),
+        commercialContext: buildCommercialContext(project),
+        termsContent: 'Terms',
+        signatures: [{ id: 'signature-1' }],
+        contentHash: null,
+      } as unknown as ContractEntity;
+
+      mockContractsRepo.findOne.mockResolvedValue(contract);
+
+      const result = await service.findOneForUser(
+        { id: 'staff-uuid', role: UserRole.STAFF } as UserEntity,
+        contract.id,
+      );
+
+      expect(result.id).toBe(contract.id);
+      expect((result as any).requiredSignerCount).toBe(3);
+      expect((result as any).signedCount).toBe(1);
+    });
+
+    it('allows staff assigned to an active dispute on the same project to view contract detail', async () => {
+      const project = buildProject({
+        staffId: 'other-staff',
+        staffInviteStatus: ProjectStaffInviteStatus.PENDING,
+        client: { id: 'client-uuid', fullName: 'Client', email: 'client@example.com' } as any,
+        broker: { id: 'broker-uuid', fullName: 'Broker', email: 'broker@example.com' } as any,
+        freelancer: {
+          id: 'freelancer-uuid',
+          fullName: 'Freelancer',
+          email: 'freelancer@example.com',
+        } as any,
+        request: { specs: [] } as any,
+      });
+      const contract = {
+        id: 'contract-dispute-assigned',
+        projectId: project.id,
+        sourceSpecId: 'spec-uuid',
+        title: 'Website Revamp',
+        status: ContractStatus.SENT,
+        contractUrl: 'contracts/project-uuid.pdf',
+        project,
+        milestoneSnapshot: buildSnapshot(),
+        commercialContext: buildCommercialContext(project),
+        termsContent: 'Terms',
+        signatures: [],
+        contentHash: null,
+      } as unknown as ContractEntity;
+
+      mockContractsRepo.findOne.mockResolvedValue(contract);
+      mockDisputesRepo.find.mockResolvedValue([
+        {
+          id: 'dispute-uuid',
+          status: DisputeStatus.IN_MEDIATION,
+          assignedStaffId: 'staff-uuid',
+          escalatedToAdminId: null,
+        },
+      ]);
+
+      const result = await service.findOneForUser(
+        { id: 'staff-uuid', role: UserRole.STAFF } as UserEntity,
+        contract.id,
+      );
+
+      expect(result.id).toBe(contract.id);
+      expect(mockDisputeInternalMembershipRepo.findOne).not.toHaveBeenCalled();
+    });
+
+    it('allows staff with internal dispute membership to view contract detail', async () => {
+      const project = buildProject({
+        staffId: 'other-staff',
+        staffInviteStatus: ProjectStaffInviteStatus.PENDING,
+        client: { id: 'client-uuid', fullName: 'Client', email: 'client@example.com' } as any,
+        broker: { id: 'broker-uuid', fullName: 'Broker', email: 'broker@example.com' } as any,
+        freelancer: {
+          id: 'freelancer-uuid',
+          fullName: 'Freelancer',
+          email: 'freelancer@example.com',
+        } as any,
+        request: { specs: [] } as any,
+      });
+      const contract = {
+        id: 'contract-dispute-member',
+        projectId: project.id,
+        sourceSpecId: 'spec-uuid',
+        title: 'Website Revamp',
+        status: ContractStatus.SENT,
+        contractUrl: 'contracts/project-uuid.pdf',
+        project,
+        milestoneSnapshot: buildSnapshot(),
+        commercialContext: buildCommercialContext(project),
+        termsContent: 'Terms',
+        signatures: [],
+        contentHash: null,
+      } as unknown as ContractEntity;
+
+      mockContractsRepo.findOne.mockResolvedValue(contract);
+      mockDisputesRepo.find.mockResolvedValue([
+        {
+          id: 'dispute-uuid',
+          status: DisputeStatus.PENDING_REVIEW,
+          assignedStaffId: 'another-staff-uuid',
+          escalatedToAdminId: null,
+        },
+      ]);
+      mockDisputeInternalMembershipRepo.findOne.mockResolvedValue({ id: 'membership-uuid' });
+
+      const result = await service.findOneForUser(
+        { id: 'staff-uuid', role: UserRole.STAFF } as UserEntity,
+        contract.id,
+      );
+
+      expect(result.id).toBe(contract.id);
+      expect(mockDisputeInternalMembershipRepo.findOne).toHaveBeenCalled();
+    });
+
+    it('rejects staff when no active dispute assignment or membership grants access', async () => {
+      const project = buildProject({
+        client: { id: 'client-uuid', fullName: 'Client', email: 'client@example.com' } as any,
+        broker: { id: 'broker-uuid', fullName: 'Broker', email: 'broker@example.com' } as any,
+        freelancer: {
+          id: 'freelancer-uuid',
+          fullName: 'Freelancer',
+          email: 'freelancer@example.com',
+        } as any,
+        request: { specs: [] } as any,
+      });
+      const contract = {
+        id: 'contract-private-for-staff',
+        projectId: project.id,
+        sourceSpecId: 'spec-uuid',
+        title: 'Website Revamp',
+        status: ContractStatus.SENT,
+        contractUrl: 'contracts/project-uuid.pdf',
+        project,
+        milestoneSnapshot: buildSnapshot(),
+        commercialContext: buildCommercialContext(project),
+        termsContent: 'Terms',
+        signatures: [],
+        contentHash: null,
+      } as unknown as ContractEntity;
+
+      mockContractsRepo.findOne.mockResolvedValue(contract);
+      mockDisputesRepo.find.mockResolvedValue([
+        {
+          id: 'dispute-uuid',
+          status: DisputeStatus.IN_MEDIATION,
+          assignedStaffId: 'another-staff-uuid',
+          escalatedToAdminId: null,
+        },
+      ]);
+      mockDisputeInternalMembershipRepo.findOne.mockResolvedValue(null);
+
+      await expect(
+        service.findOneForUser(
+          { id: 'staff-uuid', role: UserRole.STAFF } as UserEntity,
+          contract.id,
+        ),
+      ).rejects.toThrow('You are not allowed to view this contract');
+    });
+
+    it('rejects viewers outside the contract parties and accepted staff', async () => {
+      const project = buildProject({
+        client: { id: 'client-uuid', fullName: 'Client', email: 'client@example.com' } as any,
+        broker: { id: 'broker-uuid', fullName: 'Broker', email: 'broker@example.com' } as any,
+        freelancer: {
+          id: 'freelancer-uuid',
+          fullName: 'Freelancer',
+          email: 'freelancer@example.com',
+        } as any,
+        request: { specs: [] } as any,
+      });
+      const contract = {
+        id: 'contract-private',
+        projectId: project.id,
+        sourceSpecId: 'spec-uuid',
+        title: 'Website Revamp',
+        status: ContractStatus.SENT,
+        contractUrl: 'contracts/project-uuid.pdf',
+        project,
+        milestoneSnapshot: buildSnapshot(),
+        commercialContext: buildCommercialContext(project),
+        termsContent: 'Terms',
+        signatures: [],
+        contentHash: null,
+      } as unknown as ContractEntity;
+
+      mockContractsRepo.findOne.mockResolvedValue(contract);
+
+      await expect(
+        service.findOneForUser(
+          { id: 'outsider-uuid', role: UserRole.CLIENT } as UserEntity,
+          contract.id,
+        ),
+      ).rejects.toThrow('You are not allowed to view this contract');
+    });
+
     it('self-heals a stale stored contentHash before returning contract detail', async () => {
       const project = buildProject({
         client: { id: 'client-uuid', fullName: 'Client', email: 'client@example.com' } as any,
@@ -411,6 +839,134 @@ describe('ContractsService', () => {
           contractUrl: result.contractUrl,
         }),
       );
+    });
+  });
+
+  describe('updateDraft', () => {
+    it('rebuilds draft commercial terms, resets signature progress, and recomputes contentHash', async () => {
+      const project = buildProject({ currency: 'USD' });
+      const updatedSnapshot = buildSnapshot().map((item, index) => ({
+        ...item,
+        amount: item.amount,
+        title: index === 0 ? 'Discovery' : item.title,
+      }));
+      const contract = {
+        id: 'contract-uuid',
+        projectId: project.id,
+        title: 'Website Revamp',
+        sourceSpecId: 'spec-uuid',
+        status: ContractStatus.DRAFT,
+        activatedAt: null,
+        provider: 'VN_CA_SANDBOX',
+        legalSignatureStatus: 'VERIFIED',
+        project,
+        milestoneSnapshot: buildSnapshot(),
+        commercialContext: buildCommercialContext(project),
+        termsContent: 'Old terms',
+      } as ContractEntity;
+
+      mockManager.findOne.mockImplementation(async (entity: unknown) => {
+        if (entity === ContractEntity) return contract;
+        if (entity === ProjectEntity) return project;
+        return null;
+      });
+      mockManager.find.mockImplementation(async (entity: unknown) => {
+        if (entity === DigitalSignatureEntity) return [];
+        return [];
+      });
+      jest.spyOn(service, 'findOneForUser').mockResolvedValue({
+        ...contract,
+        title: 'Updated contract title',
+        contentHash: 'recomputed-hash',
+      } as ContractEntity);
+
+      const result = await service.updateDraft(brokerUser, contract.id, {
+        title: 'Updated contract title',
+        currency: 'EUR',
+        milestoneSnapshot: updatedSnapshot as any,
+      });
+
+      expect(mockManager.save).toHaveBeenCalledWith(
+        ProjectEntity,
+        expect.objectContaining({
+          currency: 'EUR',
+          totalBudget: 1000,
+        }),
+      );
+      expect(mockManager.save).toHaveBeenCalledWith(
+        ContractEntity,
+        expect.objectContaining({
+          title: 'Updated contract title',
+          provider: null,
+          contentHash: expect.any(String),
+        }),
+      );
+      expect(result).toEqual(
+        expect.objectContaining({
+          title: 'Updated contract title',
+          contentHash: 'recomputed-hash',
+        }),
+      );
+    });
+
+    it('rejects draft updates when the contract is no longer in DRAFT status', async () => {
+      const project = buildProject();
+      const contract = {
+        id: 'contract-uuid',
+        projectId: project.id,
+        title: 'Website Revamp',
+        sourceSpecId: 'spec-uuid',
+        status: ContractStatus.SENT,
+        project,
+        milestoneSnapshot: buildSnapshot(),
+        commercialContext: buildCommercialContext(project),
+        termsContent: 'Terms',
+      } as ContractEntity;
+
+      mockManager.findOne.mockImplementation(async (entity: unknown) => {
+        if (entity === ContractEntity) return contract;
+        if (entity === ProjectEntity) return project;
+        return null;
+      });
+
+      await expect(
+        service.updateDraft(brokerUser, contract.id, {
+          title: 'Updated contract title',
+        } as any),
+      ).rejects.toThrow('Only DRAFT contracts can be edited.');
+    });
+
+    it('rejects draft edits after signing has started', async () => {
+      const project = buildProject();
+      const contract = {
+        id: 'contract-uuid',
+        projectId: project.id,
+        title: 'Website Revamp',
+        sourceSpecId: 'spec-uuid',
+        status: ContractStatus.DRAFT,
+        project,
+        milestoneSnapshot: buildSnapshot(),
+        commercialContext: buildCommercialContext(project),
+        termsContent: 'Terms',
+      } as ContractEntity;
+
+      mockManager.findOne.mockImplementation(async (entity: unknown) => {
+        if (entity === ContractEntity) return contract;
+        if (entity === ProjectEntity) return project;
+        return null;
+      });
+      mockManager.find.mockImplementation(async (entity: unknown) => {
+        if (entity === DigitalSignatureEntity) {
+          return [{ contractId: contract.id, userId: 'client-uuid' }];
+        }
+        return [];
+      });
+
+      await expect(
+        service.updateDraft(brokerUser, contract.id, {
+          title: 'Updated contract title',
+        } as any),
+      ).rejects.toThrow('Contract draft can no longer be edited after signing starts.');
     });
   });
 
@@ -454,6 +1010,24 @@ describe('ContractsService', () => {
   });
 
   describe('signContract', () => {
+    it('rejects blank contentHash before opening a transaction', async () => {
+      await expect(
+        service.signContract(
+          brokerUser,
+          'contract-uuid',
+          '   ',
+          '123456',
+          {
+            headers: {},
+            ip: '127.0.0.1',
+            get: jest.fn().mockReturnValue('jest-agent'),
+          } as any,
+        ),
+      ).rejects.toBeInstanceOf(BadRequestException);
+
+      expect(mockDataSource.createQueryRunner).not.toHaveBeenCalled();
+    });
+
     it('changes the signable content hash when the frozen narrative changes', () => {
       const project = buildProject();
       const baseContract = {
@@ -499,6 +1073,90 @@ describe('ContractsService', () => {
       );
     });
 
+    it('rejects users who are not contract parties', async () => {
+      const outsiderUser = {
+        id: 'outsider-uuid',
+        role: UserRole.CLIENT,
+      } as UserEntity;
+      const project = buildProject();
+      const contract = {
+        id: 'contract-uuid',
+        projectId: project.id,
+        title: 'Website Revamp',
+        sourceSpecId: 'spec-uuid',
+        status: ContractStatus.SENT,
+        activatedAt: null,
+        project,
+        milestoneSnapshot: buildSnapshot(),
+        commercialContext: buildCommercialContext(project),
+        termsContent: 'Terms',
+      } as ContractEntity;
+      contract.contentHash = (service as any).computeContentHash(contract);
+
+      mockManager.findOne.mockImplementation(async (entity: unknown) => {
+        if (entity === ContractEntity) return contract;
+        if (entity === ProjectEntity) return project;
+        return null;
+      });
+
+      await expect(
+        service.signContract(
+          outsiderUser,
+          contract.id,
+          contract.contentHash,
+          '123456',
+          {
+            headers: {},
+            ip: '127.0.0.1',
+            get: jest.fn().mockReturnValue('jest-agent'),
+          } as any,
+        ),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+
+      expect(queryRunner.rollbackTransaction).toHaveBeenCalled();
+      expect(mockManager.save).not.toHaveBeenCalled();
+    });
+
+    it('rejects signing when the contract is not in SENT status', async () => {
+      const project = buildProject();
+      const contract = {
+        id: 'contract-uuid',
+        projectId: project.id,
+        title: 'Website Revamp',
+        sourceSpecId: 'spec-uuid',
+        status: ContractStatus.DRAFT,
+        activatedAt: null,
+        project,
+        milestoneSnapshot: buildSnapshot(),
+        commercialContext: buildCommercialContext(project),
+        termsContent: 'Terms',
+      } as ContractEntity;
+      contract.contentHash = (service as any).computeContentHash(contract);
+
+      mockManager.findOne.mockImplementation(async (entity: unknown) => {
+        if (entity === ContractEntity) return contract;
+        if (entity === ProjectEntity) return project;
+        return null;
+      });
+
+      await expect(
+        service.signContract(
+          brokerUser,
+          contract.id,
+          contract.contentHash,
+          '123456',
+          {
+            headers: {},
+            ip: '127.0.0.1',
+            get: jest.fn().mockReturnValue('jest-agent'),
+          } as any,
+        ),
+      ).rejects.toBeInstanceOf(BadRequestException);
+
+      expect(queryRunner.rollbackTransaction).toHaveBeenCalled();
+      expect(mockManager.save).not.toHaveBeenCalled();
+    });
+
     it('rejects stale contentHash values', async () => {
       const project = buildProject();
       const contract = {
@@ -527,6 +1185,264 @@ describe('ContractsService', () => {
           get: jest.fn().mockReturnValue('jest-agent'),
         } as any),
       ).rejects.toBeInstanceOf(ConflictException);
+    });
+
+    it('rejects users who already signed the contract', async () => {
+      const project = buildProject();
+      const contract = {
+        id: 'contract-uuid',
+        projectId: project.id,
+        title: 'Website Revamp',
+        sourceSpecId: 'spec-uuid',
+        status: ContractStatus.SENT,
+        activatedAt: null,
+        project,
+        milestoneSnapshot: buildSnapshot(),
+        commercialContext: buildCommercialContext(project),
+        termsContent: 'Terms',
+      } as ContractEntity;
+      contract.contentHash = (service as any).computeContentHash(contract);
+
+      mockManager.findOne.mockImplementation(async (entity: unknown, options?: any) => {
+        if (entity === ContractEntity) return contract;
+        if (entity === ProjectEntity) return project;
+        if (entity === DigitalSignatureEntity && options?.where?.userId === brokerUser.id) {
+          return {
+            contractId: contract.id,
+            userId: brokerUser.id,
+          };
+        }
+        return null;
+      });
+
+      await expect(
+        service.signContract(
+          brokerUser,
+          contract.id,
+          contract.contentHash,
+          '123456',
+          {
+            headers: {},
+            ip: '127.0.0.1',
+            get: jest.fn().mockReturnValue('jest-agent'),
+          } as any,
+        ),
+      ).rejects.toBeInstanceOf(BadRequestException);
+
+      expect(queryRunner.rollbackTransaction).toHaveBeenCalled();
+    });
+
+    it('maps signature unique key conflicts to a duplicate-sign error', async () => {
+      const project = buildProject();
+      const contract = {
+        id: 'contract-uuid',
+        projectId: project.id,
+        title: 'Website Revamp',
+        sourceSpecId: 'spec-uuid',
+        status: ContractStatus.SENT,
+        activatedAt: null,
+        project,
+        milestoneSnapshot: buildSnapshot(),
+        commercialContext: buildCommercialContext(project),
+        termsContent: 'Terms',
+      } as ContractEntity;
+      contract.contentHash = (service as any).computeContentHash(contract);
+
+      mockManager.findOne.mockImplementation(async (entity: unknown, options?: any) => {
+        if (entity === ContractEntity) return contract;
+        if (entity === ProjectEntity) return project;
+        if (entity === DigitalSignatureEntity && options?.where?.userId === brokerUser.id) {
+          return null;
+        }
+        return null;
+      });
+      mockManager.save.mockImplementation(async (...args: unknown[]) => {
+        if (args[0] === DigitalSignatureEntity) {
+          const error = Object.assign(new Error('duplicate'), { code: '23505' });
+          throw error;
+        }
+        if (args.length === 2) {
+          return args[1];
+        }
+        return args[0];
+      });
+
+      await expect(
+        service.signContract(
+          brokerUser,
+          contract.id,
+          contract.contentHash,
+          '123456',
+          {
+            headers: {},
+            ip: '127.0.0.1',
+            get: jest.fn().mockReturnValue('jest-agent'),
+          } as any,
+        ),
+      ).rejects.toBeInstanceOf(BadRequestException);
+
+      expect(queryRunner.rollbackTransaction).toHaveBeenCalled();
+    });
+
+    it('returns Pending Signatures when required signers are still missing', async () => {
+      const project = buildProject();
+      const contract = {
+        id: 'contract-uuid',
+        projectId: project.id,
+        title: 'Website Revamp',
+        sourceSpecId: 'spec-uuid',
+        status: ContractStatus.SENT,
+        activatedAt: null,
+        project,
+        milestoneSnapshot: buildSnapshot(),
+        commercialContext: buildCommercialContext(project),
+        termsContent: 'Terms',
+      } as ContractEntity;
+      contract.contentHash = (service as any).computeContentHash(contract);
+
+      mockManager.findOne.mockImplementation(async (entity: unknown, options?: any) => {
+        if (entity === ContractEntity) return contract;
+        if (entity === ProjectEntity) return project;
+        if (entity === DigitalSignatureEntity && options?.where?.userId === brokerUser.id) {
+          return null;
+        }
+        return null;
+      });
+      mockManager.find.mockImplementation(async (entity: unknown) => {
+        if (entity === DigitalSignatureEntity) {
+          return [
+            {
+              contractId: contract.id,
+              userId: 'client-uuid',
+              signedAt: new Date('2026-03-10T10:00:00.000Z'),
+            },
+            {
+              contractId: contract.id,
+              userId: 'broker-uuid',
+              signedAt: new Date('2026-03-10T10:05:00.000Z'),
+            },
+          ];
+        }
+        return [];
+      });
+
+      const result = await service.signContract(
+        brokerUser,
+        contract.id,
+        contract.contentHash,
+        '123456',
+        {
+          headers: {},
+          ip: '127.0.0.1',
+          get: jest.fn().mockReturnValue('jest-agent'),
+        } as any,
+      );
+
+      expect(result).toEqual({
+        status: 'Pending Signatures',
+        signaturesCount: 2,
+        requiredSignerCount: 3,
+        allRequiredSigned: false,
+        archivePersisted: false,
+      });
+      expect(
+        mockManager.save.mock.calls.some(([entity]) => entity === ContractEntity),
+      ).toBe(false);
+      expect(mockAuditLogsService.log).not.toHaveBeenCalled();
+    });
+
+    it('hydrates legacy contract data before signing and records forwarded client metadata', async () => {
+      const project = buildProject();
+      const contract = {
+        id: 'contract-uuid',
+        projectId: project.id,
+        title: 'Website Revamp',
+        sourceSpecId: 'spec-uuid',
+        status: ContractStatus.SENT,
+        activatedAt: null,
+        project,
+        milestoneSnapshot: [],
+        commercialContext: null,
+        termsContent: 'Terms',
+      } as ContractEntity;
+      const hydratedSnapshot = buildSnapshot();
+      const hydratedContext = buildCommercialContext(project);
+      contract.milestoneSnapshot = hydratedSnapshot;
+      contract.commercialContext = hydratedContext;
+      const expectedHash = (service as any).computeContentHash(contract);
+      contract.milestoneSnapshot = [];
+      contract.commercialContext = null;
+
+      const hydrateSpy = jest
+        .spyOn<any, any>(service as any, 'hydrateSnapshotFromLegacySpec')
+        .mockImplementation(async (_queryRunner: QueryRunner, targetContract: ContractEntity) => {
+          targetContract.milestoneSnapshot = hydratedSnapshot;
+          targetContract.commercialContext = hydratedContext;
+          targetContract.contentHash = expectedHash;
+          return hydratedSnapshot;
+        });
+
+      mockManager.findOne.mockImplementation(async (entity: unknown, options?: any) => {
+        if (entity === ContractEntity) return contract;
+        if (entity === ProjectEntity) return project;
+        if (entity === DigitalSignatureEntity && options?.where?.userId === brokerUser.id) {
+          return null;
+        }
+        return null;
+      });
+      mockManager.find.mockImplementation(async (entity: unknown) => {
+        if (entity === DigitalSignatureEntity) {
+          return [
+            {
+              contractId: contract.id,
+              userId: 'client-uuid',
+              signedAt: new Date('2026-03-10T10:00:00.000Z'),
+            },
+            {
+              contractId: contract.id,
+              userId: brokerUser.id,
+              signedAt: new Date('2026-03-10T10:05:00.000Z'),
+            },
+          ];
+        }
+        return [];
+      });
+
+      const result = await service.signContract(
+        brokerUser,
+        contract.id,
+        expectedHash,
+        '123456',
+        {
+          headers: {
+            'x-forwarded-for': '203.0.113.10, 10.0.0.1',
+          },
+          ip: '127.0.0.1',
+          get: jest.fn().mockReturnValue('jest-agent'),
+        } as any,
+      );
+
+      expect(hydrateSpy).toHaveBeenCalled();
+      expect(result.status).toBe('Pending Signatures');
+      expect(result.allRequiredSigned).toBe(false);
+      expect(mockManager.save).toHaveBeenCalledWith(
+        DigitalSignatureEntity,
+        expect.objectContaining({
+          contractId: contract.id,
+          userId: brokerUser.id,
+          ipAddress: '203.0.113.10',
+          userAgent: 'jest-agent',
+          provider: 'INTERDEV_MINI_CA',
+          legalStatus: 'VERIFIED',
+        }),
+      );
+      expect(mockNotificationsService.createMany).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          expect.objectContaining({
+            title: 'Contract signing updated',
+          }),
+        ]),
+      );
     });
 
     it('marks the contract SIGNED when the last required party signs and does not activate it', async () => {
@@ -603,6 +1519,32 @@ describe('ContractsService', () => {
         expect.objectContaining({
           status: ContractStatus.SIGNED,
           activatedAt: null,
+        }),
+      );
+      expect(mockAuditLogsService.log).toHaveBeenCalledWith(
+        expect.objectContaining({
+          actorId: brokerUser.id,
+          action: 'CONTRACT_FULLY_SIGNED',
+          entityType: 'Contract',
+          entityId: contract.id,
+          newData: {
+            status: ContractStatus.SIGNED,
+          },
+        }),
+      );
+      expect(mockNotificationsService.createMany).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          expect.objectContaining({
+            title: 'Contract fully signed',
+          }),
+        ]),
+      );
+      expect(mockEventEmitter.emit).toHaveBeenCalledWith(
+        'contract.updated',
+        expect.objectContaining({
+          userId: brokerUser.id,
+          contractId: contract.id,
+          projectId: contract.projectId,
         }),
       );
     });

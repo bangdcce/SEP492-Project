@@ -28,6 +28,32 @@ type TrustProfileUserResponse = {
   role?: string;
   bio?: string;
   skills?: string[];
+  userDomains?: Array<{
+    id: string;
+    name: string;
+    slug: string;
+    description?: string | null;
+  }>;
+  userSkills?: Array<{
+    id: string;
+    priority: string;
+    verificationStatus: string;
+    proficiencyLevel: number | null;
+    yearsOfExperience: number | null;
+    completedProjectsCount: number;
+    skill: {
+      id: string;
+      name: string;
+      slug: string;
+      category: string;
+    } | null;
+  }>;
+  cvUrl?: string;
+  linkedinUrl?: string;
+  portfolioLinks?: Array<{
+    title?: string;
+    url: string;
+  }>;
   createdAt?: string;
 };
 
@@ -119,7 +145,14 @@ export class TrustProfilesService {
         id: userId,
         status: UserStatus.ACTIVE,
       },
-      relations: ['profile'],
+      relations: [
+        'profile',
+        'userSkills',
+        'userSkills.skill',
+        'userSkills.skill.domain',
+        'userSkillDomains',
+        'userSkillDomains.domain',
+      ],
     });
 
     if (!user) {
@@ -247,6 +280,66 @@ export class TrustProfilesService {
   }
 
   private mapUser(user: UserEntity, profile: ProfileEntity | null): TrustProfileUserResponse {
+    const normalizedRole = String(user.role ?? '').toUpperCase();
+    const canExposeProfessionalLinks =
+      normalizedRole === 'FREELANCER' || normalizedRole === 'BROKER';
+
+    const cvUrl = profile?.cvUrl?.trim() || undefined;
+    const linkedinUrl = profile?.linkedinUrl?.trim() || undefined;
+    const portfolioLinks = Array.isArray(profile?.portfolioLinks)
+      ? profile.portfolioLinks
+          .map((item) => ({
+            title: item?.title?.trim() || undefined,
+            url: item?.url?.trim() || '',
+          }))
+          .filter((item) => item.url.length > 0)
+      : [];
+    const userDomainsMap = new Map<
+      string,
+      {
+        id: string;
+        name: string;
+        slug: string;
+        description?: string | null;
+      }
+    >();
+
+    const addDomain = (domain: any) => {
+      const name = String(domain?.name || '').trim();
+      if (!name) {
+        return;
+      }
+
+      const id = String(domain?.id || '').trim();
+      const slug = String(domain?.slug || '').trim();
+      const key = id || slug || name.toLowerCase();
+
+      if (userDomainsMap.has(key)) {
+        return;
+      }
+
+      userDomainsMap.set(key, {
+        id: id || key,
+        name,
+        slug: slug || key,
+        description: domain?.description ?? null,
+      });
+    };
+
+    for (const userDomain of Array.isArray((user as any).userSkillDomains)
+      ? (user as any).userSkillDomains
+      : []) {
+      addDomain(userDomain?.domain);
+    }
+
+    for (const userSkill of Array.isArray(user.userSkills) ? user.userSkills : []) {
+      addDomain(userSkill?.skill?.domain);
+    }
+
+    const userDomains = [...userDomainsMap.values()].sort((left, right) =>
+      left.name.localeCompare(right.name),
+    );
+
     return {
       id: user.id,
       fullName: user.fullName,
@@ -263,6 +356,32 @@ export class TrustProfilesService {
       role: user.role,
       bio: profile?.bio ?? undefined,
       skills: Array.isArray(profile?.skills) ? profile.skills : [],
+      userDomains,
+      userSkills: Array.isArray(user.userSkills)
+        ? user.userSkills
+            .filter((userSkill) => Boolean(userSkill?.skill?.name))
+            .map((userSkill) => ({
+              id: userSkill.id,
+              priority: userSkill.priority,
+              verificationStatus: userSkill.verificationStatus,
+              proficiencyLevel:
+                userSkill.proficiencyLevel != null ? Number(userSkill.proficiencyLevel) : null,
+              yearsOfExperience:
+                userSkill.yearsOfExperience != null ? Number(userSkill.yearsOfExperience) : null,
+              completedProjectsCount: Number(userSkill.completedProjectsCount ?? 0),
+              skill: userSkill.skill
+                ? {
+                    id: userSkill.skill.id,
+                    name: userSkill.skill.name,
+                    slug: userSkill.skill.slug,
+                    category: userSkill.skill.category,
+                  }
+                : null,
+            }))
+        : [],
+      cvUrl: canExposeProfessionalLinks ? cvUrl : undefined,
+      linkedinUrl: canExposeProfessionalLinks ? linkedinUrl : undefined,
+      portfolioLinks: canExposeProfessionalLinks ? portfolioLinks : [],
       createdAt: user.createdAt?.toISOString(),
     };
   }

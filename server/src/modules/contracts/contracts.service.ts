@@ -12,7 +12,7 @@ import { createHash, createHmac, createVerify, randomUUID } from 'crypto';
 import { existsSync, readFileSync } from 'fs';
 import { resolve } from 'path';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Brackets, DataSource, QueryRunner, Repository } from 'typeorm';
+import { Brackets, DataSource, In, QueryRunner, Repository } from 'typeorm';
 import Decimal from 'decimal.js';
 import {
   ContractCommercialContext,
@@ -37,6 +37,8 @@ import {
   MilestoneStatus,
 } from '../../database/entities/milestone.entity';
 import { EscrowEntity, EscrowStatus } from '../../database/entities/escrow.entity';
+import { DisputeEntity, DisputeStatus } from '../../database/entities/dispute.entity';
+import { DisputeInternalMembershipEntity } from '../../database/entities/dispute-internal-membership.entity';
 import { DigitalSignatureEntity } from '../../database/entities/digital-signature.entity';
 import { UserSigningCredentialEntity } from '../../database/entities/user-signing-credential.entity';
 import { UserEntity, UserRole } from '../../database/entities/user.entity';
@@ -65,6 +67,16 @@ export class ContractsService {
   private static readonly MIN_LAST_MILESTONE_PERCENT = new Decimal(20);
   private static readonly MAX_RETENTION_PERCENT = new Decimal(10);
   private static readonly DEFAULT_CURRENCY = 'USD';
+  private static readonly DISPUTE_CONTRACT_VIEW_STATUSES: DisputeStatus[] = [
+    DisputeStatus.OPEN,
+    DisputeStatus.TRIAGE_PENDING,
+    DisputeStatus.PREVIEW,
+    DisputeStatus.PENDING_REVIEW,
+    DisputeStatus.INFO_REQUESTED,
+    DisputeStatus.IN_MEDIATION,
+    DisputeStatus.REJECTION_APPEALED,
+    DisputeStatus.APPEALED,
+  ];
   private static readonly DEFAULT_ESCROW_SPLIT = {
     developerPercentage: 85,
     brokerPercentage: 10,
@@ -83,6 +95,10 @@ export class ContractsService {
     private readonly projectRequestsRepository: Repository<ProjectRequestEntity>,
     @InjectRepository(ProjectRequestProposalEntity)
     private readonly projectRequestProposalsRepository: Repository<ProjectRequestProposalEntity>,
+    @InjectRepository(DisputeEntity)
+    private readonly disputeRepository: Repository<DisputeEntity>,
+    @InjectRepository(DisputeInternalMembershipEntity)
+    private readonly disputeInternalMembershipRepository: Repository<DisputeInternalMembershipEntity>,
     private readonly auditLogsService: AuditLogsService,
     private readonly notificationsService: NotificationsService,
     private readonly signingCredentialsService: SigningCredentialsService,
@@ -393,8 +409,64 @@ export class ContractsService {
     );
   }
 
-  private assertUserCanViewContract(user: UserEntity, contract: ContractEntity) {
+  private async hasInternalDisputeContractAccess(
+    user: UserEntity,
+    contract: ContractEntity,
+  ): Promise<boolean> {
+    if (![UserRole.STAFF, UserRole.ADMIN].includes(user.role)) {
+      return false;
+    }
+
+    const project = contract.project as ProjectEntity | undefined;
+    const projectId = project?.id || contract.projectId;
+    if (!projectId) {
+      return false;
+    }
+
+    const activeDisputes = await this.disputeRepository.find({
+      where: {
+        projectId,
+        status: In(ContractsService.DISPUTE_CONTRACT_VIEW_STATUSES),
+      },
+      select: ['id', 'assignedStaffId', 'escalatedToAdminId'],
+      order: { createdAt: 'DESC' },
+      take: 50,
+    });
+
+    if (activeDisputes.length === 0) {
+      return false;
+    }
+
+    if (user.role === UserRole.ADMIN) {
+      return true;
+    }
+
+    const directlyAssigned = activeDisputes.some(
+      (dispute) => dispute.assignedStaffId === user.id || dispute.escalatedToAdminId === user.id,
+    );
+
+    if (directlyAssigned) {
+      return true;
+    }
+
+    const activeDisputeIds = activeDisputes.map((dispute) => dispute.id);
+    const internalMembership = await this.disputeInternalMembershipRepository.findOne({
+      where: {
+        userId: user.id,
+        disputeId: In(activeDisputeIds),
+      },
+      select: ['id'],
+    });
+
+    return Boolean(internalMembership);
+  }
+
+  private async assertUserCanViewContract(user: UserEntity, contract: ContractEntity) {
     if (this.isAcceptedSupervisingStaff(user, contract)) {
+      return;
+    }
+
+    if (await this.hasInternalDisputeContractAccess(user, contract)) {
       return;
     }
 
@@ -1903,7 +1975,7 @@ export class ContractsService {
 
   async findOneForUser(user: UserEntity, id: string) {
     const contract = await this.findContractForRead(id);
-    this.assertUserCanViewContract(user, contract);
+    await this.assertUserCanViewContract(user, contract);
     await this.hydrateContractReadModel(contract);
     (contract as any).requiredSignerCount = this.getRequiredContractSignerIds(contract).length;
     (contract as any).signedCount = Array.isArray(contract.signatures)

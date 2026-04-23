@@ -4,6 +4,7 @@ import {
   ConflictException,
   BadRequestException,
   Logger,
+  Optional,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
@@ -11,6 +12,7 @@ import { Repository, LessThan, MoreThan, In, Not, IsNull, DeepPartial } from 'ty
 import { InjectRepository } from '@nestjs/typeorm';
 import { createHash, randomBytes, randomUUID } from 'crypto';
 import * as bcrypt from 'bcryptjs';
+import * as path from 'path';
 import { UserEntity, UserRole, UserStatus } from '../../database/entities/user.entity';
 import { AuthSessionEntity } from '../../database/entities/auth-session.entity';
 import { ProfileEntity } from '../../database/entities/profile.entity';
@@ -20,11 +22,15 @@ import {
 } from '../../database/entities/staff-application.entity';
 import { ProjectEntity, ProjectStatus } from '../../database/entities/project.entity';
 import { WalletEntity } from '../../database/entities/wallet.entity';
+import { SkillDomainEntity } from '../../database/entities/skill-domain.entity';
+import { SkillEntity, SkillCategory } from '../../database/entities/skill.entity';
 import { EmailService } from './email.service';
 import { EmailVerificationService } from './email-verification.service';
+import { CaptchaService } from './captcha.service';
 import {
   LoginDto,
   RegisterDto,
+  RegisterStaffDto,
   AuthResponseDto,
   LoginResponseDto,
   LogoutResponseDto,
@@ -42,11 +48,28 @@ import {
 import { JwtPayload } from './strategies/jwt.strategy';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import { normalizeAuthEmail } from './utils/email.utils';
+import { supabaseClient } from '../../config/supabase.config';
+import { uploadEncryptedFile } from '../../common/utils/supabase-storage.util';
+import { MulterFile } from '../../common/types/multer.type';
+
+interface StaffRegistrationFiles {
+  cv?: MulterFile;
+  idCardFront?: MulterFile;
+  idCardBack?: MulterFile;
+  selfie?: MulterFile;
+}
+
+interface UploadedCvAsset {
+  storageKey: string;
+  publicUrl: string;
+}
 
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
   private readonly refreshTokenLegacyScanLimit = 5000;
+  private readonly customDomainPrefix = '__other_domain__:';
+  private readonly customSkillPrefix = '__other_skill__:';
 
   constructor(
     @InjectRepository(UserEntity)
@@ -64,6 +87,7 @@ export class AuthService {
     private emailService: EmailService,
     private emailVerificationService: EmailVerificationService,
     private auditLogsService: AuditLogsService, // Inject AuditLogsService
+    @Optional() private captchaService?: CaptchaService,
   ) {}
 
   async register(
@@ -82,6 +106,11 @@ export class AuthService {
       acceptTerms,
       acceptPrivacy,
     } = registerDto;
+
+    if (role === UserRole.STAFF) {
+      throw new BadRequestException('Staff registrations must use /auth/register/staff');
+    }
+
     const normalizedEmail = normalizeAuthEmail(email);
 
     // Check whether the email already exists.
@@ -124,45 +153,101 @@ export class AuthService {
 
     const savedUser = await this.userRepository.save(newUser);
 
-    if (role === UserRole.STAFF) {
-      const staffApplicationRepository =
-        this.userRepository.manager.getRepository(StaffApplicationEntity);
+    const parsedDomains = this.parseTaggedSelections(domainIds, this.customDomainPrefix);
+    const parsedSkills = this.parseTaggedSelections(skillIds, this.customSkillPrefix);
+    let selectedDomainCount = parsedDomains.ids.length;
+    let selectedSkillCount = parsedSkills.ids.length;
 
-      const staffApplication = await staffApplicationRepository.save(
-        staffApplicationRepository.create({
-          userId: savedUser.id,
-          status: StaffApplicationStatus.PENDING,
-        }),
-      );
-
-      this.auditLogsService
-        .logCustom(
-          'STAFF_APPLICATION_SUBMITTED',
-          'StaffApplication',
-          staffApplication.id,
-          {
-            applicationId: staffApplication.id,
-            userId: savedUser.id,
-            email: savedUser.email,
-          },
-          undefined,
-          savedUser.id,
-        )
-        .catch(() => {});
-    }
-
-    // N蘯ｿu lﾃ BROKER ho蘯ｷc FREELANCER 竊・Lﾆｰu domains vﾃ skills
+    // Save role-specific domains/skills, including free-text "Other" values.
     if (
-      (role === UserRole.BROKER || role === UserRole.FREELANCER || role === UserRole.STAFF) &&
-      (domainIds || skillIds)
+      (role === UserRole.BROKER || role === UserRole.FREELANCER) &&
+      (parsedDomains.ids.length > 0 || parsedSkills.ids.length > 0 || parsedDomains.custom.length > 0 || parsedSkills.custom.length > 0)
     ) {
       const userSkillDomainRepo =
         this.userRepository.manager.getRepository('UserSkillDomainEntity');
       const userSkillRepo = this.userRepository.manager.getRepository('UserSkillEntity');
+      const skillDomainRepo = this.userRepository.manager.getRepository(SkillDomainEntity);
+      const skillRepo = this.userRepository.manager.getRepository(SkillEntity);
+
+      const selectedDomainIds = new Set(parsedDomains.ids);
+      const selectedSkillIds = new Set(parsedSkills.ids);
+      const normalizedCustomDomains = this.normalizeCustomEntries(parsedDomains.custom);
+      const normalizedCustomSkills = this.normalizeCustomEntries(parsedSkills.custom);
+
+      for (const domainName of normalizedCustomDomains) {
+        // Only reuse official/public domains. User-added entries stay private per account.
+        const domain = await skillDomainRepo
+          .createQueryBuilder('domain')
+          .where('LOWER(domain.name) = LOWER(:name)', { name: domainName })
+          .andWhere('domain.isActive = :isActive', { isActive: true })
+          .andWhere('(domain.description IS NULL OR domain.description NOT ILIKE :customPrefix)', {
+            customPrefix: 'User-added%',
+          })
+          .getOne();
+
+        if (domain) {
+          selectedDomainIds.add(domain.id);
+          continue;
+        }
+
+        const privateDomain = await skillDomainRepo.save(
+          skillDomainRepo.create({
+            name: domainName,
+            slug: this.toSafeSlug(domainName, 'custom-domain'),
+            description: 'User-added during registration (private)',
+            isActive: false,
+            sortOrder: 9999,
+          }),
+        );
+
+        selectedDomainIds.add(privateDomain.id);
+      }
+
+      for (const skillName of normalizedCustomSkills) {
+        // Only reuse official/public skills. User-added entries stay private per account.
+        const skill = await skillRepo
+          .createQueryBuilder('skill')
+          .where('LOWER(skill.name) = LOWER(:name)', { name: skillName })
+          .andWhere('skill.isActive = :isActive', { isActive: true })
+          .andWhere('(skill.description IS NULL OR skill.description NOT ILIKE :customPrefix)', {
+            customPrefix: 'User-added%',
+          })
+          .getOne();
+
+        if (skill) {
+          const needsRoleFlagUpdate =
+            (role === UserRole.FREELANCER && !skill.forFreelancer) ||
+            (role === UserRole.BROKER && !skill.forBroker);
+
+          if (needsRoleFlagUpdate) {
+            if (role === UserRole.FREELANCER) skill.forFreelancer = true;
+            if (role === UserRole.BROKER) skill.forBroker = true;
+            await skillRepo.save(skill);
+          }
+
+          selectedSkillIds.add(skill.id);
+          continue;
+        }
+
+        const privateSkill = await skillRepo.save(
+          skillRepo.create({
+            name: skillName,
+            slug: this.toSafeSlug(skillName, 'custom-skill'),
+            category: SkillCategory.OTHER,
+            description: 'User-added during registration (private)',
+            isActive: false,
+            sortOrder: 9999,
+            forFreelancer: role === UserRole.FREELANCER,
+            forBroker: role === UserRole.BROKER,
+          }),
+        );
+
+        selectedSkillIds.add(privateSkill.id);
+      }
 
       // Save domains.
-      if (domainIds && domainIds.length > 0) {
-        const domainRecords = domainIds.map((domainId) => ({
+      if (selectedDomainIds.size > 0) {
+        const domainRecords = [...selectedDomainIds].map((domainId) => ({
           userId: savedUser.id,
           domainId,
         }));
@@ -170,8 +255,8 @@ export class AuthService {
       }
 
       // Save skills.
-      if (skillIds && skillIds.length > 0) {
-        const skillRecords = skillIds.map((skillId) => ({
+      if (selectedSkillIds.size > 0) {
+        const skillRecords = [...selectedSkillIds].map((skillId) => ({
           userId: savedUser.id,
           skillId,
           priority: 'SECONDARY', // Default to SECONDARY, user can upgrade later
@@ -179,6 +264,9 @@ export class AuthService {
         }));
         await userSkillRepo.save(skillRecords);
       }
+
+      selectedDomainCount = selectedDomainIds.size;
+      selectedSkillCount = selectedSkillIds.size;
     }
 
     // Send email verification
@@ -195,13 +283,310 @@ export class AuthService {
         email: savedUser.email,
         ipAddress,
         userAgent,
-        domainCount: domainIds?.length || 0,
-        skillCount: skillIds?.length || 0,
+        domainCount: selectedDomainCount,
+        skillCount: selectedSkillCount,
       })
       .catch(() => {});
 
     // Return public user data without any password fields.
     return this.mapToAuthResponse(savedUser);
+  }
+
+  async registerStaff(
+    registerDto: RegisterStaffDto,
+    files: StaffRegistrationFiles,
+    ipAddress?: string,
+    userAgent?: string,
+  ): Promise<AuthResponseDto> {
+    this.validateStaffRegistrationFiles(files);
+    await this.validateStaffRecaptcha(registerDto.recaptchaToken);
+
+    const normalizedEmail = normalizeAuthEmail(registerDto.email);
+    const existingUser = await this.userRepository.findOne({
+      where: { email: normalizedEmail },
+      select: ['id', 'email', 'passwordHash', 'fullName', 'role', 'phoneNumber', 'isVerified'],
+    });
+
+    if (existingUser) {
+      throw new ConflictException('Email already in use');
+    }
+
+    if (!registerDto.acceptTerms || !registerDto.acceptPrivacy) {
+      throw new ConflictException(
+        'You must accept the Terms of Service and Privacy Policy',
+      );
+    }
+
+    const saltRounds = 12;
+    const passwordHash = await bcrypt.hash(registerDto.password, saltRounds);
+    const now = new Date();
+
+    const newUser = this.userRepository.create({
+      email: normalizedEmail,
+      passwordHash,
+      fullName: registerDto.fullName,
+      phoneNumber: registerDto.phoneNumber,
+      role: UserRole.STAFF,
+      isVerified: false,
+      currentTrustScore: 2.5,
+      termsAcceptedAt: now,
+      privacyAcceptedAt: now,
+      registrationIp: ipAddress,
+      registrationUserAgent: userAgent,
+    } as DeepPartial<UserEntity>);
+
+    const savedUser = await this.userRepository.save(newUser);
+
+    const cvAsset = await this.uploadStaffCv(savedUser.id, files.cv!);
+    const [idCardFrontStorageKey, idCardBackStorageKey, selfieStorageKey] = await Promise.all([
+      uploadEncryptedFile(
+        files.idCardFront!.buffer,
+        savedUser.id,
+        'id-front',
+        files.idCardFront!.mimetype,
+      ),
+      uploadEncryptedFile(
+        files.idCardBack!.buffer,
+        savedUser.id,
+        'id-back',
+        files.idCardBack!.mimetype,
+      ),
+      uploadEncryptedFile(
+        files.selfie!.buffer,
+        savedUser.id,
+        'selfie',
+        files.selfie!.mimetype,
+      ),
+    ]);
+
+    const profile = await this.profileRepository.save({
+      userId: savedUser.id,
+      cvUrl: cvAsset.publicUrl,
+    } as DeepPartial<ProfileEntity>);
+
+    const staffApplicationRepository =
+      this.userRepository.manager.getRepository(StaffApplicationEntity);
+    const staffApplication = await staffApplicationRepository.save(
+      staffApplicationRepository.create({
+        userId: savedUser.id,
+        status: StaffApplicationStatus.PENDING,
+        cvStorageKey: cvAsset.storageKey,
+        cvOriginalFilename: this.limitLength(files.cv!.originalname, 255),
+        cvMimeType: files.cv!.mimetype,
+        cvSize: files.cv!.size,
+        fullNameOnDocument: registerDto.fullNameOnDocument,
+        documentType: registerDto.documentType,
+        documentNumber: registerDto.documentNumber,
+        dateOfBirth: new Date(registerDto.dateOfBirth),
+        address: registerDto.address,
+        idCardFrontStorageKey,
+        idCardBackStorageKey,
+        selfieStorageKey,
+      }),
+    );
+
+    try {
+      await this.emailVerificationService.sendVerificationEmail(savedUser.id, savedUser.email);
+    } catch (error) {
+      // Don't fail registration if email fails, user can resend later.
+    }
+
+    this.auditLogsService
+      .logCustom(
+        'STAFF_APPLICATION_SUBMITTED',
+        'StaffApplication',
+        staffApplication.id,
+        {
+          applicationId: staffApplication.id,
+          userId: savedUser.id,
+          email: savedUser.email,
+          cvStorageKey: staffApplication.cvStorageKey,
+          documentType: staffApplication.documentType,
+          submittedAt: staffApplication.createdAt,
+        },
+        undefined,
+        savedUser.id,
+      )
+      .catch(() => {});
+
+    this.auditLogsService
+      .logRegistration(savedUser.id, {
+        role: savedUser.role,
+        email: savedUser.email,
+        ipAddress,
+        userAgent,
+        domainCount: 0,
+        skillCount: 0,
+      })
+      .catch(() => {});
+
+    savedUser.profile = profile;
+    savedUser.staffApplication = staffApplication;
+
+    return this.mapToAuthResponse(savedUser);
+  }
+
+  private normalizeCustomEntries(values?: string[]): string[] {
+    if (!values || values.length === 0) {
+      return [];
+    }
+
+    const unique = new Map<string, string>();
+    for (const rawValue of values) {
+      const trimmed = String(rawValue || '')
+        .replace(/\s+/g, ' ')
+        .trim();
+      if (!trimmed) {
+        continue;
+      }
+
+      const normalizedKey = trimmed.toLowerCase();
+      if (!unique.has(normalizedKey)) {
+        unique.set(normalizedKey, trimmed.slice(0, 100));
+      }
+    }
+
+    return [...unique.values()];
+  }
+
+  private parseTaggedSelections(values: string[] | undefined, prefix: string): {
+    ids: string[];
+    custom: string[];
+  } {
+    if (!values || values.length === 0) {
+      return { ids: [], custom: [] };
+    }
+
+    const ids: string[] = [];
+    const custom: string[] = [];
+
+    for (const rawValue of values) {
+      const value = String(rawValue || '').trim();
+      if (!value) {
+        continue;
+      }
+
+      if (value.startsWith(prefix)) {
+        const label = value.slice(prefix.length).trim();
+        if (label) {
+          custom.push(label);
+        }
+        continue;
+      }
+
+      ids.push(value);
+    }
+
+    return { ids, custom };
+  }
+
+  private toSafeSlug(value: string, fallbackPrefix: string): string {
+    const normalized = String(value || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 60);
+    const suffix = randomUUID().slice(0, 8);
+    return `${normalized || fallbackPrefix}-${suffix}`;
+  }
+
+  private validateStaffRegistrationFiles(files: StaffRegistrationFiles): void {
+    const cv = files.cv;
+    if (!cv) {
+      throw new BadRequestException('CV is required');
+    }
+
+    const allowedCvMimeTypes = [
+      'application/pdf',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    ];
+    if (!allowedCvMimeTypes.includes(cv.mimetype)) {
+      throw new BadRequestException('Only PDF and DOCX files are allowed');
+    }
+
+    const maxCvSize = 5 * 1024 * 1024;
+    if (cv.size > maxCvSize) {
+      throw new BadRequestException('File size must not exceed 5MB');
+    }
+
+    const requiredImages: Array<[keyof StaffRegistrationFiles, string]> = [
+      ['idCardFront', 'ID card front image is required'],
+      ['idCardBack', 'ID card back image is required'],
+      ['selfie', 'Selfie image is required'],
+    ];
+
+    requiredImages.forEach(([field, message]) => {
+      if (!files[field]) {
+        throw new BadRequestException(message);
+      }
+    });
+
+    requiredImages.forEach(([field]) => {
+      const file = files[field];
+      if (file && !file.mimetype.startsWith('image/')) {
+        throw new BadRequestException(`Only image files are allowed for ${field}`);
+      }
+    });
+  }
+
+  private async validateStaffRecaptcha(recaptchaToken?: string): Promise<void> {
+    const captchaEnabled = this.configService.get<string>('RECAPTCHA_ENABLED') === 'true';
+    if (!captchaEnabled) {
+      return;
+    }
+
+    if (!recaptchaToken) {
+      throw new BadRequestException('Vui lòng hoàn thành reCAPTCHA');
+    }
+
+    if (!this.captchaService) {
+      throw new BadRequestException('reCAPTCHA verification is currently unavailable');
+    }
+
+    const isValid = await this.captchaService.verifyRecaptcha(recaptchaToken);
+    if (!isValid) {
+      throw new BadRequestException('reCAPTCHA verification failed. Please try again.');
+    }
+  }
+
+  private async uploadStaffCv(userId: string, file: MulterFile): Promise<UploadedCvAsset> {
+    try {
+      const extension =
+        path.extname(file.originalname) ||
+        (file.mimetype === 'application/pdf' ? '.pdf' : '.docx');
+      const filename = `cv-${Date.now()}-${randomUUID().slice(0, 8)}${extension}`;
+      const storageKey = `cvs/${userId}/${filename}`;
+
+      const { error } = await supabaseClient.storage.from('cvs').upload(storageKey, file.buffer, {
+        contentType: file.mimetype,
+        cacheControl: '3600',
+        upsert: false,
+      });
+
+      if (error) {
+        throw new Error(error.message);
+      }
+
+      const { data: urlData } = supabaseClient.storage.from('cvs').getPublicUrl(storageKey);
+
+      return {
+        storageKey,
+        publicUrl: urlData.publicUrl,
+      };
+    } catch (error) {
+      this.logger.error(
+        `Failed to upload staff CV for user ${userId}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
+      throw new BadRequestException('Failed to upload CV');
+    }
+  }
+
+  private limitLength(value: string | undefined | null, maxLength: number): string | null {
+    if (!value) {
+      return null;
+    }
+
+    return value.slice(0, maxLength);
   }
 
   async login(
@@ -238,7 +623,7 @@ export class AuthService {
     }
 
     if (user.isBanned) {
-      throw new UnauthorizedException('This account has been banned. Please contact support.');
+      throw new UnauthorizedException('You have been banned. Check your email for more details.');
     }
 
     // Check if email is verified
@@ -396,6 +781,28 @@ export class AuthService {
       throw new UnauthorizedException({
         error: 'SESSION_REVOKED',
         message: 'Session owner no longer exists',
+      });
+    }
+
+    if (user.status === UserStatus.DELETED) {
+      await this.authSessionRepository.update(
+        { userId: user.id, isRevoked: false },
+        { isRevoked: true, revokedAt: new Date() },
+      );
+      throw new UnauthorizedException({
+        error: 'ACCOUNT_DELETED',
+        message: 'This account has been deleted',
+      });
+    }
+
+    if (user.isBanned) {
+      await this.authSessionRepository.update(
+        { userId: user.id, isRevoked: false },
+        { isRevoked: true, revokedAt: new Date() },
+      );
+      throw new UnauthorizedException({
+        error: 'ACCOUNT_BANNED',
+        message: 'You have been banned. Check your email for more details.',
       });
     }
 
@@ -563,7 +970,8 @@ export class AuthService {
     try {
       await this.emailService.sendOTP(user.email, otp);
     } catch (error) {
-      this.logger.error(`ForgotPassword: Failed to send OTP to ${user.email}: ${error.message}`);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(`ForgotPassword: Failed to send OTP to ${user.email}: ${errorMessage}`);
       // Continue execution even if email fails - user can resend or check logs
     }
 
@@ -940,6 +1348,10 @@ export class AuthService {
     // Check if user is already deleted
     if (user.status === UserStatus.DELETED) {
       throw new BadRequestException('This account has already been deleted');
+    }
+
+    if (user.role === UserRole.ADMIN || user.role === UserRole.STAFF) {
+      throw new BadRequestException('Admin and staff accounts cannot be self-deleted');
     }
 
     // Verify password

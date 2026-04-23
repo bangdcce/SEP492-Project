@@ -1,4 +1,5 @@
 ﻿import {
+  memo,
   useCallback,
   useEffect,
   useMemo,
@@ -36,7 +37,7 @@ import {
 } from "lucide-react";
 import type { Socket } from "socket.io-client";
 import { toast } from "sonner";
-import * as XLSX from "xlsx";
+import { Workbook, type Fill } from "exceljs";
 import { STORAGE_KEYS } from "@/constants";
 import { Sheet, SheetContent, SheetTitle } from "@/shared/components/ui/sheet";
 import { Button } from "@/shared/components/ui/button";
@@ -62,8 +63,7 @@ import {
   createTask,
   deleteWorkspaceChatMessage,
   editWorkspaceChatMessage,
-  fetchBoard,
-  fetchMilestones,
+  emailWorkspaceChatExport,
   fetchTaskSubmissions,
   fetchWorkspaceChatMessages,
   reviewSubmission,
@@ -84,6 +84,10 @@ import {
 } from "@/shared/realtime/socket";
 import { getApiErrorDetails } from "@/shared/utils/apiError";
 import { getStoredJson } from "@/shared/utils/storage";
+import {
+  emailWorkspaceChatExportFile,
+  WORKSPACE_CHAT_EXPORT_EMAIL_SUCCESS_MESSAGE,
+} from "../../chat-export-email";
 
 interface WorkspaceChatDrawerProps {
   isOpen?: boolean;
@@ -91,7 +95,11 @@ interface WorkspaceChatDrawerProps {
   projectId?: string;
   currentUserId?: string;
   projectMembers?: WorkspaceChatMentionMember[];
+  workspaceTasks?: Task[];
+  availableMilestoneIds?: string[];
   canReviewTasks?: boolean;
+  canBrokerReviewTasks?: boolean;
+  canClientReviewTasks?: boolean;
   canUseTaskCommand?: boolean;
   taskCommandUnavailableMessage?: string | null;
   defaultMilestoneId?: string | null;
@@ -151,6 +159,11 @@ const getStoredCurrentUserId = (): string | undefined => {
   const user = getStoredJson<{ id?: string }>(STORAGE_KEYS.USER);
   if (!user?.id) return undefined;
   return user.id;
+};
+
+const getStoredCurrentUserRole = (): string | null => {
+  const user = getStoredJson<{ role?: string }>(STORAGE_KEYS.USER);
+  return user?.role?.toUpperCase() ?? null;
 };
 
 const normalizeForRiskScan = (content: string): string => {
@@ -246,10 +259,35 @@ const normalizeAttachment = (
     return null;
   }
 
+  const getNameFromUrl = (input: string) => {
+    try {
+      const parsed = new URL(input);
+      const fileNameFromHash = new URLSearchParams(parsed.hash.replace(/^#/, "")).get(
+        "filename"
+      );
+      if (fileNameFromHash?.trim()) {
+        return decodeURIComponent(fileNameFromHash);
+      }
+
+      const fileNameFromQuery = parsed.searchParams.get("filename");
+      if (fileNameFromQuery?.trim()) {
+        return decodeURIComponent(fileNameFromQuery);
+      }
+    } catch {
+      const hash = input.split("#")[1] || "";
+      const fileNameFromHash = new URLSearchParams(hash).get("filename");
+      if (fileNameFromHash?.trim()) {
+        return decodeURIComponent(fileNameFromHash);
+      }
+    }
+
+    return input.split("/").pop()?.split("?")[0] || "attachment";
+  };
+
   const name =
     typeof value.name === "string" && value.name.trim().length > 0
       ? value.name.trim()
-      : url.split("/").pop()?.split("?")[0] || "attachment";
+      : getNameFromUrl(url);
   const type =
     typeof value.type === "string" && value.type.trim().length > 0
       ? value.type.trim()
@@ -802,6 +840,94 @@ const mergeUniqueMessages = (
   return sortMessagesAsc(Array.from(byId.values()));
 };
 
+const findSortedMessageInsertIndex = (
+  messages: WorkspaceChatMessage[],
+  createdAt: string,
+): number => {
+  const targetTime = new Date(createdAt).getTime();
+
+  for (let index = 0; index < messages.length; index += 1) {
+    const currentTime = new Date(messages[index].createdAt).getTime();
+    if (currentTime > targetTime) {
+      return index;
+    }
+  }
+
+  return messages.length;
+};
+
+const upsertSortedMessage = (
+  current: WorkspaceChatMessage[],
+  incoming: WorkspaceChatMessage,
+): WorkspaceChatMessage[] => {
+  const existingIndex = current.findIndex((message) => message.id === incoming.id);
+
+  if (existingIndex < 0) {
+    const nextMessages = current.slice();
+    nextMessages.splice(
+      findSortedMessageInsertIndex(nextMessages, incoming.createdAt),
+      0,
+      incoming,
+    );
+    return nextMessages;
+  }
+
+  const existingMessage = current[existingIndex];
+  if (existingMessage === incoming) {
+    return current;
+  }
+
+  if (existingMessage.createdAt === incoming.createdAt) {
+    const nextMessages = current.slice();
+    nextMessages[existingIndex] = incoming;
+    return nextMessages;
+  }
+
+  const nextMessages = current.slice();
+  nextMessages.splice(existingIndex, 1);
+  nextMessages.splice(
+    findSortedMessageInsertIndex(nextMessages, incoming.createdAt),
+    0,
+    incoming,
+  );
+  return nextMessages;
+};
+
+const messageMatchesSearch = (
+  message: WorkspaceChatMessage,
+  searchTerm: string,
+): boolean => {
+  const normalizedQuery = searchTerm.trim().toLowerCase();
+  if (!normalizedQuery || message.isDeleted) {
+    return false;
+  }
+
+  return message.content.toLowerCase().includes(normalizedQuery);
+};
+
+const upsertSearchResultsWithMessage = (
+  current: WorkspaceChatMessage[],
+  incoming: WorkspaceChatMessage,
+  searchTerm: string,
+): WorkspaceChatMessage[] => {
+  if (!searchTerm.trim()) {
+    return current;
+  }
+
+  const existingIndex = current.findIndex((message) => message.id === incoming.id);
+  const matchesSearch = messageMatchesSearch(incoming, searchTerm);
+
+  if (!matchesSearch) {
+    if (existingIndex < 0) {
+      return current;
+    }
+
+    return current.filter((message) => message.id !== incoming.id);
+  }
+
+  return upsertSortedMessage(current, incoming);
+};
+
 const formatMessageTime = (isoTimestamp: string): string => {
   return new Intl.DateTimeFormat(undefined, {
     hour: "2-digit",
@@ -809,24 +935,80 @@ const formatMessageTime = (isoTimestamp: string): string => {
   }).format(new Date(isoTimestamp));
 };
 
-const formatLegalTimestamp = (isoTimestamp: string): string => {
-  return new Intl.DateTimeFormat(undefined, {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  }).format(new Date(isoTimestamp));
+const formatAuditTimestamp = (isoTimestamp: string): string => {
+  const date = new Date(isoTimestamp);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const hour = String(date.getHours()).padStart(2, "0");
+  const minute = String(date.getMinutes()).padStart(2, "0");
+  const second = String(date.getSeconds()).padStart(2, "0");
+  const offsetMinutes = -date.getTimezoneOffset();
+  const offsetSign = offsetMinutes >= 0 ? "+" : "-";
+  const offsetHour = String(Math.floor(Math.abs(offsetMinutes) / 60)).padStart(2, "0");
+  const offsetMinute = String(Math.abs(offsetMinutes) % 60).padStart(2, "0");
+
+  return `${year}-${month}-${day} ${hour}:${minute}:${second} UTC${offsetSign}${offsetHour}:${offsetMinute}`;
 };
 
-const sanitizeExcelContent = (value: string): string => {
+const decodeHtmlEntities = (value: string): string => {
+  if (!value || !value.includes("&")) {
+    return value;
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.innerHTML = value;
+  return textarea.value;
+};
+
+const normalizeExportText = (value: string): string => {
   return value
-    .replace(/\r\n|\r|\n/g, " | ")
+    .replace(/\u00a0/g, " ")
+    .replace(/\r\n|\r/g, "\n")
     .replace(/\t/g, " ")
-    .replace(/\s+\|\s+/g, " | ")
-    .replace(/\s{2,}/g, " ")
     .trim();
+};
+
+const formatExportFileTimestamp = (date: Date): string => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const hour = String(date.getHours()).padStart(2, "0");
+  const minute = String(date.getMinutes()).padStart(2, "0");
+  return `${year}-${month}-${day}_${hour}-${minute}`;
+};
+
+const getSystemEventCategory = (message: WorkspaceChatMessage): string => {
+  const normalizedContent = normalizeForRiskScan(message.content || "");
+
+  if (
+    message.taskId ||
+    /\btask\b|\bsubtask\b|\/task\b/.test(normalizedContent)
+  ) {
+    return "Task";
+  }
+
+  if (/\bsubmission\b|\breview\b|\bapprove\b|\breject\b/.test(normalizedContent)) {
+    return "Submission";
+  }
+
+  if (/\bmilestone\b/.test(normalizedContent)) {
+    return "Milestone";
+  }
+
+  if (/\bfund\b|\bescrow\b|\bpayout\b|\bpayment\b/.test(normalizedContent)) {
+    return "Funding";
+  }
+
+  if (/\bworkspace\b|\bchat\b|\bjoined\b|\bleft\b|\bvideo\b/.test(normalizedContent)) {
+    return "Workspace";
+  }
+
+  return "General";
 };
 
 const extractSocketError = (payload: unknown): string | null => {
@@ -911,13 +1093,397 @@ const waitForSocketConnection = (socket: Socket, timeoutMs: number): Promise<voi
   });
 };
 
+type WorkspaceChatMessageRowProps = {
+  message: WorkspaceChatMessage;
+  currentUserId: string | null;
+  projectMembers: WorkspaceChatMentionMember[];
+  normalizedSearchQuery: string;
+  editingValue?: string;
+  isEditing: boolean;
+  isBusy: boolean;
+  isHighlighted: boolean;
+  onEditingValueChange: (value: string) => void;
+  onReply: (messageId: string) => void;
+  onStartEdit: (message: WorkspaceChatMessage) => void;
+  onCancelEdit: () => void;
+  onSaveEdit: (messageId: string) => Promise<void> | void;
+  onDeleteMessage: (messageId: string) => Promise<void> | void;
+  onTogglePin: (message: WorkspaceChatMessage) => Promise<void> | void;
+  onScrollToMessage: (messageId: string) => void;
+  onJoinVideoCall: (url: string) => void;
+  registerMessageRef: (messageId: string, node: HTMLDivElement | null) => void;
+};
+
+const WorkspaceChatMessageRow = memo(function WorkspaceChatMessageRow({
+  message,
+  currentUserId,
+  projectMembers,
+  normalizedSearchQuery,
+  editingValue,
+  isEditing,
+  isBusy,
+  isHighlighted,
+  onEditingValueChange,
+  onReply,
+  onStartEdit,
+  onCancelEdit,
+  onSaveEdit,
+  onDeleteMessage,
+  onTogglePin,
+  onScrollToMessage,
+  onJoinVideoCall,
+  registerMessageRef,
+}: WorkspaceChatMessageRowProps) {
+  const systemMessage = isSystemMessage(message);
+  const riskFlags = getMessageRiskFlags(message);
+  const isRiskFlagged = !message.isDeleted && riskFlags.length > 0;
+  const isMe = Boolean(currentUserId) && message.senderId === currentUserId;
+  const replyPreview = !message.isDeleted ? message.replyTo : null;
+  const containsVideoCall = Boolean(extractWorkspaceVideoCall(message.content));
+
+  if (systemMessage) {
+    return (
+      <div
+        ref={(node) => {
+          registerMessageRef(message.id, node);
+        }}
+        className="flex min-w-0 max-w-full justify-center py-1"
+      >
+        <div
+          className={
+            containsVideoCall
+              ? "min-w-0 w-full max-w-[min(100%,22rem)]"
+              : "min-w-0 max-w-[85%] text-center"
+          }
+        >
+          <div
+            className={
+              containsVideoCall
+                ? "min-w-0 max-w-full"
+                : "min-w-0 max-w-full whitespace-pre-wrap break-words text-xs font-normal text-gray-400 [overflow-wrap:anywhere]"
+            }
+          >
+            {renderMessageContent(
+              message.content,
+              projectMembers,
+              false,
+              normalizedSearchQuery,
+              { onJoinCall: onJoinVideoCall },
+            )}
+          </div>
+          <div className="mt-1 flex items-center justify-center gap-1.5 text-[10px] text-gray-400">
+            <span>{formatMessageTime(message.createdAt)}</span>
+            {!message.isDeleted && (
+              <button
+                type="button"
+                onClick={() => onReply(message.id)}
+                className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium text-gray-400 transition-colors hover:text-blue-600"
+              >
+                <Reply className="h-3 w-3" />
+                <span>Reply</span>
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const senderLabel = isMe
+    ? "You"
+    : message.sender?.fullName ||
+      (message.senderId ? `User ${message.senderId.slice(0, 6)}` : "Unknown User");
+  const bubbleClassName = message.isDeleted
+    ? "rounded-2xl border border-rose-100 bg-white text-rose-700"
+    : isMe
+      ? isRiskFlagged
+        ? "rounded-2xl rounded-tr-md border border-rose-100 bg-rose-50 text-rose-900"
+        : "rounded-2xl rounded-tr-md border border-blue-100 bg-blue-50 text-blue-900"
+      : isRiskFlagged
+        ? "rounded-2xl rounded-tl-md border border-rose-100 bg-rose-50 text-rose-900"
+        : "rounded-2xl rounded-tl-md border border-gray-100 bg-white text-gray-900";
+  const editingShellClassName = isMe
+    ? "rounded-2xl rounded-tr-md border border-blue-100 bg-blue-50 text-blue-900"
+    : "rounded-2xl rounded-tl-md border border-gray-100 bg-white text-gray-900";
+  const warningClassName = isMe ? "justify-end text-right text-rose-700" : "text-rose-700";
+  const actionTriggerClassName = message.isDeleted
+    ? "text-rose-400 hover:text-rose-600"
+    : "text-gray-400 hover:text-blue-600";
+
+  return (
+    <div
+      ref={(node) => {
+        registerMessageRef(message.id, node);
+      }}
+      className={`group relative flex min-w-0 max-w-full ${
+        isMe ? "justify-end" : "justify-start"
+      } ${isHighlighted ? "rounded-2xl ring-2 ring-amber-300/80 ring-offset-2 ring-offset-slate-50" : ""}`}
+    >
+      <div
+        className={`flex min-w-0 max-w-[85%] flex-col ${isMe ? "items-end" : "items-start"}`}
+      >
+        <p
+          className={`mb-1 text-[11px] font-medium ${
+            isMe ? "text-right text-slate-500" : "text-slate-500"
+          }`}
+        >
+          {senderLabel}
+        </p>
+        <div
+          className={
+            isEditing
+              ? "min-w-0 max-w-full text-sm leading-relaxed"
+              : `relative min-w-0 max-w-full rounded-2xl px-5 py-3 pr-12 text-sm leading-relaxed ${bubbleClassName}`
+          }
+        >
+          {isEditing ? (
+            <div
+              className={`min-w-0 max-w-full space-y-3 rounded-2xl px-4 py-4 ${editingShellClassName}`}
+            >
+              <p
+                className={`text-[11px] font-semibold uppercase tracking-[0.12em] ${
+                  isMe ? "text-blue-100/90" : "text-slate-500"
+                }`}
+              >
+                Editing message
+              </p>
+              <textarea
+                value={editingValue ?? ""}
+                onChange={(event) => onEditingValueChange(event.target.value)}
+                rows={3}
+                autoFocus
+                disabled={isBusy}
+                className={`min-h-[104px] w-full resize-none rounded-2xl border px-4 py-3 text-sm leading-relaxed outline-none transition-colors ${
+                  isMe
+                    ? "border-white/20 bg-white/10 text-white placeholder:text-blue-100/80 focus:border-white/50 focus:bg-white/15"
+                    : "border-slate-300 bg-white text-slate-800 placeholder:text-slate-400 focus:border-blue-500"
+                }`}
+              />
+              <div className="flex justify-end gap-2 pt-1">
+                <Button
+                  type="button"
+                  variant={isMe ? "secondary" : "outline"}
+                  size="sm"
+                  onClick={onCancelEdit}
+                  disabled={isBusy}
+                  className={isMe ? "bg-white/15 text-white hover:bg-white/20" : undefined}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => {
+                    void onSaveEdit(message.id);
+                  }}
+                  disabled={isBusy || !editingValue?.trim()}
+                  className={isMe ? "bg-white text-blue-700 hover:bg-blue-50" : undefined}
+                >
+                  {isBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                  <span>{isBusy ? "Saving..." : "Save"}</span>
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div
+                className={`absolute -top-3 right-2 z-10 flex max-w-[calc(100%-1rem)] items-center gap-0.5 rounded-md border border-gray-200 bg-white p-0.5 shadow-sm transition-opacity duration-150 ${
+                  message.isDeleted
+                    ? "opacity-100"
+                    : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
+                }`}
+              >
+                {!message.isDeleted && (
+                  <button
+                    type="button"
+                    onClick={() => onReply(message.id)}
+                    disabled={isBusy}
+                    className="inline-flex h-7 w-7 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-gray-50 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
+                    aria-label="Reply to message"
+                  >
+                    <Reply className="h-4 w-4" />
+                  </button>
+                )}
+                {isMe && !message.isDeleted && (
+                  <button
+                    type="button"
+                    onClick={() => onStartEdit(message)}
+                    disabled={isBusy}
+                    className="inline-flex h-7 w-7 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-gray-50 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
+                    aria-label="Edit message"
+                  >
+                    <Pencil className="h-4 w-4" />
+                  </button>
+                )}
+                {isMe && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void onDeleteMessage(message.id);
+                    }}
+                    disabled={isBusy || message.isDeleted}
+                    className="inline-flex h-7 w-7 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-gray-50 hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-50"
+                    aria-label="Delete message"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                )}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      type="button"
+                      aria-label="More message actions"
+                      className={`inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors ${actionTriggerClassName}`}
+                    >
+                      <MoreHorizontal className="h-4 w-4" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-48">
+                    <DropdownMenuItem
+                      onSelect={() => {
+                        console.log("Mark as evidence clicked", {
+                          messageId: message.id,
+                          projectId: message.projectId,
+                        });
+                        toast.info("Evidence flag action triggered");
+                      }}
+                      disabled={message.isDeleted}
+                    >
+                      <Flag className="h-4 w-4" />
+                      <span>Mark as evidence</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onSelect={() => {
+                        void onTogglePin(message);
+                      }}
+                      disabled={isBusy || message.isDeleted}
+                    >
+                      {message.isPinned ? (
+                        <PinOff className="h-4 w-4" />
+                      ) : (
+                        <Pin className="h-4 w-4" />
+                      )}
+                      <span>{message.isPinned ? "Unpin" : "Pin"}</span>
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+
+              {message.isDeleted ? (
+                <p className="text-gray-500">{DELETED_MESSAGE_PLACEHOLDER}</p>
+              ) : (
+                <>
+                  {replyPreview && (
+                    <button
+                      type="button"
+                      onClick={() => onScrollToMessage(replyPreview.id)}
+                      className={`min-w-0 max-w-full w-full rounded-xl border px-3 py-2 text-left text-xs transition-colors ${
+                        isMe
+                          ? "border-blue-100 bg-white/70 text-blue-900 hover:bg-white"
+                          : "border-gray-100 bg-white text-gray-600 hover:bg-gray-50"
+                      }`}
+                    >
+                      <p className="font-semibold">
+                        {replyPreview.sender?.fullName || "Unknown User"}
+                      </p>
+                      <p className="mt-1 line-clamp-2 whitespace-pre-wrap break-words opacity-90">
+                        {getReplyPreviewText(replyPreview)}
+                      </p>
+                    </button>
+                  )}
+                  {message.content ? (
+                    <div
+                      className={
+                        containsVideoCall
+                          ? "min-w-0 max-w-full"
+                          : "min-w-0 max-w-full whitespace-pre-wrap break-words [overflow-wrap:anywhere]"
+                      }
+                    >
+                      {renderMessageContent(
+                        message.content,
+                        projectMembers,
+                        isMe,
+                        normalizedSearchQuery,
+                        { onJoinCall: onJoinVideoCall },
+                      )}
+                    </div>
+                  ) : null}
+                </>
+              )}
+
+              {!message.isDeleted && message.attachments.length > 0 && (
+                <div className="grid min-w-0 max-w-full gap-2">
+                  {message.attachments.map((attachment) =>
+                    isImageAttachment(attachment) ? (
+                      <a
+                        key={`${message.id}-${attachment.url}`}
+                        href={attachment.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="block max-w-full overflow-hidden rounded-xl border border-gray-100 bg-white"
+                      >
+                        <img
+                          src={attachment.url}
+                          alt={attachment.name}
+                          className="max-h-56 w-full object-cover"
+                          loading="lazy"
+                        />
+                      </a>
+                    ) : (
+                      <a
+                        key={`${message.id}-${attachment.url}`}
+                        href={attachment.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className={`flex min-w-0 max-w-full items-center gap-3 rounded-xl border px-3 py-2 transition-colors ${
+                          isMe
+                            ? "border-blue-100 bg-white/70 text-blue-900 hover:bg-white"
+                            : "border-gray-100 bg-white text-gray-700 hover:bg-gray-50"
+                        }`}
+                      >
+                        <FileText className="h-4 w-4 shrink-0" />
+                        <span className="min-w-0 flex-1 truncate text-sm">{attachment.name}</span>
+                      </a>
+                    ),
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+        {isRiskFlagged && (
+          <p
+            className={`mt-2 flex items-start gap-1 text-[11px] leading-relaxed ${warningClassName}`}
+          >
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <span>{POLICY_WARNING_MESSAGE}</span>
+          </p>
+        )}
+        <p
+          className={`${isRiskFlagged ? "mt-2" : "mt-1"} text-[10px] ${
+            isMe ? "text-right text-slate-400" : "text-slate-400"
+          }`}
+        >
+          {formatMessageTime(message.createdAt)}
+          {message.isEdited && !message.isDeleted ? ` · ${EDITED_MESSAGE_LABEL}` : ""}
+          {message.isPinned ? " · Pinned" : ""}
+        </p>
+      </div>
+    </div>
+  );
+});
+
 export function WorkspaceChatDrawer({
   isOpen = true,
   onClose,
   projectId,
   currentUserId,
   projectMembers = [],
+  workspaceTasks = [],
+  availableMilestoneIds = [],
   canReviewTasks = false,
+  canBrokerReviewTasks,
+  canClientReviewTasks,
   canUseTaskCommand = true,
   taskCommandUnavailableMessage = null,
   defaultMilestoneId = null,
@@ -945,7 +1511,6 @@ export function WorkspaceChatDrawer({
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<WorkspaceChatMessage[]>([]);
   const [isSearchLoading, setIsSearchLoading] = useState(false);
-  const [searchRefreshNonce, setSearchRefreshNonce] = useState(0);
   const [replyingToMessageId, setReplyingToMessageId] = useState<string | null>(null);
   const [activeCallUrl, setActiveCallUrl] = useState<string | null>(null);
   const [isCallWindowMinimized, setIsCallWindowMinimized] = useState(false);
@@ -959,8 +1524,14 @@ export function WorkspaceChatDrawer({
   const joinInFlightRef = useRef<Promise<void> | null>(null);
   const lastSendAttemptAtRef = useRef(0);
   const isLoadingMoreRef = useRef(false);
+  const activeSearchQueryRef = useRef("");
 
-  const resolvedCurrentUserId = currentUserId ?? getStoredCurrentUserId();
+  const resolvedCurrentUserId = currentUserId ?? getStoredCurrentUserId() ?? null;
+  const resolvedCurrentUserRole = getStoredCurrentUserRole();
+  const canActAsBrokerReviewer =
+    canBrokerReviewTasks ?? resolvedCurrentUserRole === "BROKER";
+  const canActAsClientReviewer =
+    canClientReviewTasks ?? resolvedCurrentUserRole === "CLIENT";
   const resolvedTaskCommandUnavailableMessage =
     taskCommandUnavailableMessage || TASK_COMMAND_FALLBACK_MESSAGE;
   const availableSlashCommands = useMemo(
@@ -1009,32 +1580,53 @@ export function WorkspaceChatDrawer({
     !shouldShowCommandPopover &&
     Boolean(mentionContext) &&
     projectMembers.length > 0;
-  const allKnownMessages = useMemo(
-    () => mergeUniqueMessages(messages, searchResults),
-    [messages, searchResults],
-  );
+  const workspaceTaskLookup = useMemo(() => {
+    const byId = new Map<string, Task>();
+    for (const task of workspaceTasks) {
+      byId.set(task.id, task);
+    }
+    return byId;
+  }, [workspaceTasks]);
+  const allKnownMessages = useMemo(() => {
+    const byId = new Map<string, WorkspaceChatMessage>();
+    for (const message of messages) {
+      byId.set(message.id, message);
+    }
+    for (const message of searchResults) {
+      byId.set(message.id, message);
+    }
+    return byId;
+  }, [messages, searchResults]);
   const replyingToMessage = useMemo(
     () =>
       replyingToMessageId
-        ? allKnownMessages.find((message) => message.id === replyingToMessageId) ?? null
+        ? allKnownMessages.get(replyingToMessageId) ?? null
         : null,
     [allKnownMessages, replyingToMessageId],
   );
   const normalizedSearchQuery = debouncedSearchQuery.trim();
   const isSearchActive = normalizedSearchQuery.length > 0;
   const visibleMessages = isSearchActive ? searchResults : messages;
+  useEffect(() => {
+    activeSearchQueryRef.current = normalizedSearchQuery;
+  }, [normalizedSearchQuery]);
   const latestPinnedMessage = useMemo(() => {
-    const pinnedMessages = messages.filter(
-      (message) => message.isPinned && !isSystemMessage(message) && !message.isDeleted,
-    );
-    if (pinnedMessages.length === 0) {
-      return null;
+    let latestMessage: WorkspaceChatMessage | null = null;
+
+    for (const message of messages) {
+      if (!message.isPinned || isSystemMessage(message) || message.isDeleted) {
+        continue;
+      }
+
+      if (
+        !latestMessage ||
+        new Date(message.updatedAt).getTime() > new Date(latestMessage.updatedAt).getTime()
+      ) {
+        latestMessage = message;
+      }
     }
 
-    return [...pinnedMessages].sort(
-      (first, second) =>
-        new Date(second.updatedAt).getTime() - new Date(first.updatedAt).getTime(),
-    )[0];
+    return latestMessage;
   }, [messages]);
   const canSendCurrentMessage =
     Boolean(projectId) &&
@@ -1200,71 +1792,26 @@ export function WorkspaceChatDrawer({
       return defaultMilestoneId;
     }
 
-    if (!projectId) {
-      return null;
-    }
-
-    const milestones = await fetchMilestones(projectId);
-    return milestones[0]?.id ?? null;
-  }, [defaultMilestoneId, projectId]);
-
-  const verifyPersistedTaskFromBoard = useCallback(
-    async (
-      milestoneId: string,
-      createdTask: Task | null | undefined,
-      fallbackTitle: string,
-    ): Promise<Task> => {
-      if (!projectId) {
-        throw new Error("Project context is required to verify the created task.");
-      }
-
-      const board = await fetchBoard(projectId);
-      const boardTasks = Object.values(board).flat();
-      const normalizedMilestoneId = String(milestoneId);
-
-      if (createdTask?.id) {
-        const persistedById = boardTasks.find((task) => task.id === createdTask.id);
-        if (persistedById) {
-          return persistedById;
-        }
-      }
-
-      const normalizedFallbackTitle = fallbackTitle.trim().toLowerCase();
-      const persistedByTitle = boardTasks.filter(
-        (task) =>
-          task.title.trim().toLowerCase() === normalizedFallbackTitle &&
-          String(task.milestoneId ?? "") === normalizedMilestoneId,
-      );
-
-      if (persistedByTitle.length === 1) {
-        return persistedByTitle[0];
-      }
-
-      throw new Error(
-        "Task command did not return a persisted task. Please try again or use Create Task.",
-      );
-    },
-    [projectId],
-  );
+    return availableMilestoneIds[0] ?? null;
+  }, [availableMilestoneIds, defaultMilestoneId]);
 
   const resolveTaskForApproval = useCallback(
     async (taskIdentifier: string): Promise<Task | null> => {
-      if (!projectId) {
+      if (!projectId || workspaceTaskLookup.size === 0) {
         return null;
       }
 
-      const board = await fetchBoard(projectId);
-      const allTasks = Object.values(board).flat();
       const normalizedIdentifier = taskIdentifier.trim().toLowerCase();
+      const availableTasks = Array.from(workspaceTaskLookup.values());
 
-      const exactIdMatch = allTasks.find(
+      const exactIdMatch = availableTasks.find(
         (task) => task.id.toLowerCase() === normalizedIdentifier,
       );
       if (exactIdMatch) {
         return exactIdMatch;
       }
 
-      const exactTitleMatches = allTasks.filter(
+      const exactTitleMatches = availableTasks.filter(
         (task) => task.title.trim().toLowerCase() === normalizedIdentifier,
       );
       if (exactTitleMatches.length > 1) {
@@ -1276,7 +1823,7 @@ export function WorkspaceChatDrawer({
         return exactTitleMatches[0];
       }
 
-      const partialTitleMatches = allTasks.filter((task) =>
+      const partialTitleMatches = availableTasks.filter((task) =>
         task.title.toLowerCase().includes(normalizedIdentifier),
       );
       if (partialTitleMatches.length > 1) {
@@ -1290,20 +1837,22 @@ export function WorkspaceChatDrawer({
 
       return null;
     },
-    [projectId],
+    [projectId, workspaceTaskLookup],
   );
 
-  const resolveLatestPendingSubmission = useCallback(
+  const resolveLatestActionableSubmission = useCallback(
     (submissions: TaskSubmission[]): TaskSubmission | null => {
-      const pendingSubmissions = submissions.filter(
-        (submission) => submission.status === "PENDING",
+      const openSubmissions = submissions.filter(
+        (submission) =>
+          submission.status === "PENDING" ||
+          submission.status === "PENDING_CLIENT_REVIEW",
       );
 
-      if (pendingSubmissions.length === 0) {
+      if (openSubmissions.length === 0) {
         return null;
       }
 
-      pendingSubmissions.sort((first, second) => {
+      openSubmissions.sort((first, second) => {
         if (first.version !== second.version) {
           return second.version - first.version;
         }
@@ -1313,14 +1862,34 @@ export function WorkspaceChatDrawer({
         );
       });
 
-      return pendingSubmissions[0];
+      const preferredStatus = canActAsBrokerReviewer && !canActAsClientReviewer
+        ? "PENDING"
+        : canActAsClientReviewer && !canActAsBrokerReviewer
+          ? "PENDING_CLIENT_REVIEW"
+          : null;
+
+      if (preferredStatus) {
+        return (
+          openSubmissions.find(
+            (submission) => submission.status === preferredStatus,
+          ) ?? null
+        );
+      }
+
+      return openSubmissions[0];
     },
-    [],
+    [canActAsBrokerReviewer, canActAsClientReviewer],
   );
 
   const upsertMutatedMessage = useCallback((message: WorkspaceChatMessage) => {
-    setMessages((currentMessages) => mergeUniqueMessages(currentMessages, [message]));
-    setSearchRefreshNonce((currentValue) => currentValue + 1);
+    setMessages((currentMessages) => upsertSortedMessage(currentMessages, message));
+    setSearchResults((currentMessages) =>
+      upsertSearchResultsWithMessage(
+        currentMessages,
+        message,
+        activeSearchQueryRef.current,
+      ),
+    );
   }, []);
 
   const clearReplyTarget = useCallback(() => {
@@ -1364,6 +1933,13 @@ export function WorkspaceChatDrawer({
     }, 1800);
   }, []);
 
+  const registerMessageRef = useCallback(
+    (messageId: string, node: HTMLDivElement | null) => {
+      messageRefs.current[messageId] = node;
+    },
+    [],
+  );
+
   const handleAttachmentPickerClick = useCallback(() => {
     fileInputRef.current?.click();
   }, []);
@@ -1385,11 +1961,11 @@ export function WorkspaceChatDrawer({
       try {
         const uploadedAttachments = await Promise.all(
           files.map(async (file) => {
-            const url = await uploadImageToServer(file);
+            const uploaded = await uploadImageToServer(file);
             return {
-              url,
-              name: file.name || "attachment",
-              type: file.type || "application/octet-stream",
+              url: uploaded.url,
+              name: uploaded.fileName || file.name || "attachment",
+              type: uploaded.fileType || file.type || "application/octet-stream",
             } satisfies WorkspaceChatAttachment;
           }),
         );
@@ -1447,6 +2023,10 @@ export function WorkspaceChatDrawer({
   const handleCancelEdit = useCallback(() => {
     setEditingMessageId(null);
     setEditingValue("");
+  }, []);
+
+  const handleEditingValueChange = useCallback((value: string) => {
+    setEditingValue(value);
   }, []);
 
   const handleSaveEdit = useCallback(
@@ -1724,17 +2304,17 @@ export function WorkspaceChatDrawer({
           milestoneId,
         });
 
-        const persistedTask = await verifyPersistedTaskFromBoard(
-          milestoneId,
-          createdTask,
-          taskTitle,
-        );
+        if (!createdTask?.id) {
+          throw new Error(
+            "Task command did not return a persisted task. Please try again or use Create Task.",
+          );
+        }
 
-        onTaskCreated?.(persistedTask);
+        onTaskCreated?.(createdTask);
         setInputValue("");
         clearReplyTarget();
         closeMentionPopover();
-        toast.success(`Task created: ${persistedTask.title}`);
+        toast.success(`Task created: ${createdTask.title}`);
       } catch (error) {
         const errorMessage = getTaskCommandErrorMessage(error);
         console.error("Failed to execute /task command", error);
@@ -1768,9 +2348,9 @@ export function WorkspaceChatDrawer({
         }
 
         const submissions = await fetchTaskSubmissions(targetTask.id);
-        const pendingSubmission = resolveLatestPendingSubmission(submissions);
+        const pendingSubmission = resolveLatestActionableSubmission(submissions);
         if (!pendingSubmission) {
-          toast.error("This task does not have a pending submission to review yet.");
+          toast.error("This task does not have a submission waiting for your review yet.");
           return;
         }
 
@@ -1783,7 +2363,11 @@ export function WorkspaceChatDrawer({
         setInputValue("");
         clearReplyTarget();
         closeMentionPopover();
-        toast.success("Task approved successfully!");
+        toast.success(
+          pendingSubmission.status === "PENDING"
+            ? "Broker review completed and sent to client."
+            : "Client approval completed. Task marked DONE.",
+        );
       } catch (error) {
         const errorMessage =
           error instanceof Error ? error.message : "Failed to approve task from command";
@@ -1847,11 +2431,10 @@ export function WorkspaceChatDrawer({
       projectId,
       replyingToMessageId,
       resolvedTaskCommandUnavailableMessage,
-      resolveLatestPendingSubmission,
+      resolveLatestActionableSubmission,
       resolveTaskForApproval,
       resolveTaskMilestoneId,
       sendMessagePayload,
-      verifyPersistedTaskFromBoard,
       triggerSlashCommand,
     ]);
 
@@ -1947,80 +2530,574 @@ export function WorkspaceChatDrawer({
     ],
   );
 
-  const handleExportChat = useCallback(() => {
+  const handleExportChat = useCallback(async () => {
     if (!projectId) {
       toast.error("Missing project context. Unable to export chat.");
       return;
     }
 
-    if (messages.length === 0) {
+    if (visibleMessages.length === 0) {
       toast.error("There are no chat records to export yet.");
       return;
     }
 
-    const exportedAt = new Date();
-    const dataRows = messages.map((message) => {
-      const messageType = isSystemMessage(message) ? "System" : "User";
-      const senderLabel = isSystemMessage(message)
+    try {
+      const exportedAt = new Date();
+      const exporterRole = resolvedCurrentUserRole || "UNKNOWN";
+      const exporterMember = resolvedCurrentUserId
+        ? projectMembers.find((member) => member.id === resolvedCurrentUserId)
+        : undefined;
+      const exportedBy = exporterMember
+        ? `${exporterMember.fullName} (${exporterMember.role})`
+        : resolvedCurrentUserId
+          ? `${resolvedCurrentUserId} (${exporterRole})`
+          : "Unknown user";
+
+      const exportMessages = visibleMessages;
+      const totalMessages = exportMessages.length;
+      const systemMessages = exportMessages.filter((message) => isSystemMessage(message)).length;
+      const userMessages = totalMessages - systemMessages;
+      const userConversationMessages = exportMessages.filter((message) => !isSystemMessage(message));
+      const systemEventMessages = exportMessages.filter((message) => isSystemMessage(message));
+      const totalAttachments = exportMessages.reduce(
+        (total, message) => total + message.attachments.length,
+        0,
+      );
+      const timezoneName = Intl.DateTimeFormat().resolvedOptions().timeZone || "Local timezone";
+      const timezoneLabel = `${timezoneName} (${formatAuditTimestamp(exportedAt.toISOString()).split(" ").at(-1) || "UTC"})`;
+
+      const timestampRange = exportMessages.reduce(
+        (range, message) => {
+          const timestamp = new Date(message.createdAt).getTime();
+          if (Number.isNaN(timestamp)) {
+            return range;
+          }
+
+          return {
+            earliest: range.earliest == null ? timestamp : Math.min(range.earliest, timestamp),
+            latest: range.latest == null ? timestamp : Math.max(range.latest, timestamp),
+          };
+        },
+        { earliest: null as number | null, latest: null as number | null },
+      );
+
+      const participantsById = new Map<
+        string,
+        { id: string; fullName: string; role: string | null }
+      >();
+      for (const member of projectMembers) {
+        participantsById.set(member.id, {
+          id: member.id,
+          fullName: member.fullName,
+          role: member.role,
+        });
+      }
+      for (const message of exportMessages) {
+        if (!message.senderId) {
+          continue;
+        }
+        if (participantsById.has(message.senderId)) {
+          continue;
+        }
+        participantsById.set(message.senderId, {
+          id: message.senderId,
+          fullName:
+            message.sender?.fullName?.trim() || `User ${message.senderId.slice(0, 8)}`,
+          role: message.sender?.role || null,
+        });
+      }
+
+      const participants = Array.from(participantsById.values());
+      const participantCount = participants.length;
+      const participantNames =
+        participants.length === 0
+          ? "N/A"
+          : participants
+              .map((participant) => participant.fullName)
+              .sort((left, right) => left.localeCompare(right))
+              .join(", ");
+
+      const userRoleCountMap = participants.reduce<Record<string, number>>((counts, participant) => {
+        const normalizedRole = String(participant.role || "OTHER").toUpperCase();
+        counts[normalizedRole] = (counts[normalizedRole] ?? 0) + 1;
+        return counts;
+      }, {});
+      const participantsByRoleSummary = Object.entries(userRoleCountMap)
+        .sort(([leftRole], [rightRole]) => leftRole.localeCompare(rightRole))
+        .map(([role, count]) => `${role}: ${count}`)
+        .join(" | ");
+
+      const styleHeaderRow = (sheet: ReturnType<Workbook["addWorksheet"]>, rowNumber: number, color: string) => {
+      const row = sheet.getRow(rowNumber);
+      row.font = { name: "Arial", size: 11, bold: true, color: { argb: "FFFFFFFF" } };
+      row.fill = { type: "pattern", pattern: "solid", fgColor: { argb: color } };
+      row.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
+      row.height = 24;
+    };
+
+    const styleDataRow = (
+      row: ReturnType<ReturnType<Workbook["addWorksheet"]>["addRow"]>,
+      options?: {
+        wrapColumns?: number[];
+        centerColumns?: number[];
+        rowFill?: Fill | null;
+      },
+    ) => {
+      const wrapColumns = options?.wrapColumns ?? [];
+      const centerColumns = options?.centerColumns ?? [];
+
+      row.eachCell((cell, columnNumber) => {
+        cell.font = { name: "Arial", size: 10, color: { argb: "FF111827" } };
+        cell.alignment = {
+          vertical: "top",
+          horizontal: centerColumns.includes(columnNumber) ? "center" : "left",
+          wrapText: wrapColumns.includes(columnNumber),
+        };
+        cell.border = {
+          top: { style: "thin", color: { argb: "FFE5E7EB" } },
+          left: { style: "thin", color: { argb: "FFE5E7EB" } },
+          bottom: { style: "thin", color: { argb: "FFE5E7EB" } },
+          right: { style: "thin", color: { argb: "FFE5E7EB" } },
+        };
+        if (options?.rowFill) {
+          cell.fill = options.rowFill;
+        }
+      });
+    };
+
+    const workbook = new Workbook();
+    workbook.creator = "InterDev Workspace Chat";
+    workbook.created = exportedAt;
+    workbook.modified = exportedAt;
+
+    const summarySheet = workbook.addWorksheet("Summary");
+    summarySheet.columns = [
+      { width: 30 },
+      { width: 88 },
+    ];
+
+    summarySheet.addRow(["Workspace Chat Export Summary", ""]);
+    summarySheet.mergeCells("A1:B1");
+    const summaryTitleCell = summarySheet.getCell("A1");
+    summaryTitleCell.font = { name: "Arial", size: 14, bold: true, color: { argb: "FFFFFFFF" } };
+    summaryTitleCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1F4E78" } };
+    summaryTitleCell.alignment = { vertical: "middle", horizontal: "left" };
+    summarySheet.getRow(1).height = 24;
+
+    const summaryRows: Array<[string, string | number]> = [
+      ["Project title", projectTitle || "Project Workspace Chat"],
+      ["Project ID", projectId],
+      ["Exported at", formatAuditTimestamp(exportedAt.toISOString())],
+      ["Exported by", exportedBy],
+      ["Timezone", timezoneLabel],
+      [
+        "Export scope",
+        isSearchActive
+          ? "Filtered/search export (current filtered messages)"
+          : "Full loaded chat (current loaded messages)",
+      ],
+      [
+        "Message range",
+        timestampRange.earliest != null && timestampRange.latest != null
+          ? `${formatAuditTimestamp(new Date(timestampRange.earliest).toISOString())} -> ${formatAuditTimestamp(
+              new Date(timestampRange.latest).toISOString(),
+            )}`
+          : "N/A",
+      ],
+      ["Participant count", participantCount],
+      ["Participant names", participantNames],
+      ["Participants by role", participantsByRoleSummary || "N/A"],
+      ["System event count", systemMessages],
+      ["Total messages", totalMessages],
+      ["User messages", userMessages],
+      ["Total attachments", totalAttachments],
+      [
+        "Search/filter context",
+        isSearchActive
+          ? `Search query: "${normalizedSearchQuery}". Export source: current filtered messages.`
+          : "No search filter. Export source: current loaded messages.",
+      ],
+    ];
+
+    for (const [label, value] of summaryRows) {
+      const row = summarySheet.addRow([label, value]);
+      row.getCell(1).font = { name: "Arial", size: 11, bold: true, color: { argb: "FF1F2937" } };
+      row.getCell(2).font = { name: "Arial", size: 11, color: { argb: "FF111827" } };
+      row.getCell(1).fill = {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: "FFEFF3F8" },
+      };
+      row.getCell(1).alignment = { vertical: "top" };
+      row.getCell(2).alignment = { vertical: "top", wrapText: true };
+    }
+
+    const summaryDividerRow = summarySheet.addRow(["", ""]);
+    summaryDividerRow.height = 10;
+    const legalTitleRow = summarySheet.addRow(["Export / Legal note", LEGAL_EXPORT_FOOTER]);
+    legalTitleRow.getCell(1).font = { name: "Arial", size: 11, bold: true, color: { argb: "FF7C2D12" } };
+    legalTitleRow.getCell(1).fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FFFFF7ED" },
+    };
+    legalTitleRow.getCell(2).font = { name: "Arial", size: 10, color: { argb: "FF7C2D12" } };
+    legalTitleRow.getCell(2).alignment = { vertical: "top", wrapText: true };
+
+    const messagesSheet = workbook.addWorksheet("Messages", {
+      views: [{ state: "frozen", ySplit: 1 }],
+    });
+    messagesSheet.columns = [
+      { header: "Timestamp", key: "timestamp", width: 22 },
+      { header: "Sender", key: "sender", width: 24 },
+      { header: "Sender Role", key: "senderRole", width: 16 },
+      { header: "Message Type", key: "messageType", width: 14 },
+      { header: "Message Text", key: "messageText", width: 58 },
+      { header: "Reply To Sender", key: "replyToSender", width: 22 },
+      { header: "Reply To Snippet", key: "replyToSnippet", width: 34 },
+      { header: "Attachment Count", key: "attachmentCount", width: 16 },
+      { header: "Attachment Summary", key: "attachmentSummary", width: 34 },
+      { header: "Flags", key: "flags", width: 20 },
+      { header: "Risk Flags", key: "riskFlags", width: 26 },
+      { header: "Task Title", key: "taskTitle", width: 28 },
+    ];
+
+    styleHeaderRow(messagesSheet, 1, "FF0F766E");
+    messagesSheet.autoFilter = {
+      from: { row: 1, column: 1 },
+      to: { row: 1, column: messagesSheet.columnCount },
+    };
+
+    const systemFill: Fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FFEFF6FF" },
+    };
+    const deletedFill: Fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FFF3F4F6" },
+    };
+    const pinnedFill: Fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FFFFFBEB" },
+    };
+    const riskFill: Fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FFFEF2F2" },
+    };
+
+    for (const message of userConversationMessages) {
+      const isSystem = isSystemMessage(message);
+      const senderLabel = isSystem
         ? "System"
         : message.sender?.fullName?.trim() ||
           (message.senderId ? `User ${message.senderId.slice(0, 8)}` : "Unknown User");
-      const riskFlags = getMessageRiskFlags(message);
+      const senderRole = message.sender?.role || (isSystem ? "SYSTEM" : "UNKNOWN");
+      const visibleContent = normalizeExportText(
+        decodeHtmlEntities(getVisibleMessageContent(message)),
+      );
+      const replyToSender = message.replyTo?.sender?.fullName || "";
+      const replyToSnippet = message.replyTo
+        ? normalizeExportText(getReplyPreviewText(message.replyTo))
+        : "";
+      const riskFlags = message.isDeleted ? [] : getMessageRiskFlags(message);
       const attachmentSummary =
-        message.attachments.length > 0
-          ? ` | Attachments: ${message.attachments
-              .map((attachment) => attachment.name)
-              .join("; ")}`
-          : "";
-      const contentBase = getVisibleMessageContent(message);
-      const content =
-        riskFlags.length === 0 || message.isDeleted
-          ? `${contentBase}${attachmentSummary}`
-          : `${contentBase}${attachmentSummary} | Warning: ${POLICY_WARNING_MESSAGE} Matched flags: ${riskFlags.join(", ")}.`;
+        message.attachments.length === 0
+          ? ""
+          : message.attachments.length === 1
+            ? message.attachments[0].name
+            : `${message.attachments.length} files: ${message.attachments
+                .map((attachment) => attachment.name)
+                .join("; ")}`;
+      const flags = [
+        message.isEdited ? "EDITED" : null,
+        message.isDeleted ? "DELETED" : null,
+        message.isPinned ? "PINNED" : null,
+      ]
+        .filter((flag): flag is string => Boolean(flag))
+        .join(" | ");
+      const task = message.taskId ? workspaceTaskLookup.get(message.taskId) : undefined;
 
-      return [
-        formatLegalTimestamp(message.createdAt),
-        senderLabel,
-        messageType,
-        sanitizeExcelContent(content),
+      const row = messagesSheet.addRow({
+        timestamp: formatAuditTimestamp(message.createdAt),
+        sender: senderLabel,
+        senderRole,
+        messageType: isSystem ? "System" : "User",
+        messageText: visibleContent,
+        replyToSender,
+        replyToSnippet,
+        attachmentCount: message.attachments.length,
+        attachmentSummary,
+        flags,
+        riskFlags: riskFlags.join(", "),
+        taskTitle: task?.title || "",
+      });
+
+      const rowFill = message.isDeleted
+        ? deletedFill
+        : riskFlags.length > 0
+          ? riskFill
+          : message.isPinned
+            ? pinnedFill
+            : isSystem
+              ? systemFill
+              : null;
+
+      styleDataRow(row, {
+        centerColumns: [8],
+        wrapColumns: [5, 7, 9, 10, 11, 12],
+        rowFill,
+      });
+    }
+
+    if (systemEventMessages.length > 0) {
+      const systemSheet = workbook.addWorksheet("System Events", {
+        views: [{ state: "frozen", ySplit: 1 }],
+      });
+
+      systemSheet.columns = [
+        { header: "Timestamp", key: "timestamp", width: 22 },
+        { header: "Category", key: "category", width: 16 },
+        { header: "Event Type", key: "messageType", width: 14 },
+        { header: "Event Text", key: "messageText", width: 56 },
+        { header: "Reply To Sender", key: "replyToSender", width: 22 },
+        { header: "Reply To Snippet", key: "replyToSnippet", width: 34 },
+        { header: "Attachment Summary", key: "attachmentSummary", width: 34 },
+        { header: "Risk Flags", key: "riskFlags", width: 24 },
       ];
+
+      styleHeaderRow(systemSheet, 1, "FF1D4ED8");
+      systemSheet.autoFilter = {
+        from: { row: 1, column: 1 },
+        to: { row: 1, column: systemSheet.columnCount },
+      };
+
+      for (const message of systemEventMessages) {
+        const riskFlags = message.isDeleted ? [] : getMessageRiskFlags(message);
+        const row = systemSheet.addRow({
+          timestamp: formatAuditTimestamp(message.createdAt),
+          category: getSystemEventCategory(message),
+          messageType: "System",
+          messageText: normalizeExportText(decodeHtmlEntities(getVisibleMessageContent(message))),
+          replyToSender: message.replyTo?.sender?.fullName || "",
+          replyToSnippet: message.replyTo
+            ? normalizeExportText(getReplyPreviewText(message.replyTo))
+            : "",
+          attachmentSummary:
+            message.attachments.length === 0
+              ? ""
+              : message.attachments.map((attachment) => attachment.name).join("; "),
+          riskFlags: riskFlags.join(", "),
+        });
+
+        styleDataRow(row, {
+          wrapColumns: [4, 6, 7, 8],
+          rowFill: systemFill,
+        });
+      }
+    }
+
+    const attachmentRows = exportMessages.flatMap((message) => {
+      const isSystem = isSystemMessage(message);
+      const senderLabel = isSystem
+        ? "System"
+        : message.sender?.fullName?.trim() ||
+          (message.senderId ? `User ${message.senderId.slice(0, 8)}` : "Unknown User");
+      const senderRole = message.sender?.role || (isSystem ? "SYSTEM" : "UNKNOWN");
+
+      return message.attachments.map((attachment) => ({
+        timestamp: formatAuditTimestamp(message.createdAt),
+        sender: senderLabel,
+        senderRole,
+        fileName: normalizeExportText(decodeHtmlEntities(attachment.name)),
+        fileType: attachment.type,
+        fileUrl: attachment.url,
+        messageId: message.id,
+        projectId: message.projectId,
+      }));
     });
 
-    const worksheetRows = [
-      ["Metadata", "Value", "", ""],
-      ["Project", projectTitle, "", ""],
-      ["Project ID", projectId, "", ""],
-      ["Exported At", formatLegalTimestamp(exportedAt.toISOString()), "", ""],
-      ["", "", "", ""],
-      ["Timestamp", "Sender", "Type", "Content"],
-      ...dataRows,
-      ["", "", "", ""],
-      ["Legal Footer", LEGAL_EXPORT_FOOTER, "", ""],
+    if (attachmentRows.length > 0) {
+      const attachmentsSheet = workbook.addWorksheet("Attachments", {
+        views: [{ state: "frozen", ySplit: 1 }],
+      });
+
+      attachmentsSheet.columns = [
+        { header: "Message Timestamp", key: "timestamp", width: 22 },
+        { header: "Sender", key: "sender", width: 24 },
+        { header: "Sender Role", key: "senderRole", width: 16 },
+        { header: "File Name", key: "fileName", width: 36 },
+        { header: "File Type", key: "fileType", width: 20 },
+        { header: "File URL", key: "fileUrl", width: 56 },
+        { header: "Message ID", key: "messageId", width: 18 },
+        { header: "Project ID", key: "projectId", width: 18 },
+      ];
+
+      styleHeaderRow(attachmentsSheet, 1, "FF334155");
+      attachmentsSheet.autoFilter = {
+        from: { row: 1, column: 1 },
+        to: { row: 1, column: attachmentsSheet.columnCount },
+      };
+
+      for (const rowData of attachmentRows) {
+        const row = attachmentsSheet.addRow(rowData);
+        styleDataRow(row, {
+          wrapColumns: [4, 6],
+        });
+      }
+    }
+
+    const auditSheet = workbook.addWorksheet("Audit", {
+      views: [{ state: "frozen", ySplit: 1 }],
+    });
+    auditSheet.columns = [
+      { width: 24 },
+      { width: 22 },
+      { width: 20 },
+      { width: 18 },
+      { width: 14 },
+      { width: 18 },
+      { width: 18 },
+      { width: 18 },
+      { width: 14 },
+      { width: 14 },
     ];
 
-    const safeProjectLabel = (projectTitle || projectId)
-      .replace(/[^a-z0-9]+/gi, "_")
-      .replace(/^_+|_+$/g, "")
-      .slice(0, 48) || "Project";
-    const safeTimestamp = exportedAt.toISOString().replace(/[:.]/g, "-");
-    const worksheet = XLSX.utils.aoa_to_sheet(worksheetRows);
-    worksheet["!cols"] = [
-      { wch: 20 },
-      { wch: 24 },
-      { wch: 14 },
-      { wch: 100 },
+    auditSheet.addRow(["Audit Metadata", ""]);
+    auditSheet.mergeCells("A1:J1");
+    const auditTitleCell = auditSheet.getCell("A1");
+    auditTitleCell.font = { name: "Arial", size: 13, bold: true, color: { argb: "FFFFFFFF" } };
+    auditTitleCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF111827" } };
+    auditTitleCell.alignment = { vertical: "middle", horizontal: "left" };
+    auditSheet.getRow(1).height = 24;
+
+    const auditMetaRows: Array<[string, string | number]> = [
+      ["Project ID", projectId],
+      ["Generated at", formatAuditTimestamp(exportedAt.toISOString())],
+      ["Exported by", exportedBy],
+      ["Message count", totalMessages],
+      ["Attachment count", totalAttachments],
+      [
+        "Search/filter context",
+        isSearchActive ? `Search query: "${normalizedSearchQuery}"` : "No search query",
+      ],
+      ["Legal / export note", LEGAL_EXPORT_FOOTER],
     ];
-    worksheet["!autofilter"] = {
-      ref: "A6:D6",
+
+    for (const [label, value] of auditMetaRows) {
+      const row = auditSheet.addRow([label, value]);
+      row.getCell(1).font = { name: "Arial", size: 11, bold: true, color: { argb: "FF1F2937" } };
+      row.getCell(2).font = { name: "Arial", size: 10, color: { argb: "FF111827" } };
+      row.getCell(1).fill = {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: "FFF3F4F6" },
+      };
+      row.getCell(2).alignment = { vertical: "top", wrapText: true };
+      auditSheet.mergeCells(`B${row.number}:J${row.number}`);
+      for (let column = 1; column <= 10; column += 1) {
+        row.getCell(column).border = {
+          top: { style: "thin", color: { argb: "FFE5E7EB" } },
+          left: { style: "thin", color: { argb: "FFE5E7EB" } },
+          bottom: { style: "thin", color: { argb: "FFE5E7EB" } },
+          right: { style: "thin", color: { argb: "FFE5E7EB" } },
+        };
+      }
+    }
+
+    const auditTableStartRow = auditSheet.rowCount + 3;
+    auditSheet.getCell(`A${auditTableStartRow}`).value = "Technical Message Mapping";
+    auditSheet.getCell(`A${auditTableStartRow}`).font = {
+      name: "Arial",
+      size: 11,
+      bold: true,
+      color: { argb: "FF111827" },
     };
 
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Chat Record");
-    XLSX.writeFile(workbook, `Project_${safeProjectLabel}_${safeTimestamp}_ChatRecord.xlsx`, {
-      compression: true,
+    const auditTableHeaderRowNumber = auditTableStartRow + 1;
+    const auditHeaders = [
+      "Timestamp",
+      "Message ID",
+      "Project ID",
+      "Sender ID",
+      "Sender Role",
+      "Task ID",
+      "Milestone ID",
+      "Reply To ID",
+      "Message Type",
+      "Attachment Count",
+    ];
+    const auditHeaderRow = auditSheet.getRow(auditTableHeaderRowNumber);
+    auditHeaders.forEach((header, index) => {
+      auditHeaderRow.getCell(index + 1).value = header;
     });
-    toast.success("Chat record exported as Excel.");
-  }, [messages, projectId, projectTitle]);
+    styleHeaderRow(auditSheet, auditTableHeaderRowNumber, "FF374151");
+    auditSheet.autoFilter = {
+      from: { row: auditTableHeaderRowNumber, column: 1 },
+      to: { row: auditTableHeaderRowNumber, column: auditHeaders.length },
+    };
+
+    for (const message of exportMessages) {
+      const relatedTask = message.taskId ? workspaceTaskLookup.get(message.taskId) : undefined;
+      const row = auditSheet.addRow([
+        formatAuditTimestamp(message.createdAt),
+        message.id,
+        message.projectId,
+        message.senderId || "",
+        message.sender?.role || (isSystemMessage(message) ? "SYSTEM" : ""),
+        message.taskId || "",
+        relatedTask?.milestoneId || "",
+        message.replyToId || "",
+        message.messageType,
+        message.attachments.length,
+      ]);
+
+      styleDataRow(row, {
+        centerColumns: [10],
+      });
+    }
+
+    const safeProjectLabel = (projectTitle || projectId)
+      .replace(/[^a-z0-9]+/gi, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 48) || "project";
+    const fileName = `WorkspaceChat_${safeProjectLabel}_${formatExportFileTimestamp(
+      exportedAt,
+    )}_record.xlsx`;
+
+      const workbookBuffer = await workbook.xlsx.writeBuffer();
+      const successMessage = await emailWorkspaceChatExportFile(
+        {
+          projectId,
+          fileName,
+          workbookBuffer,
+        },
+        {
+          sendExport: emailWorkspaceChatExport,
+        },
+      );
+
+      toast.success(successMessage || WORKSPACE_CHAT_EXPORT_EMAIL_SUCCESS_MESSAGE);
+    } catch (error) {
+      toast.error(
+        getApiErrorDetails(error, "Failed to email the chat log export.").message,
+      );
+    }
+  }, [
+    emailWorkspaceChatExport,
+    isSearchActive,
+    normalizedSearchQuery,
+    projectId,
+    projectMembers,
+    projectTitle,
+    resolvedCurrentUserId,
+    resolvedCurrentUserRole,
+    visibleMessages,
+    workspaceTaskLookup,
+  ]);
 
   const loadOlderMessages = useCallback(async () => {
     if (
@@ -2191,7 +3268,7 @@ export function WorkspaceChatDrawer({
     return () => {
       cancelled = true;
     };
-  }, [isOpen, normalizedSearchQuery, projectId, searchRefreshNonce]);
+  }, [isOpen, normalizedSearchQuery, projectId]);
 
   useEffect(() => {
     if (!isOpen || !projectId) {
@@ -2228,17 +3305,13 @@ export function WorkspaceChatDrawer({
     };
 
     const handleNewProjectMessage = (incoming: Partial<WorkspaceChatMessage>) => {
-      console.log("Received newProjectMessage", incoming);
       const normalizedMessage = normalizeWorkspaceMessage(incoming);
       if (!normalizedMessage || normalizedMessage.projectId !== projectId) {
         return;
       }
 
       const shouldAutoScroll = isNearBottom();
-      setMessages((currentMessages) =>
-        mergeUniqueMessages(currentMessages, [normalizedMessage]),
-      );
-      setSearchRefreshNonce((currentValue) => currentValue + 1);
+      upsertMutatedMessage(normalizedMessage);
 
       if (shouldAutoScroll) {
         window.requestAnimationFrame(() => {
@@ -2313,9 +3386,6 @@ export function WorkspaceChatDrawer({
 
     return () => {
       if (joinedProjectIdRef.current === projectId) {
-        socket.emit("leaveProjectChat", { projectId });
-      }
-      if (joinedProjectIdRef.current === projectId) {
         joinedProjectIdRef.current = null;
       }
       joinInFlightRef.current = null;
@@ -2326,7 +3396,14 @@ export function WorkspaceChatDrawer({
       socket.off("workspaceChatError", handleWorkspaceChatError);
       socket.off("exception", handleSocketException);
     };
-  }, [ensureProjectRoomJoin, isNearBottom, isOpen, projectId, scrollToBottom]);
+  }, [
+    ensureProjectRoomJoin,
+    isNearBottom,
+    isOpen,
+    projectId,
+    scrollToBottom,
+    upsertMutatedMessage,
+  ]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -2370,6 +3447,52 @@ export function WorkspaceChatDrawer({
       ? "h-[min(88vh,760px)] w-[min(92vw,960px)]"
       : "h-[min(78vh,560px)] w-[min(92vw,420px)]";
   const activeCallWindowPositionClassName = isOpen ? "mb-24 sm:mb-0 sm:mr-96" : "";
+  const renderedMessages = useMemo(
+    () =>
+      visibleMessages.map((message) => (
+        <WorkspaceChatMessageRow
+          key={message.id}
+          message={message}
+          currentUserId={resolvedCurrentUserId}
+          projectMembers={projectMembers}
+          normalizedSearchQuery={normalizedSearchQuery}
+          editingValue={editingMessageId === message.id ? editingValue : undefined}
+          isEditing={editingMessageId === message.id}
+          isBusy={activeMessageActionId === message.id}
+          isHighlighted={highlightedMessageId === message.id}
+          onEditingValueChange={handleEditingValueChange}
+          onReply={handleReplyToMessage}
+          onStartEdit={handleStartEdit}
+          onCancelEdit={handleCancelEdit}
+          onSaveEdit={handleSaveEdit}
+          onDeleteMessage={handleDeleteMessage}
+          onTogglePin={handleTogglePin}
+          onScrollToMessage={scrollToMessage}
+          onJoinVideoCall={handleJoinVideoCall}
+          registerMessageRef={registerMessageRef}
+        />
+      )),
+    [
+      activeMessageActionId,
+      editingMessageId,
+      editingValue,
+      handleCancelEdit,
+      handleDeleteMessage,
+      handleEditingValueChange,
+      handleJoinVideoCall,
+      handleReplyToMessage,
+      handleSaveEdit,
+      handleStartEdit,
+      handleTogglePin,
+      highlightedMessageId,
+      normalizedSearchQuery,
+      projectMembers,
+      registerMessageRef,
+      resolvedCurrentUserId,
+      scrollToMessage,
+      visibleMessages,
+    ],
+  );
 
   return (
     <>
@@ -2478,355 +3601,7 @@ export function WorkspaceChatDrawer({
                 : "No messages yet. Start the conversation."}
             </p>
           ) : (
-            visibleMessages.map((message) => {
-              const systemMessage = isSystemMessage(message);
-              const riskFlags = getMessageRiskFlags(message);
-              const isRiskFlagged = !message.isDeleted && riskFlags.length > 0;
-              const isMe =
-                Boolean(resolvedCurrentUserId) &&
-                message.senderId === resolvedCurrentUserId;
-              const isEditing = editingMessageId === message.id;
-              const isBusy = activeMessageActionId === message.id;
-              const replyPreview = !message.isDeleted ? message.replyTo : null;
-              const containsVideoCall = Boolean(extractWorkspaceVideoCall(message.content));
-
-              if (systemMessage) {
-                return (
-                  <div
-                    key={message.id}
-                    ref={(node) => {
-                      messageRefs.current[message.id] = node;
-                    }}
-                    className="flex min-w-0 max-w-full justify-center py-1"
-                  >
-                    <div
-                      className={
-                        containsVideoCall
-                          ? "min-w-0 w-full max-w-[min(100%,22rem)]"
-                          : "min-w-0 max-w-[85%] text-center"
-                      }
-                    >
-                      <div
-                        className={
-                          containsVideoCall
-                            ? "min-w-0 max-w-full"
-                            : "min-w-0 max-w-full whitespace-pre-wrap break-words text-xs font-normal text-gray-400 [overflow-wrap:anywhere]"
-                        }
-                      >
-                        {renderMessageContent(
-                          message.content,
-                          projectMembers,
-                          false,
-                          normalizedSearchQuery,
-                          { onJoinCall: handleJoinVideoCall },
-                        )}
-                      </div>
-                      <div className="mt-1 flex items-center justify-center gap-1.5 text-[10px] text-gray-400">
-                        <span>{formatMessageTime(message.createdAt)}</span>
-                        {!message.isDeleted && (
-                          <button
-                            type="button"
-                            onClick={() => handleReplyToMessage(message.id)}
-                            className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium text-gray-400 transition-colors hover:text-blue-600"
-                          >
-                            <Reply className="h-3 w-3" />
-                            <span>Reply</span>
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                );
-              }
-
-              const senderLabel = isMe
-                ? "You"
-                : message.sender?.fullName ||
-                  (message.senderId ? `User ${message.senderId.slice(0, 6)}` : "Unknown User");
-              const bubbleClassName = message.isDeleted
-                ? "rounded-2xl border border-rose-100 bg-white text-rose-700"
-                : isMe
-                  ? isRiskFlagged
-                    ? "rounded-2xl rounded-tr-md border border-rose-100 bg-rose-50 text-rose-900"
-                    : "rounded-2xl rounded-tr-md border border-blue-100 bg-blue-50 text-blue-900"
-                  : isRiskFlagged
-                    ? "rounded-2xl rounded-tl-md border border-rose-100 bg-rose-50 text-rose-900"
-                    : "rounded-2xl rounded-tl-md border border-gray-100 bg-white text-gray-900";
-              const editingShellClassName = isMe
-                ? "rounded-2xl rounded-tr-md border border-blue-100 bg-blue-50 text-blue-900"
-                : "rounded-2xl rounded-tl-md border border-gray-100 bg-white text-gray-900";
-              const warningClassName = isMe ? "justify-end text-right text-rose-700" : "text-rose-700";
-              const actionTriggerClassName = message.isDeleted
-                ? "text-rose-400 hover:text-rose-600"
-                : "text-gray-400 hover:text-blue-600";
-
-              return (
-                <div
-                  key={message.id}
-                  ref={(node) => {
-                    messageRefs.current[message.id] = node;
-                  }}
-                  className={`group relative flex min-w-0 max-w-full ${
-                    isMe ? "justify-end" : "justify-start"
-                  } ${highlightedMessageId === message.id ? "rounded-2xl ring-2 ring-amber-300/80 ring-offset-2 ring-offset-slate-50" : ""}`}
-                >
-                  <div
-                    className={`flex min-w-0 max-w-[85%] flex-col ${isMe ? "items-end" : "items-start"}`}
-                  >
-                    <p
-                      className={`mb-1 text-[11px] font-medium ${
-                        isMe ? "text-right text-slate-500" : "text-slate-500"
-                      }`}
-                    >
-                      {senderLabel}
-                    </p>
-                    <div
-                        className={
-                          isEditing
-                            ? "min-w-0 max-w-full text-sm leading-relaxed"
-                            : `relative min-w-0 max-w-full rounded-2xl px-5 py-3 pr-12 text-sm leading-relaxed ${
-                                message.isDeleted ? "" : ""
-                              } ${bubbleClassName}`
-                        }
-                      >
-                      {isEditing ? (
-                        <div
-                          className={`min-w-0 max-w-full space-y-3 rounded-2xl px-4 py-4 ${editingShellClassName}`}
-                        >
-                          <p
-                            className={`text-[11px] font-semibold uppercase tracking-[0.12em] ${
-                              isMe ? "text-blue-100/90" : "text-slate-500"
-                            }`}
-                          >
-                            Editing message
-                          </p>
-                          <textarea
-                            value={editingValue}
-                            onChange={(event) => setEditingValue(event.target.value)}
-                            rows={3}
-                            autoFocus
-                            disabled={isBusy}
-                            className={`min-h-[104px] w-full resize-none rounded-2xl border px-4 py-3 text-sm leading-relaxed outline-none transition-colors ${
-                              isMe
-                                ? "border-white/20 bg-white/10 text-white placeholder:text-blue-100/80 focus:border-white/50 focus:bg-white/15"
-                                : "border-slate-300 bg-white text-slate-800 placeholder:text-slate-400 focus:border-blue-500"
-                            }`}
-                          />
-                          <div className="flex justify-end gap-2 pt-1">
-                            <Button
-                              type="button"
-                              variant={isMe ? "secondary" : "outline"}
-                              size="sm"
-                              onClick={handleCancelEdit}
-                              disabled={isBusy}
-                              className={isMe ? "bg-white/15 text-white hover:bg-white/20" : undefined}
-                            >
-                              Cancel
-                            </Button>
-                            <Button
-                              type="button"
-                              size="sm"
-                              onClick={() => void handleSaveEdit(message.id)}
-                              disabled={isBusy || editingValue.trim().length === 0}
-                              className={
-                                isMe
-                                  ? "bg-white text-blue-700 hover:bg-blue-50"
-                                  : undefined
-                              }
-                            >
-                              {isBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                              <span>{isBusy ? "Saving..." : "Save"}</span>
-                            </Button>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="space-y-3">
-                          <div
-                            className={`absolute -top-3 right-2 z-10 flex max-w-[calc(100%-1rem)] items-center gap-0.5 rounded-md border border-gray-200 bg-white p-0.5 shadow-sm transition-opacity duration-150 ${
-                              message.isDeleted
-                                ? "opacity-100"
-                                : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
-                            }`}
-                          >
-                            {!message.isDeleted && (
-                              <button
-                                type="button"
-                                onClick={() => handleReplyToMessage(message.id)}
-                                disabled={isBusy}
-                                className="inline-flex h-7 w-7 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-gray-50 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
-                                aria-label="Reply to message"
-                              >
-                                <Reply className="h-4 w-4" />
-                              </button>
-                            )}
-                            {isMe && !message.isDeleted && (
-                              <button
-                                type="button"
-                                onClick={() => handleStartEdit(message)}
-                                disabled={isBusy}
-                                className="inline-flex h-7 w-7 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-gray-50 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
-                                aria-label="Edit message"
-                              >
-                                <Pencil className="h-4 w-4" />
-                              </button>
-                            )}
-                            {isMe && (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  void handleDeleteMessage(message.id);
-                                }}
-                                disabled={isBusy || message.isDeleted}
-                                className="inline-flex h-7 w-7 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-gray-50 hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-50"
-                                aria-label="Delete message"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </button>
-                            )}
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <button
-                                  type="button"
-                                  aria-label="More message actions"
-                                  className={`inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors ${actionTriggerClassName}`}
-                                >
-                                  <MoreHorizontal className="h-4 w-4" />
-                                </button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end" className="w-48">
-                                <DropdownMenuItem
-                                  onSelect={() => {
-                                    console.log("Mark as evidence clicked", {
-                                      messageId: message.id,
-                                      projectId: message.projectId,
-                                    });
-                                    toast.info("Evidence flag action triggered");
-                                  }}
-                                  disabled={message.isDeleted}
-                                >
-                                    <Flag className="h-4 w-4" />
-                                    <span>Mark as evidence</span>
-                                  </DropdownMenuItem>
-                                <DropdownMenuItem
-                                  onSelect={() => {
-                                    void handleTogglePin(message);
-                                  }}
-                                  disabled={isBusy || message.isDeleted}
-                                >
-                                  {message.isPinned ? (
-                                    <PinOff className="h-4 w-4" />
-                                  ) : (
-                                    <Pin className="h-4 w-4" />
-                                    )}
-                                    <span>{message.isPinned ? "Unpin" : "Pin"}</span>
-                                  </DropdownMenuItem>
-                              </DropdownMenuContent>
-                            </DropdownMenu>
-                          </div>
-
-                          {message.isDeleted ? (
-                            <p className="text-gray-500">{DELETED_MESSAGE_PLACEHOLDER}</p>
-                          ) : (
-                            <>
-                              {replyPreview && (
-                                <button
-                                  type="button"
-                                  onClick={() => scrollToMessage(replyPreview.id)}
-                                    className={`min-w-0 max-w-full w-full rounded-xl border px-3 py-2 text-left text-xs transition-colors ${
-                                      isMe
-                                        ? "border-blue-100 bg-white/70 text-blue-900 hover:bg-white"
-                                        : "border-gray-100 bg-white text-gray-600 hover:bg-gray-50"
-                                    }`}
-                                >
-                                  <p className="font-semibold">
-                                    {replyPreview.sender?.fullName || "Unknown User"}
-                                  </p>
-                                  <p className="mt-1 line-clamp-2 whitespace-pre-wrap break-words opacity-90">
-                                    {getReplyPreviewText(replyPreview)}
-                                  </p>
-                                </button>
-                              )}
-                              {message.content ? (
-                                <div
-                                  className={
-                                    containsVideoCall
-                                      ? "min-w-0 max-w-full"
-                                      : "min-w-0 max-w-full whitespace-pre-wrap break-words [overflow-wrap:anywhere]"
-                                  }
-                                >
-                                  {renderMessageContent(
-                                    message.content,
-                                    projectMembers,
-                                    isMe,
-                                    normalizedSearchQuery,
-                                    { onJoinCall: handleJoinVideoCall },
-                                  )}
-                                </div>
-                              ) : null}
-                            </>
-                          )}
-
-                          {!message.isDeleted && message.attachments.length > 0 && (
-                            <div className="grid min-w-0 max-w-full gap-2">
-                              {message.attachments.map((attachment) =>
-                                isImageAttachment(attachment) ? (
-                                  <a
-                                    key={`${message.id}-${attachment.url}`}
-                                    href={attachment.url}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="block max-w-full overflow-hidden rounded-xl border border-gray-100 bg-white"
-                                  >
-                                    <img
-                                      src={attachment.url}
-                                      alt={attachment.name}
-                                      className="max-h-56 w-full object-cover"
-                                      loading="lazy"
-                                    />
-                                  </a>
-                                ) : (
-                                  <a
-                                    key={`${message.id}-${attachment.url}`}
-                                    href={attachment.url}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                      className={`flex min-w-0 max-w-full items-center gap-3 rounded-xl border px-3 py-2 transition-colors ${
-                                        isMe
-                                          ? "border-blue-100 bg-white/70 text-blue-900 hover:bg-white"
-                                          : "border-gray-100 bg-white text-gray-700 hover:bg-gray-50"
-                                      }`}
-                                  >
-                                    <FileText className="h-4 w-4 shrink-0" />
-                                    <span className="min-w-0 flex-1 truncate text-sm">{attachment.name}</span>
-                                  </a>
-                                ),
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                    {isRiskFlagged && (
-                      <p
-                        className={`mt-2 flex items-start gap-1 text-[11px] leading-relaxed ${warningClassName}`}
-                      >
-                        <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                        <span>{POLICY_WARNING_MESSAGE}</span>
-                      </p>
-                    )}
-                    <p
-                      className={`${isRiskFlagged ? "mt-2" : "mt-1"} text-[10px] ${
-                        isMe ? "text-right text-slate-400" : "text-slate-400"
-                      }`}
-                    >
-                      {formatMessageTime(message.createdAt)}
-                      {message.isEdited && !message.isDeleted ? ` · ${EDITED_MESSAGE_LABEL}` : ""}
-                      {message.isPinned ? " · Pinned" : ""}
-                    </p>
-                  </div>
-                </div>
-              );
-            })
+            renderedMessages
           )}
         </div>
 

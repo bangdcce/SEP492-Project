@@ -7,6 +7,7 @@ describe('StaffApplicationsController', () => {
     getMyApplication: jest.Mock;
     getAllApplications: jest.Mock;
     getApplicationById: jest.Mock;
+    getApplicationReviewAssets: jest.Mock;
     approveApplication: jest.Mock;
     rejectApplication: jest.Mock;
   };
@@ -27,6 +28,11 @@ describe('StaffApplicationsController', () => {
       getApplicationById: jest.fn().mockResolvedValue({
         id: 'application-1',
         status: StaffApplicationStatus.PENDING,
+      }),
+      getApplicationReviewAssets: jest.fn().mockResolvedValue({
+        id: 'application-1',
+        status: StaffApplicationStatus.PENDING,
+        cv: { url: 'https://files.example.com/cv.pdf' },
       }),
       approveApplication: jest.fn().mockResolvedValue({
         id: 'application-1',
@@ -62,6 +68,41 @@ describe('StaffApplicationsController', () => {
     await controller.getApplications(query);
 
     expect(staffApplicationsService.getAllApplications).toHaveBeenCalledWith(query);
+  });
+
+  it('forwards admin review-asset requests to the service with reviewer context', async () => {
+    const result = await controller.getApplicationReviewAssets(
+      'application-1',
+      {
+        id: 'admin-1',
+        email: 'admin@example.com',
+        role: 'ADMIN' as any,
+      },
+      {
+        ip: '203.0.113.10',
+        headers: {
+          'user-agent': 'Jest',
+          'x-request-id': 'trace-1',
+        },
+      } as any,
+    );
+
+    expect(staffApplicationsService.getApplicationReviewAssets).toHaveBeenCalledWith(
+      'application-1',
+      {
+        reviewerId: 'admin-1',
+        reviewerEmail: 'admin@example.com',
+        reviewerRole: 'ADMIN',
+        ipAddress: '203.0.113.10',
+        userAgent: 'Jest',
+        sessionId: 'trace-1',
+      },
+    );
+    expect(result).toEqual({
+      id: 'application-1',
+      status: StaffApplicationStatus.PENDING,
+      cv: { url: 'https://files.example.com/cv.pdf' },
+    });
   });
 
   it('approves and rejects applications via the service', async () => {

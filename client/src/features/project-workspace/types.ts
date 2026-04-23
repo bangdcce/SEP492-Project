@@ -1,5 +1,6 @@
 import type { DeliverableType } from "@/features/project-specs/types";
 import type { MilestoneEscrowSummary } from "@/features/payments/types";
+import type { DisputeCategory } from "@/features/staff/types/staff.types";
 
 export type KanbanColumnKey = "TODO" | "IN_PROGRESS" | "IN_REVIEW" | "DONE";
 
@@ -32,7 +33,9 @@ export type TaskLink = {
 
 export type TaskSubmissionStatus =
   | "PENDING"
+  | "PENDING_CLIENT_REVIEW"
   | "APPROVED"
+  | "AUTO_APPROVED"
   | "REJECTED"
   | "REQUEST_CHANGES";
 
@@ -148,6 +151,15 @@ export type WorkspaceChatMutationResponse = {
   data: WorkspaceChatMessage;
 };
 
+export type WorkspaceChatExportEmailResponse = {
+  success: boolean;
+  message: string;
+  data: {
+    recipientEmail: string;
+    fileName: string;
+  };
+};
+
 export type TaskSubmission = {
   id: string;
   taskId: string;
@@ -163,6 +175,16 @@ export type TaskSubmission = {
   reviewerId?: string | null;
   reviewer?: Assignee | null;
   reviewedAt?: string | null;
+  brokerReviewNote?: string | null;
+  brokerReviewerId?: string | null;
+  brokerReviewer?: Assignee | null;
+  brokerReviewedAt?: string | null;
+  clientReviewNote?: string | null;
+  clientReviewerId?: string | null;
+  clientReviewer?: Assignee | null;
+  clientReviewedAt?: string | null;
+  clientReviewDueAt?: string | null;
+  autoApprovedAt?: string | null;
 };
 
 export type Task = {
@@ -216,11 +238,28 @@ export type Milestone = {
   reviewedByStaffId?: string | null;
   staffRecommendation?: StaffRecommendation | null;
   staffReviewNote?: string | null;
+  feedback?: string | null;
   // Progress fields (optional - calculated from tasks)
   progress?: number; // 0-100 percentage
   totalTasks?: number;
   completedTasks?: number;
   escrow?: MilestoneEscrowSummary | null;
+  disputePolicy?: MilestoneDisputePolicy | null;
+};
+
+export type MilestoneDisputePhase =
+  | "PRE_DELIVERY"
+  | "REVIEW"
+  | "POST_DELIVERY"
+  | "CLOSED";
+
+export type MilestoneDisputePolicy = {
+  canRaise: boolean;
+  phase: MilestoneDisputePhase;
+  allowedCategories: DisputeCategory[];
+  blockedCategories: Partial<Record<DisputeCategory, string>>;
+  reason: string | null;
+  warrantyEndsAt: string | null;
 };
 
 export type KanbanBoard = Record<KanbanColumnKey, Task[]>;
@@ -238,9 +277,10 @@ export type TaskStatusUpdateResult = {
 };
 
 export type ProjectTaskRealtimeEvent = {
-  action: "CREATED" | "UPDATED";
+  action: "CREATED" | "UPDATED" | "DELETED";
   projectId: string;
-  task: Task;
+  task?: Task | null;
+  taskId?: string;
   milestoneId?: string | null;
   milestoneProgress?: number;
   totalTasks?: number;
@@ -278,4 +318,9 @@ export type TaskComment = {
     fullName: string;
     avatarUrl?: string;
   };
+};
+
+export type TaskCommentMutationResult = {
+  comment: TaskComment;
+  task?: Task | null;
 };

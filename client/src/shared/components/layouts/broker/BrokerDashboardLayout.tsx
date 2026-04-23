@@ -7,6 +7,7 @@ import React, { useState } from "react";
 import { BrokerSidebar } from "./BrokerSidebar";
 import { ClientHeader } from "../client/ClientHeader";
 import { ClientFooter } from "../client/ClientFooter";
+import { useCaptureMode } from "@/shared/hooks";
 
 interface BrokerDashboardLayoutProps {
   children: React.ReactNode;
@@ -21,6 +22,7 @@ export const BrokerDashboardLayout: React.FC<BrokerDashboardLayoutProps> = ({
 }) => {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const isCaptureMode = useCaptureMode();
 
   const handleToggleSidebar = () => {
     setIsSidebarCollapsed(!isSidebarCollapsed);
@@ -68,10 +70,11 @@ export const BrokerDashboardLayout: React.FC<BrokerDashboardLayoutProps> = ({
         <ClientHeader
           onMenuToggle={handleMobileMenuToggle}
           isMobileMenuOpen={isMobileMenuOpen}
+          forcedRoleBasePath="/broker"
         />
         <main className={mainClass}>
           <div className={contentContainerClass}>{children}</div>
-          {showFooter && <ClientFooter />}
+          {showFooter && !isCaptureMode && <ClientFooter />}
         </main>
       </div>
     </div>

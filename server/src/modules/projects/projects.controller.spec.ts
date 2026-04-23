@@ -1,278 +1,192 @@
-import {
-  BadRequestException,
-  ConflictException,
-  ForbiddenException,
-  InternalServerErrorException,
-} from '@nestjs/common';
-
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
+import { Test, TestingModule } from '@nestjs/testing';
+import { DeliverableType } from '../../database/entities/milestone.entity';
 import { UserRole } from '../../database/entities/user.entity';
 import { ProjectsController } from './projects.controller';
+import { ProjectsService } from './projects.service';
 
 describe('ProjectsController', () => {
   let controller: ProjectsController;
-  let projectsService: Record<string, jest.Mock>;
 
-  beforeEach(() => {
-    projectsService = {
-      requestMilestoneReview: jest.fn(),
-      reviewMilestoneAsBroker: jest.fn(),
-      approveMilestone: jest.fn(),
-    };
+  const projectsService = {
+    listByUser: jest.fn(),
+    createMilestone: jest.fn(),
+    updateMilestoneStructure: jest.fn(),
+    deleteMilestoneStructure: jest.fn(),
+  };
 
-    controller = new ProjectsController(projectsService as any);
-  });
+  const buildRequest = (user?: { id: string; role?: UserRole | string }) =>
+    ({ user } as never);
 
-  describe('requestMilestoneReview', () => {
-    it('UC35-REQUESTREVIEW-UTCID01 forwards freelancer review requests to ProjectsService.requestMilestoneReview', async () => {
-      const milestone = {
-        id: 'milestone-1',
-        status: 'PENDING_STAFF_REVIEW',
-        submittedAt: new Date('2026-03-29T08:00:00.000Z'),
-      };
-      projectsService.requestMilestoneReview.mockResolvedValue(milestone);
+  beforeEach(async () => {
+    jest.clearAllMocks();
 
-      await expect(
-        controller.requestMilestoneReview('milestone-1', {
-          user: { id: 'freelancer-1', role: UserRole.FREELANCER },
-        } as any),
-      ).resolves.toEqual(milestone);
-      expect(projectsService.requestMilestoneReview).toHaveBeenCalledWith(
-        'milestone-1',
-        'freelancer-1',
-      );
-    });
-
-    it('UC35-REQUESTREVIEW-UTCID02 rejects requests without an authenticated user', async () => {
-      await expect(controller.requestMilestoneReview('milestone-1', {} as any)).rejects.toThrow(
-        new BadRequestException('User authentication required'),
-      );
-      expect(projectsService.requestMilestoneReview).not.toHaveBeenCalled();
-    });
-
-    it('UC35-REQUESTREVIEW-UTCID03 rejects non-freelancer users before reaching the service', async () => {
-      await expect(
-        controller.requestMilestoneReview('milestone-1', {
-          user: { id: 'client-1', role: UserRole.CLIENT },
-        } as any),
-      ).rejects.toThrow(
-        new ForbiddenException('Only the assigned freelancer can request milestone review'),
-      );
-      expect(projectsService.requestMilestoneReview).not.toHaveBeenCalled();
-    });
-
-    it('UC35-REQUESTREVIEW-UTCID04 propagates service-layer milestone review conflicts', async () => {
-      projectsService.requestMilestoneReview.mockRejectedValue(
-        new ConflictException('Milestone is already pending review'),
-      );
-
-      await expect(
-        controller.requestMilestoneReview('milestone-1', {
-          user: { id: 'freelancer-1', role: UserRole.FREELANCER },
-        } as any),
-      ).rejects.toThrow(ConflictException);
-      expect(projectsService.requestMilestoneReview).toHaveBeenCalledWith(
-        'milestone-1',
-        'freelancer-1',
-      );
-    });
-  });
-
-  describe('reviewMilestoneAsStaffCompatibilityAlias', () => {
-    it('UC106-STAFFREVIEW-UTCID01 keeps the compatibility alias but delegates to broker review logic', async () => {
-      const milestone = {
-        id: 'milestone-1',
-        status: 'PENDING_CLIENT_APPROVAL',
-        reviewedByStaffId: 'broker-1',
-      };
-      const dto = {
-        recommendation: 'ACCEPT',
-        note: 'Broker review passed.',
-      };
-      projectsService.reviewMilestoneAsBroker.mockResolvedValue(milestone);
-
-      await expect(
-        controller.reviewMilestoneAsStaffCompatibilityAlias('milestone-1', dto as any, {
-          user: { id: 'broker-1', role: UserRole.BROKER },
-        } as any),
-      ).resolves.toEqual(milestone);
-      expect(projectsService.reviewMilestoneAsBroker).toHaveBeenCalledWith(
-        'milestone-1',
-        'broker-1',
-        dto,
-      );
-    });
-
-    it('UC106-STAFFREVIEW-UTCID02 rejects compatibility-alias requests without authentication', async () => {
-      await expect(
-        controller.reviewMilestoneAsStaffCompatibilityAlias(
-          'milestone-1',
-          { recommendation: 'ACCEPT', note: 'ok' } as any,
-          {} as any,
-        ),
-      ).rejects.toThrow(new BadRequestException('User authentication required'));
-      expect(projectsService.reviewMilestoneAsBroker).not.toHaveBeenCalled();
-    });
-
-    it('UC106-STAFFREVIEW-UTCID03 rejects users who are not broker/admin reviewers', async () => {
-      await expect(
-        controller.reviewMilestoneAsStaffCompatibilityAlias(
-          'milestone-1',
-          { recommendation: 'ACCEPT', note: 'ok' } as any,
-          {
-            user: { id: 'staff-1', role: UserRole.STAFF },
-          } as any,
-        ),
-      ).rejects.toThrow(
-        new ForbiddenException('Only broker users can review milestones'),
-      );
-      expect(projectsService.reviewMilestoneAsBroker).not.toHaveBeenCalled();
-    });
-
-    it('UC106-STAFFREVIEW-UTCID04 also allows admin users through the compatibility alias', async () => {
-      const milestone = {
-        id: 'milestone-1',
-        status: 'PENDING_CLIENT_APPROVAL',
-        reviewedByStaffId: 'admin-1',
-      };
-      const dto = {
-        recommendation: 'REJECT',
-        note: 'Need stronger delivery evidence.',
-      };
-      projectsService.reviewMilestoneAsBroker.mockResolvedValue(milestone);
-
-      await expect(
-        controller.reviewMilestoneAsStaffCompatibilityAlias('milestone-1', dto as any, {
-          user: { id: 'admin-1', role: UserRole.ADMIN },
-        } as any),
-      ).resolves.toEqual(milestone);
-      expect(projectsService.reviewMilestoneAsBroker).toHaveBeenCalledWith(
-        'milestone-1',
-        'admin-1',
-        dto,
-      );
-    });
-  });
-
-  describe('approveMilestone', () => {
-    it('UC35-APPROVE-UTCID01 forwards client approvals with audit request context and returns the service result', async () => {
-      const result = {
-        fundsReleased: true,
-        milestone: { id: 'milestone-1', status: 'PAID' },
-        message: 'Funds have been released to the project team.',
-      };
-      projectsService.approveMilestone.mockResolvedValue(result);
-
-      await expect(
-        controller.approveMilestone(
-          'milestone-1',
-          { feedback: 'Looks good' } as any,
-          {
-            user: { id: 'client-1', role: UserRole.CLIENT },
-            ip: '127.0.0.1',
-            method: 'POST',
-            path: '/projects/milestones/milestone-1/approve',
-            get: jest.fn().mockReturnValue('Mozilla/5.0'),
-          } as any,
-        ),
-      ).resolves.toEqual(result);
-      expect(projectsService.approveMilestone).toHaveBeenCalledWith(
-        'milestone-1',
-        'client-1',
-        'Looks good',
+    const module: TestingModule = await Test.createTestingModule({
+      controllers: [ProjectsController],
+      providers: [
         {
-          ip: '127.0.0.1',
-          userAgent: 'Mozilla/5.0',
-          method: 'POST',
-          path: '/projects/milestones/milestone-1/approve',
+          provide: ProjectsService,
+          useValue: projectsService,
         },
-      );
+      ],
+    }).compile();
+
+    controller = module.get(ProjectsController);
+  });
+
+  describe('listByUser', () => {
+    it('returns the requested user project list when the caller owns the list', async () => {
+      projectsService.listByUser.mockResolvedValue([{ id: 'project-1' }]);
+      const req = buildRequest({ id: 'user-1', role: UserRole.CLIENT });
+
+      const result = await controller.listByUser('user-1', req);
+
+      expect(projectsService.listByUser).toHaveBeenCalledWith('user-1', 'user-1');
+      expect(result).toEqual([{ id: 'project-1' }]);
     });
 
-    it('UC35-APPROVE-UTCID02 rejects requests without an authenticated user before calling the service', async () => {
-      await expect(
-        controller.approveMilestone(
-          'milestone-1',
-          { feedback: 'Looks good' } as any,
-          {
-            get: jest.fn(),
-          } as any,
-        ),
-      ).rejects.toThrow(
-        new BadRequestException('User authentication required to approve milestone'),
-      );
-      expect(projectsService.approveMilestone).not.toHaveBeenCalled();
+    it('allows admin users to read another user project list', async () => {
+      projectsService.listByUser.mockResolvedValue([{ id: 'project-2' }]);
+      const req = buildRequest({ id: 'admin-1', role: UserRole.ADMIN });
+
+      const result = await controller.listByUser('user-2', req);
+
+      expect(projectsService.listByUser).toHaveBeenCalledWith('user-2', 'admin-1');
+      expect(result).toEqual([{ id: 'project-2' }]);
     });
 
-    it('UC35-APPROVE-UTCID03 preserves expected HTTP failures from the service layer', async () => {
-      projectsService.approveMilestone.mockRejectedValue(
-        new ConflictException('Cannot approve milestone while the project is under dispute'),
-      );
+    it('rejects non-owner callers before touching the service', async () => {
+      const req = buildRequest({ id: 'broker-1', role: UserRole.BROKER });
 
-      await expect(
-        controller.approveMilestone(
-          'milestone-1',
-          { feedback: 'Looks good' } as any,
-          {
-            user: { id: 'client-1', role: UserRole.CLIENT },
-            ip: '127.0.0.1',
-            method: 'POST',
-            path: '/projects/milestones/milestone-1/approve',
-            get: jest.fn().mockReturnValue('Mozilla/5.0'),
-          } as any,
-        ),
-      ).rejects.toThrow(ConflictException);
+      expect(() => controller.listByUser('user-2', req)).toThrow(ForbiddenException);
+      expect(projectsService.listByUser).not.toHaveBeenCalled();
     });
 
-    it('UC35-APPROVE-UTCID04 wraps unexpected approval failures in InternalServerErrorException', async () => {
-      projectsService.approveMilestone.mockRejectedValue(new Error('wallet service offline'));
+    it('rejects unauthenticated callers before touching the service', async () => {
+      const req = buildRequest();
 
-      await expect(
-        controller.approveMilestone(
-          'milestone-1',
-          { feedback: 'Looks good' } as any,
-          {
-            user: { id: 'client-1', role: UserRole.CLIENT },
-            ip: '127.0.0.1',
-            method: 'POST',
-            path: '/projects/milestones/milestone-1/approve',
-            get: jest.fn().mockReturnValue('Mozilla/5.0'),
-          } as any,
-        ),
-      ).rejects.toThrow(new InternalServerErrorException('Failed to approve milestone'));
+      expect(() => controller.listByUser('user-2', req)).toThrow(BadRequestException);
+      expect(projectsService.listByUser).not.toHaveBeenCalled();
     });
+  });
 
-    it('UC35-APPROVE-UTCID05 forwards undefined feedback when the client approves without additional comments', async () => {
-      const result = {
-        fundsReleased: true,
-        milestone: { id: 'milestone-1', status: 'PAID' },
-        message: 'Funds released without additional client feedback.',
+  describe('createMilestone', () => {
+    it('delegates milestone creation with the authenticated user and mapped payload', async () => {
+      const payload = {
+        title: 'Phase 1',
+        description: 'Discovery milestone',
+        amount: 1000,
+        startDate: '2026-03-31',
+        dueDate: '2026-04-15',
+        sortOrder: 1,
+        deliverableType: DeliverableType.API_DOCS,
+        retentionAmount: 100,
+        acceptanceCriteria: ['Signed kickoff scope'],
       };
-      projectsService.approveMilestone.mockResolvedValue(result);
+      projectsService.createMilestone.mockResolvedValue({
+        id: 'milestone-1',
+        ...payload,
+      });
 
+      const req = buildRequest({ id: 'client-1', role: UserRole.CLIENT });
+      const result = await controller.createMilestone('project-1', payload, req);
+
+      expect(projectsService.createMilestone).toHaveBeenCalledWith('project-1', 'client-1', {
+        title: 'Phase 1',
+        description: 'Discovery milestone',
+        amount: 1000,
+        startDate: '2026-03-31',
+        dueDate: '2026-04-15',
+        sortOrder: 1,
+        deliverableType: DeliverableType.API_DOCS,
+        retentionAmount: 100,
+        acceptanceCriteria: ['Signed kickoff scope'],
+      });
+      expect(result).toEqual({ id: 'milestone-1', ...payload });
+    });
+
+    it('rejects milestone creation when the caller is not authenticated', async () => {
       await expect(
-        controller.approveMilestone(
-          'milestone-1',
-          {} as any,
+        controller.createMilestone(
+          'project-1',
           {
-            user: { id: 'client-1', role: UserRole.CLIENT },
-            ip: '127.0.0.1',
-            method: 'POST',
-            path: '/projects/milestones/milestone-1/approve',
-            get: jest.fn().mockReturnValue('Mozilla/5.0'),
-          } as any,
+            title: 'Phase 1',
+          } as never,
+          buildRequest(),
         ),
-      ).resolves.toEqual(result);
-      expect(projectsService.approveMilestone).toHaveBeenCalledWith(
-        'milestone-1',
-        'client-1',
-        undefined,
-        {
-          ip: '127.0.0.1',
-          userAgent: 'Mozilla/5.0',
-          method: 'POST',
-          path: '/projects/milestones/milestone-1/approve',
-        },
+      ).rejects.toBeInstanceOf(BadRequestException);
+
+      expect(projectsService.createMilestone).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('updateMilestone', () => {
+    it('delegates milestone updates with the authenticated user and mapped payload', async () => {
+      const payload = {
+        title: 'Updated milestone',
+        description: null,
+        amount: 1500,
+        startDate: null,
+        dueDate: '2026-05-01',
+        sortOrder: 2,
+        deliverableType: DeliverableType.SOURCE_CODE,
+        retentionAmount: null,
+        acceptanceCriteria: ['Revised scope approved'],
+      };
+      projectsService.updateMilestoneStructure.mockResolvedValue({
+        id: 'milestone-2',
+        ...payload,
+      });
+
+      const req = buildRequest({ id: 'broker-1', role: UserRole.BROKER });
+      const result = await controller.updateMilestone('milestone-2', payload, req);
+
+      expect(projectsService.updateMilestoneStructure).toHaveBeenCalledWith('milestone-2', 'broker-1', {
+        title: 'Updated milestone',
+        description: null,
+        amount: 1500,
+        startDate: null,
+        dueDate: '2026-05-01',
+        sortOrder: 2,
+        deliverableType: DeliverableType.SOURCE_CODE,
+        retentionAmount: null,
+        acceptanceCriteria: ['Revised scope approved'],
+      });
+      expect(result).toEqual({ id: 'milestone-2', ...payload });
+    });
+
+    it('rejects milestone updates when the caller is not authenticated', async () => {
+      await expect(
+        controller.updateMilestone(
+          'milestone-2',
+          {
+            title: 'Updated milestone',
+          } as never,
+          buildRequest(),
+        ),
+      ).rejects.toBeInstanceOf(BadRequestException);
+
+      expect(projectsService.updateMilestoneStructure).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('deleteMilestone', () => {
+    it('deletes a milestone and returns success for an authenticated caller', async () => {
+      projectsService.deleteMilestoneStructure.mockResolvedValue(undefined);
+      const req = buildRequest({ id: 'client-1', role: UserRole.CLIENT });
+
+      const result = await controller.deleteMilestone('milestone-3', req);
+
+      expect(projectsService.deleteMilestoneStructure).toHaveBeenCalledWith('milestone-3', 'client-1');
+      expect(result).toEqual({ success: true });
+    });
+
+    it('rejects milestone deletion when the caller is not authenticated', async () => {
+      await expect(controller.deleteMilestone('milestone-3', buildRequest())).rejects.toBeInstanceOf(
+        BadRequestException,
       );
+
+      expect(projectsService.deleteMilestoneStructure).not.toHaveBeenCalled();
     });
   });
 });

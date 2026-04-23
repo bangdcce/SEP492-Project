@@ -40,6 +40,7 @@ describe('StaffAssignmentService', () => {
   let userRepository: any;
   let dataSource: any;
   let eventEmitter: any;
+  let leaveService: any;
 
   const repoMock = () => ({
     count: jest.fn(),
@@ -51,6 +52,12 @@ describe('StaffAssignmentService', () => {
   });
 
   beforeEach(async () => {
+    leaveService = {
+      getApprovedLeaveStaffIdsAt: jest.fn().mockResolvedValue(new Set()),
+      getApprovedLeaveStaffIdsOverlapping: jest.fn().mockResolvedValue(new Set()),
+      getLeaveMetricsForPeriod: jest.fn(),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         StaffAssignmentService,
@@ -71,7 +78,7 @@ describe('StaffAssignmentService', () => {
         { provide: getRepositoryToken(StaffPerformanceEntity), useValue: repoMock() },
         { provide: DataSource, useValue: {} },
         { provide: EventEmitter2, useValue: { emit: jest.fn() } },
-        { provide: LeaveService, useValue: {} },
+        { provide: LeaveService, useValue: leaveService },
       ],
     }).compile();
 
@@ -214,6 +221,54 @@ describe('StaffAssignmentService', () => {
     });
   });
 
+  describe('getAvailableStaff', () => {
+    it('treats approved leave as unavailable even when workload snapshot is clear', async () => {
+      userRepository.find.mockResolvedValue([
+        {
+          id: 'staff-1',
+          role: UserRole.STAFF,
+          isBanned: false,
+        },
+      ]);
+      workloadRepository.find.mockResolvedValue([
+        {
+          staffId: 'staff-1',
+          utilizationRate: 15,
+          isOnLeave: false,
+          canAcceptNewEvent: true,
+        },
+      ]);
+      performanceRepository.find.mockResolvedValue([]);
+      leaveService.getApprovedLeaveStaffIdsAt.mockResolvedValue(new Set(['staff-1']));
+
+      disputeRepository.createQueryBuilder.mockReturnValue({
+        select: jest.fn().mockReturnThis(),
+        addSelect: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        groupBy: jest.fn().mockReturnThis(),
+        getRawMany: jest.fn().mockResolvedValue([]),
+      });
+
+      const result = await service.getAvailableStaff(new Date('2026-04-17T09:00:00.000Z'));
+
+      expect(leaveService.getApprovedLeaveStaffIdsAt).toHaveBeenCalledWith(
+        new Date('2026-04-17T09:00:00.000Z'),
+        ['staff-1'],
+      );
+      expect(result.recommendedStaffId).toBeNull();
+      expect(result.staff).toEqual([
+        expect.objectContaining({
+          staffId: 'staff-1',
+          isOnLeave: true,
+          isAvailable: false,
+          canAcceptNewEvent: false,
+          unavailableReason: 'On leave',
+        }),
+      ]);
+    });
+  });
+
   describe('autoAssignStaffToDispute', () => {
     it('returns manual fallback for terminal dispute status', async () => {
       const complexity = {
@@ -298,9 +353,7 @@ describe('StaffAssignmentService', () => {
         recommendedStaffId: 'staff-1',
       } as any);
 
-      const incrementSpy = jest
-        .spyOn(service, 'incrementPendingDisputes')
-        .mockResolvedValue(4);
+      const incrementSpy = jest.spyOn(service, 'incrementPendingDisputes').mockResolvedValue(4);
 
       const disputeRepo = {
         findOne: jest.fn().mockResolvedValue({
@@ -370,12 +423,8 @@ describe('StaffAssignmentService', () => {
 
   describe('reassignDispute', () => {
     it('updates assignment atomically and emits workload + dispute reassigned events', async () => {
-      const decrementSpy = jest
-        .spyOn(service, 'decrementPendingDisputes')
-        .mockResolvedValue(2);
-      const incrementSpy = jest
-        .spyOn(service, 'incrementPendingDisputes')
-        .mockResolvedValue(5);
+      const decrementSpy = jest.spyOn(service, 'decrementPendingDisputes').mockResolvedValue(2);
+      const incrementSpy = jest.spyOn(service, 'incrementPendingDisputes').mockResolvedValue(5);
 
       const disputeRepo = {
         findOne: jest.fn().mockResolvedValue({

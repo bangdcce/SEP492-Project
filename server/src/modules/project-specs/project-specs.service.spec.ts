@@ -48,7 +48,11 @@ describe('ProjectSpecsService', () => {
   const mockProjectSpecSignaturesRepo = {
     findOne: jest.fn(),
     find: jest.fn(),
+    create: jest.fn((data) => data),
     save: jest.fn(),
+    metadata: {
+      columns: [{ databaseName: 'specId', propertyName: 'specId' }],
+    },
   };
   const mockProjectRequestProposalsRepo = {
     find: jest.fn(),
@@ -99,6 +103,10 @@ describe('ProjectSpecsService', () => {
     }) as ProjectRequestEntity;
 
   beforeEach(async () => {
+    (mockProjectSpecSignaturesRepo as any).metadata = {
+      columns: [{ databaseName: 'specId', propertyName: 'specId' }],
+    };
+
     // Mock QueryRunner
     queryRunner = {
       connect: jest.fn(),
@@ -535,7 +543,7 @@ describe('ProjectSpecsService', () => {
   });
 
   describe('milestone sequencing guardrails', () => {
-    it('rejects milestones that start on the same day the previous milestone ends', () => {
+    it('allows milestones that start on the same day the previous milestone ends', () => {
       const milestones = [
         {
           title: 'Phase 1',
@@ -557,14 +565,12 @@ describe('ProjectSpecsService', () => {
         },
       ] as any;
 
-      expect(() => (service as any).validateMilestoneStructure(milestones)).toThrow(
-        /must start after the previous milestone due date/i,
-      );
+      expect(() => (service as any).validateMilestoneStructure(milestones)).not.toThrow();
     });
   });
 
   describe('approved feature mapping guardrails', () => {
-    it('rejects duplicate approved feature assignments across milestones', () => {
+    it('allows approved feature assignments to be reused across milestones when coverage is satisfied', () => {
       const approvedClientFeatures = [
         {
           id: 'feature-dashboard',
@@ -586,7 +592,37 @@ describe('ProjectSpecsService', () => {
 
       expect(() =>
         (service as any).validateApprovedFeatureCoverage([], milestones, approvedClientFeatures),
-      ).toThrow(/cannot be assigned to multiple milestones/i);
+      ).not.toThrow();
+    });
+  });
+
+  describe('signature foreign key mapping', () => {
+    it('falls back to specId when signature metadata is unavailable', () => {
+      delete (mockProjectSpecSignaturesRepo as any).metadata;
+
+      const where = (service as any).buildProjectSpecSignatureWhere('spec-uuid', {
+        userId: 'user-uuid',
+      });
+
+      expect(where).toEqual({
+        specId: 'spec-uuid',
+        userId: 'user-uuid',
+      });
+    });
+
+    it('uses mapped property when specId database column maps to projectSpecId', () => {
+      (mockProjectSpecSignaturesRepo as any).metadata = {
+        columns: [{ databaseName: 'specId', propertyName: 'projectSpecId' }],
+      };
+
+      const where = (service as any).buildProjectSpecSignatureWhere('spec-uuid', {
+        userId: 'user-uuid',
+      });
+
+      expect(where).toEqual({
+        projectSpecId: 'spec-uuid',
+        userId: 'user-uuid',
+      });
     });
   });
 

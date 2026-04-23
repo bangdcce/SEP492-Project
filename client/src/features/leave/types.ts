@@ -32,6 +32,7 @@ export interface LeaveRequest {
   processedAt?: string | null;
   processedNote?: string | null;
   cancelledById?: string | null;
+  cancelledBy?: LeaveActorSummary | null;
   cancelledAt?: string | null;
   createdAt: string;
   updatedAt: string;

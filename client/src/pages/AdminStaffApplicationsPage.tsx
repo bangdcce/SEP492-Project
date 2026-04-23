@@ -1,12 +1,23 @@
 import { useEffect, useMemo, useState } from "react";
-import { Check, Eye, Search, ShieldCheck, ShieldX, X } from "lucide-react";
+import {
+  Check,
+  Eye,
+  FileText,
+  Search,
+  ShieldCheck,
+  ShieldX,
+  UserSquare2,
+  X,
+} from "lucide-react";
 import { toast } from "sonner";
 import {
   approveStaffApplication,
   getStaffApplicationById,
+  getStaffApplicationReviewAssets,
   listStaffApplications,
   rejectStaffApplication,
   type StaffApplicationRecord,
+  type StaffApplicationReviewAssets,
   type StaffApplicationStatus,
 } from "@/features/staff-applications/api";
 
@@ -23,6 +34,43 @@ const getStatusClasses = (status: StaffApplicationStatus) => {
   }
 };
 
+const formatFileSize = (value: number | null) => {
+  if (!value) {
+    return "Unknown size";
+  }
+
+  if (value >= 1024 * 1024) {
+    return `${(value / (1024 * 1024)).toFixed(2)} MB`;
+  }
+
+  return `${Math.round(value / 1024)} KB`;
+};
+
+const decodePossiblyMisencodedFilename = (value?: string | null) => {
+  if (!value) {
+    return "Not provided";
+  }
+
+  const normalized = value.trim();
+  if (!normalized) {
+    return "Not provided";
+  }
+
+  if (!/[ÃÂÊÔÆÐÑØÙÝÞßàáâãäåæçèéêëìíîïðñòóôõöøùúûüýþÿ]/.test(normalized)) {
+    return normalized;
+  }
+
+  try {
+    const latin1Bytes = Uint8Array.from(normalized, (character) => character.charCodeAt(0));
+    const decoded = new TextDecoder("utf-8", { fatal: true }).decode(latin1Bytes).trim();
+    return decoded || normalized;
+  } catch {
+    return normalized;
+  }
+};
+
+const renderNullable = (value?: string | null) => value || "Not provided";
+
 export default function AdminStaffApplicationsPage() {
   const [applications, setApplications] = useState<StaffApplicationRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -31,6 +79,7 @@ export default function AdminStaffApplicationsPage() {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [selectedApplication, setSelectedApplication] = useState<StaffApplicationRecord | null>(null);
+  const [selectedAssets, setSelectedAssets] = useState<StaffApplicationReviewAssets | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [rejectionReason, setRejectionReason] = useState("");
@@ -67,8 +116,12 @@ export default function AdminStaffApplicationsPage() {
   const openApplication = async (applicationId: string) => {
     try {
       setDetailLoading(true);
-      const detail = await getStaffApplicationById(applicationId);
+      const [detail, assets] = await Promise.all([
+        getStaffApplicationById(applicationId),
+        getStaffApplicationReviewAssets(applicationId),
+      ]);
       setSelectedApplication(detail);
+      setSelectedAssets(assets);
       setRejectionReason(detail.rejectionReason || "");
     } catch (error: any) {
       toast.error(error?.response?.data?.message || "Failed to load application detail");
@@ -79,7 +132,18 @@ export default function AdminStaffApplicationsPage() {
 
   const closeModal = () => {
     setSelectedApplication(null);
+    setSelectedAssets(null);
     setRejectionReason("");
+  };
+
+  const refreshSelectedApplication = async (applicationId: string) => {
+    const [detail, assets] = await Promise.all([
+      getStaffApplicationById(applicationId),
+      getStaffApplicationReviewAssets(applicationId),
+    ]);
+    setSelectedApplication(detail);
+    setSelectedAssets(assets);
+    setRejectionReason(detail.rejectionReason || "");
   };
 
   const handleApprove = async () => {
@@ -89,8 +153,8 @@ export default function AdminStaffApplicationsPage() {
 
     try {
       setSaving(true);
-      const updated = await approveStaffApplication(selectedApplication.id);
-      setSelectedApplication(updated);
+      await approveStaffApplication(selectedApplication.id);
+      await refreshSelectedApplication(selectedApplication.id);
       toast.success("Staff application approved");
       await fetchApplications();
     } catch (error: any) {
@@ -112,8 +176,8 @@ export default function AdminStaffApplicationsPage() {
 
     try {
       setSaving(true);
-      const updated = await rejectStaffApplication(selectedApplication.id, rejectionReason.trim());
-      setSelectedApplication(updated);
+      await rejectStaffApplication(selectedApplication.id, rejectionReason.trim());
+      await refreshSelectedApplication(selectedApplication.id);
       toast.success("Staff application rejected");
       await fetchApplications();
     } catch (error: any) {
@@ -129,7 +193,7 @@ export default function AdminStaffApplicationsPage() {
         <div className="mb-6">
           <h1 className="text-3xl font-bold text-gray-900">Staff Applications</h1>
           <p className="mt-2 text-gray-600">
-            Review pending staff registrations without mixing them into user management.
+            Review pending staff registrations without changing the global approval flow.
           </p>
         </div>
 
@@ -198,10 +262,10 @@ export default function AdminStaffApplicationsPage() {
                   Applicant
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">
-                  Status
+                  Submission
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">
-                  Email
+                  Status
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">
                   Submitted
@@ -230,8 +294,15 @@ export default function AdminStaffApplicationsPage() {
                     <td className="px-6 py-4">
                       <div>
                         <p className="font-medium text-gray-900">{application.user?.fullName}</p>
-                        <p className="mt-1 text-sm text-gray-500">{application.user?.phoneNumber || "No phone number"}</p>
+                        <p className="mt-1 text-sm text-gray-500">{application.user?.email}</p>
                       </div>
+                    </td>
+                    <td className="px-6 py-4 text-sm text-gray-700">
+                      <p>{application.submissionSummary.documentType || "Document type not set"}</p>
+                      <p className="mt-1 text-xs text-gray-500">
+                        {application.submissionSummary.hasCv ? "CV uploaded" : "CV missing"} ·{" "}
+                        {application.submissionSummary.hasKyc ? "KYC submitted" : "KYC incomplete"}
+                      </p>
                     </td>
                     <td className="px-6 py-4">
                       <span
@@ -239,14 +310,6 @@ export default function AdminStaffApplicationsPage() {
                       >
                         {application.status}
                       </span>
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-700">
-                      <div>
-                        <p>{application.user?.email}</p>
-                        <p className="mt-1 text-xs text-gray-500">
-                          {application.user?.isEmailVerified ? "Email verified" : "Email not verified"}
-                        </p>
-                      </div>
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-700">
                       {new Date(application.createdAt).toLocaleString()}
@@ -295,7 +358,7 @@ export default function AdminStaffApplicationsPage() {
 
       {selectedApplication && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-6">
-          <div className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-3xl bg-white shadow-2xl">
+          <div className="max-h-[90vh] w-full max-w-5xl overflow-y-auto rounded-3xl bg-white shadow-2xl">
             <div className="flex items-start justify-between border-b border-gray-200 px-6 py-5">
               <div>
                 <p className="text-sm font-medium uppercase tracking-[0.18em] text-teal-600">
@@ -349,70 +412,133 @@ export default function AdminStaffApplicationsPage() {
                     </div>
 
                     <div className="rounded-2xl border border-gray-200 bg-gray-50 p-5">
-                      <p className="text-sm font-medium text-gray-700">Review metadata</p>
+                      <p className="text-sm font-medium text-gray-700">Submission summary</p>
                       <dl className="mt-4 space-y-2 text-sm text-gray-700">
                         <div>
-                          <dt className="text-gray-500">Reviewer</dt>
-                          <dd>{selectedApplication.reviewer?.fullName || "Not reviewed yet"}</dd>
+                          <dt className="text-gray-500">Document type</dt>
+                          <dd>{renderNullable(selectedApplication.submissionSummary.documentType)}</dd>
                         </div>
                         <div>
-                          <dt className="text-gray-500">Reviewed at</dt>
-                          <dd>
-                            {selectedApplication.reviewedAt
-                              ? new Date(selectedApplication.reviewedAt).toLocaleString()
-                              : "Not reviewed yet"}
-                          </dd>
+                          <dt className="text-gray-500">Document number</dt>
+                          <dd>{renderNullable(selectedApplication.submissionSummary.maskedDocumentNumber)}</dd>
                         </div>
                         <div>
-                          <dt className="text-gray-500">Email verification</dt>
-                          <dd>
-                            {selectedApplication.user?.isEmailVerified ? "Verified" : "Not verified"}
-                          </dd>
+                          <dt className="text-gray-500">CV uploaded</dt>
+                          <dd>{selectedApplication.submissionSummary.hasCv ? "Yes" : "No"}</dd>
                         </div>
                         <div>
-                          <dt className="text-gray-500">Compatibility verification flag</dt>
-                          <dd>{selectedApplication.user?.isVerified ? "Verified" : "Not verified"}</dd>
+                          <dt className="text-gray-500">KYC package</dt>
+                          <dd>{selectedApplication.submissionSummary.hasKyc ? "Submitted" : "Incomplete"}</dd>
                         </div>
                       </dl>
                     </div>
                   </div>
 
-                  <div className="grid gap-4 md:grid-cols-2">
+                  <div className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
                     <div className="rounded-2xl border border-gray-200 p-5">
-                      <p className="text-sm font-medium text-gray-700">Selected domains</p>
-                      <div className="mt-4 flex flex-wrap gap-2">
-                        {selectedApplication.user?.domains?.length ? (
-                          selectedApplication.user.domains.map((domain) => (
-                            <span
-                              key={domain.id}
-                              className="rounded-full bg-slate-100 px-3 py-1 text-sm text-slate-700"
-                            >
-                              {domain.name}
-                            </span>
-                          ))
-                        ) : (
-                          <p className="text-sm text-gray-500">No domains selected</p>
-                        )}
+                      <div className="flex items-center gap-2">
+                        <UserSquare2 className="h-5 w-5 text-teal-600" />
+                        <p className="text-sm font-medium text-gray-700">Manual KYC fields</p>
                       </div>
+                      <dl className="mt-4 grid gap-4 md:grid-cols-2 text-sm text-gray-700">
+                        <div>
+                          <dt className="text-gray-500">Full name on document</dt>
+                          <dd className="mt-1">{renderNullable(selectedApplication.manualKyc?.fullNameOnDocument)}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-gray-500">Document type</dt>
+                          <dd className="mt-1">{renderNullable(selectedApplication.manualKyc?.documentType)}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-gray-500">Document number</dt>
+                          <dd className="mt-1">{renderNullable(selectedApplication.manualKyc?.documentNumber)}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-gray-500">Date of birth</dt>
+                          <dd className="mt-1">
+                            {selectedApplication.manualKyc?.dateOfBirth
+                              ? new Date(selectedApplication.manualKyc.dateOfBirth).toLocaleDateString()
+                              : "Not provided"}
+                          </dd>
+                        </div>
+                        <div className="md:col-span-2">
+                          <dt className="text-gray-500">Address</dt>
+                          <dd className="mt-1 whitespace-pre-wrap">
+                            {renderNullable(selectedApplication.manualKyc?.address)}
+                          </dd>
+                        </div>
+                      </dl>
                     </div>
 
                     <div className="rounded-2xl border border-gray-200 p-5">
-                      <p className="text-sm font-medium text-gray-700">Selected skills</p>
-                      <div className="mt-4 flex flex-wrap gap-2">
-                        {selectedApplication.user?.skills?.length ? (
-                          selectedApplication.user.skills.map((skill) => (
-                            <span
-                              key={skill.id}
-                              className="rounded-full bg-teal-50 px-3 py-1 text-sm text-teal-700"
-                            >
-                              {skill.name}
-                            </span>
-                          ))
-                        ) : (
-                          <p className="text-sm text-gray-500">No skills selected</p>
-                        )}
+                      <div className="flex items-center gap-2">
+                        <FileText className="h-5 w-5 text-teal-600" />
+                        <p className="text-sm font-medium text-gray-700">CV</p>
                       </div>
+                      <div className="mt-4 space-y-2 text-sm text-gray-700">
+                        <p>
+                          <span className="text-gray-500">Filename:</span>{" "}
+                          {decodePossiblyMisencodedFilename(
+                            selectedAssets?.cv.originalFilename || selectedApplication.cv.originalFilename,
+                          )}
+                        </p>
+                        <p>
+                          <span className="text-gray-500">Type:</span>{" "}
+                          {renderNullable(selectedAssets?.cv.mimeType || selectedApplication.cv.mimeType)}
+                        </p>
+                        <p>
+                          <span className="text-gray-500">Size:</span>{" "}
+                          {formatFileSize(selectedAssets?.cv.size ?? selectedApplication.cv.size)}
+                        </p>
+                      </div>
+                      {selectedAssets?.cv.url ? (
+                        <a
+                          href={selectedAssets.cv.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="mt-4 inline-flex items-center gap-2 rounded-full border border-teal-200 bg-teal-50 px-4 py-2 text-sm font-medium text-teal-700 transition hover:bg-teal-100"
+                        >
+                          <FileText className="h-4 w-4" />
+                          Open CV
+                        </a>
+                      ) : (
+                        <p className="mt-4 text-sm text-gray-500">CV asset is not available.</p>
+                      )}
                     </div>
+                  </div>
+
+                  <div className="rounded-2xl border border-gray-200 p-5">
+                    <p className="text-sm font-medium text-gray-700">KYC image previews</p>
+                    <p className="mt-2 text-xs text-gray-500">
+                      Images are watermarked for manual review.
+                    </p>
+                    <div className="mt-4 grid gap-4 md:grid-cols-3">
+                      {[
+                        { label: "ID Front", url: selectedAssets?.previews.idCardFrontUrl },
+                        { label: "ID Back", url: selectedAssets?.previews.idCardBackUrl },
+                        { label: "Selfie", url: selectedAssets?.previews.selfieUrl },
+                      ].map((item) => (
+                        <div key={item.label} className="rounded-2xl border border-gray-200 bg-gray-50 p-3">
+                          <p className="mb-3 text-sm font-medium text-gray-700">{item.label}</p>
+                          {item.url ? (
+                            <img
+                              src={item.url}
+                              alt={item.label}
+                              className="h-56 w-full rounded-xl object-cover"
+                            />
+                          ) : (
+                            <div className="flex h-56 items-center justify-center rounded-xl border border-dashed border-gray-300 text-sm text-gray-500">
+                              Preview unavailable
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                    {selectedAssets?.watermarkInfo && (
+                      <p className="mt-4 text-xs text-amber-700">
+                        {selectedAssets.watermarkInfo.warning}
+                      </p>
+                    )}
                   </div>
 
                   <div className="rounded-2xl border border-gray-200 p-5">

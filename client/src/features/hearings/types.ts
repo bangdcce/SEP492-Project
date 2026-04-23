@@ -1,6 +1,5 @@
 import type {
   DisputeEvidence,
-  DisputeFollowUpAction,
   DisputeMessage,
 } from "@/features/disputes/types/dispute.types";
 
@@ -529,7 +528,6 @@ export interface EndHearingInput {
   hearingId: string;
   summary: string;
   findings: string;
-  pendingActions?: Array<string | DisputeFollowUpAction>;
   forceEnd?: boolean;
   noShowNote?: string;
 }
@@ -675,7 +673,6 @@ export interface HearingVerdictInput {
   closeHearing: {
     summary: string;
     findings: string;
-    pendingActions?: Array<string | DisputeFollowUpAction>;
     forceEnd?: boolean;
     noShowNote?: string;
   };

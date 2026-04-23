@@ -8,7 +8,9 @@ import {
   UseInterceptors,
   UploadedFile,
   BadRequestException,
+  ConflictException,
   ForbiddenException,
+  NotFoundException,
   ParseUUIDPipe,
   HttpStatus,
   HttpCode,
@@ -143,7 +145,7 @@ export class EvidenceController {
 
     if (!result.success) {
       if (result.isDuplicate) {
-        throw new BadRequestException({
+        throw new ConflictException({
           statusCode: HttpStatus.CONFLICT,
           message: result.error,
           existingEvidenceId: result.existingEvidenceId,
@@ -276,7 +278,7 @@ export class EvidenceController {
     const evidence = await this.evidenceService.getEvidenceById(evidenceId, user.id, user.role);
 
     if (!evidence) {
-      throw new BadRequestException('Evidence not found');
+      throw new NotFoundException('Evidence not found');
     }
 
     // Verify evidence belongs to the dispute

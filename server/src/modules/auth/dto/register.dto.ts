@@ -17,14 +17,13 @@ import { IsNotDisposableEmail } from '../../../common/validators/disposable-emai
 /**
  * Allowed user roles for self-registration
  *
- * ADMIN and STAFF roles are excluded from self-registration for security reasons.
- * These roles should only be assigned by existing administrators.
+ * STAFF uses a dedicated multipart endpoint so this DTO only covers the JSON
+ * self-registration flow for roles that still use /auth/register.
  */
 export type RegisterableRole =
   | UserRole.CLIENT
   | UserRole.BROKER
-  | UserRole.FREELANCER
-  | UserRole.STAFF;
+  | UserRole.FREELANCER;
 
 /**
  * Object containing only the registerable roles for validation
@@ -33,7 +32,6 @@ export const REGISTERABLE_ROLES = {
   CLIENT: UserRole.CLIENT,
   BROKER: UserRole.BROKER,
   FREELANCER: UserRole.FREELANCER,
-  STAFF: UserRole.STAFF,
 } as const;
 
 export class RegisterDto {
@@ -47,7 +45,7 @@ export class RegisterDto {
   @IsNotDisposableEmail({
     message: 'Please use an email from a reputable provider (Gmail, Outlook, Yahoo, etc.) or university email.',
   })
-  email: string;
+  email!: string;
 
   @ApiProperty({
     description: 'User password (minimum 8 characters, with lowercase and number/special character)',
@@ -60,7 +58,7 @@ export class RegisterDto {
   @Matches(/^(?=.*[a-z])(?=.*[\d@$!%*?&])/, {
     message: 'Password must contain at least one lowercase letter and one number or special character (@$!%*?&)',
   })
-  password: string;
+  password!: string;
 
   @ApiProperty({
     description: 'User full name (2-50 characters, letters and spaces only)',
@@ -75,7 +73,7 @@ export class RegisterDto {
   @Matches(/^[a-zA-ZÀ-ỹ\s]+$/, {
     message: 'Full name can only contain letters and spaces',
   })
-  fullName: string;
+  fullName!: string;
 
   @ApiProperty({
     description: 'Phone number (Vietnam format: 0[3|5|7|8|9]xxxxxxxx)',
@@ -87,16 +85,16 @@ export class RegisterDto {
   @Matches(/^0[3|5|7|8|9][0-9]{8}$/, {
     message: 'Invalid phone number format. Correct format: 0[3|5|7|8|9]xxxxxxxx (e.g., 0987654321)',
   })
-  phoneNumber: string;
+  phoneNumber!: string;
 
   @ApiProperty({
-    description: 'User role in the system (only CLIENT, BROKER, FREELANCER, STAFF allowed)',
+    description: 'User role in the system (only CLIENT, BROKER, FREELANCER allowed)',
     enum: REGISTERABLE_ROLES,
     example: UserRole.CLIENT,
   })
-  @IsEnum(REGISTERABLE_ROLES, { message: 'Role must be CLIENT, BROKER, FREELANCER, or STAFF' })
+  @IsEnum(REGISTERABLE_ROLES, { message: 'Role must be CLIENT, BROKER, or FREELANCER' })
   @IsNotEmpty({ message: 'Role is required' })
-  role: RegisterableRole;
+  role!: RegisterableRole;
 
   @ApiPropertyOptional({
     description: 'Google reCAPTCHA token from frontend',
@@ -107,7 +105,7 @@ export class RegisterDto {
   recaptchaToken?: string;
 
   @ApiPropertyOptional({
-    description: 'Domain IDs (UUIDs) for BROKER, FREELANCER, and STAFF',
+    description: 'Domain IDs (UUIDs) for BROKER and FREELANCER',
     example: ['uuid-1', 'uuid-2'],
     type: [String],
   })
@@ -117,7 +115,7 @@ export class RegisterDto {
   domainIds?: string[];
 
   @ApiPropertyOptional({
-    description: 'Skill IDs (UUIDs) for BROKER, FREELANCER, and STAFF',
+    description: 'Skill IDs (UUIDs) for BROKER and FREELANCER',
     example: ['uuid-1', 'uuid-2', 'uuid-3'],
     type: [String],
   })
@@ -132,7 +130,7 @@ export class RegisterDto {
   })
   @IsBoolean({ message: 'acceptTerms must be a boolean' })
   @IsNotEmpty({ message: 'You must accept the Terms of Service' })
-  acceptTerms: boolean;
+  acceptTerms!: boolean;
 
   @ApiProperty({
     description: 'Confirm acceptance of Privacy Policy',
@@ -140,5 +138,5 @@ export class RegisterDto {
   })
   @IsBoolean({ message: 'acceptPrivacy must be a boolean' })
   @IsNotEmpty({ message: 'You must accept the Privacy Policy' })
-  acceptPrivacy: boolean;
+  acceptPrivacy!: boolean;
 }

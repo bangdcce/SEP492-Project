@@ -74,8 +74,26 @@ export const createCalendarDependencies = () => {
   };
 
   calendarRepository.create.mockImplementation((input) => ({ id: EVENT_ID, ...input }));
+  calendarRepository.findOne.mockResolvedValue({
+    id: EVENT_ID,
+    organizerId: USER_ID,
+    status: EventStatus.SCHEDULED,
+    startTime: new Date(SAMPLE_START),
+    endTime: new Date(SAMPLE_END),
+  });
   participantRepository.create.mockImplementation((input) => input);
+  participantRepository.find.mockResolvedValue([]);
+  participantRepository.findOne.mockResolvedValue({
+    id: PARTICIPANT_ID,
+    eventId: EVENT_ID,
+    userId: USER_ID,
+  });
   rescheduleRepository.create.mockImplementation((input) => ({ id: REQUEST_ID, ...input }));
+  rescheduleRepository.findOne.mockResolvedValue({
+    id: REQUEST_ID,
+    eventId: EVENT_ID,
+    status: RescheduleRequestStatus.PENDING,
+  });
 
   return {
     calendarRepository,

@@ -27,6 +27,7 @@ interface ClientHeaderProps {
   userAvatar?: string;
   onMenuToggle?: () => void;
   isMobileMenuOpen?: boolean;
+  forcedRoleBasePath?: "/client" | "/admin" | "/broker" | "/freelancer" | "/staff";
 }
 
 export const ClientHeader: React.FC<ClientHeaderProps> = ({
@@ -35,6 +36,7 @@ export const ClientHeader: React.FC<ClientHeaderProps> = ({
   userAvatar: propUserAvatar,
   onMenuToggle,
   isMobileMenuOpen = false,
+  forcedRoleBasePath,
 }) => {
   const navigate = useNavigate();
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
@@ -74,10 +76,12 @@ export const ClientHeader: React.FC<ClientHeaderProps> = ({
   const userName = propUserName || user.fullName || "User";
   const userRole = propUserRole || user.role || "Client";
   const userAvatar = propUserAvatar || user.avatarUrl;
-  const roleBasePath = useMemo(
-    () => resolveRoleBasePath(user.role || userRole),
-    [user.role, userRole],
-  );
+  const roleBasePath = useMemo(() => {
+    if (forcedRoleBasePath) {
+      return forcedRoleBasePath;
+    }
+    return resolveRoleBasePath(user.role || userRole);
+  }, [forcedRoleBasePath, user.role, userRole]);
   const homePath = useMemo(() => {
     switch (roleBasePath) {
       case "/admin":

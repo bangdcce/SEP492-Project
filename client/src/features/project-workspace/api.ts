@@ -13,8 +13,10 @@ import type {
   StaffRecommendation,
   StaffSummary,
   ProjectRecentActivity,
+  TaskCommentMutationResult,
   WorkspaceChatHistoryQuery,
   WorkspaceChatHistoryResponse,
+  WorkspaceChatExportEmailResponse,
   WorkspaceChatMutationResponse,
 } from "./types";
 
@@ -23,7 +25,7 @@ import type {
 // ============================================
 
 // Response type from backend /tasks/board/:projectId
-interface BoardWithMilestones {
+export interface BoardWithMilestones {
   tasks: KanbanBoard;
   milestones: Milestone[];
 }
@@ -61,6 +63,12 @@ export interface WorkspaceProjectParticipant {
   email?: string | null;
   role?: string | null;
 }
+
+export const fetchBoardWorkspaceData = async (
+  projectId: string,
+): Promise<BoardWithMilestones> => {
+  return apiClient.get<BoardWithMilestones>(`/tasks/board/${projectId}`);
+};
 
 export const fetchProject = async (projectId: string): Promise<WorkspaceProject> => {
   return apiClient.get<WorkspaceProject>(`/projects/${projectId}`);
@@ -119,6 +127,20 @@ export const deleteWorkspaceChatMessage = async (
   );
 };
 
+export const emailWorkspaceChatExport = async (
+  projectId: string,
+  file: Blob,
+  fileName: string,
+): Promise<WorkspaceChatExportEmailResponse> => {
+  const formData = new FormData();
+  formData.append("exportFile", file, fileName);
+
+  return apiClient.post<WorkspaceChatExportEmailResponse>(
+    `/workspace-chat/projects/${projectId}/export/email`,
+    formData,
+  );
+};
+
 export const fetchStaffCandidates = async (): Promise<StaffSummary[]> => {
   return apiClient.get<StaffSummary[]>("/projects/staff-candidates");
 };
@@ -148,9 +170,7 @@ export const respondToProjectStaffInvite = async (
 export const fetchBoard = async (projectId: string): Promise<KanbanBoard> => {
   console.log("[API] Fetching board for project:", projectId);
 
-  const response = await apiClient.get<BoardWithMilestones>(
-    `/tasks/board/${projectId}`
-  );
+  const response = await fetchBoardWorkspaceData(projectId);
 
   console.log("[API] Board data:", response.tasks);
   return response.tasks;
@@ -193,15 +213,18 @@ export const fetchTaskComments = async (taskId: string): Promise<import("./types
   return apiClient.get<import("./types").TaskComment[]>(`/tasks/${taskId}/comments`);
 };
 
-export const createComment = async (taskId: string, content: string): Promise<import("./types").TaskComment> => {
-  return apiClient.post<import("./types").TaskComment>(`/tasks/${taskId}/comments`, { content });
+export const createComment = async (
+  taskId: string,
+  content: string,
+): Promise<TaskCommentMutationResult> => {
+  return apiClient.post<TaskCommentMutationResult>(`/tasks/${taskId}/comments`, { content });
 };
 
 export const updateComment = async (
   commentId: string,
   content: string,
-): Promise<import("./types").TaskComment> => {
-  return apiClient.patch<import("./types").TaskComment>(`/tasks/comments/${commentId}`, {
+): Promise<TaskCommentMutationResult> => {
+  return apiClient.patch<TaskCommentMutationResult>(`/tasks/comments/${commentId}`, {
     content,
   });
 };
@@ -228,6 +251,12 @@ export const deleteTaskLink = async (
   linkId: string
 ): Promise<{ success: boolean }> => {
   return apiClient.delete<{ success: boolean }>(`/tasks/${taskId}/links/${linkId}`);
+};
+
+export const deleteTask = async (
+  taskId: string,
+): Promise<{ success: boolean }> => {
+  return apiClient.delete<{ success: boolean }>(`/tasks/${taskId}`);
 };
 
 export const fetchSubtasks = async (taskId: string): Promise<Task[]> => {
@@ -261,8 +290,14 @@ export const fetchTaskSubmissions = async (taskId: string): Promise<TaskSubmissi
 export const createTaskSubmission = async (
   taskId: string,
   payload: { content: string; attachments?: string[] }
-): Promise<TaskSubmission> => {
-  return apiClient.post<TaskSubmission>(`/tasks/${taskId}/submissions`, payload);
+): Promise<{
+  submission: TaskSubmission;
+  task: Task;
+}> => {
+  return apiClient.post<{
+    submission: TaskSubmission;
+    task: Task;
+  }>(`/tasks/${taskId}/submissions`, payload);
 };
 
 /**
@@ -350,11 +385,7 @@ export const fetchMilestones = async (
 ): Promise<Milestone[]> => {
   console.log("[API] Fetching milestones for project:", projectId);
 
-  // We use the same endpoint as fetchBoard to get milestones
-  // This avoids creating a separate MilestonesController
-  const response = await apiClient.get<BoardWithMilestones>(
-    `/tasks/board/${projectId}`
-  );
+  const response = await fetchBoardWorkspaceData(projectId);
 
   console.log("[API] Milestones:", response.milestones);
   return response.milestones;
@@ -446,15 +477,27 @@ export interface MilestoneApprovalResult {
  */
 export const approveMilestone = async (
   milestoneId: string,
-  feedback?: string
 ): Promise<MilestoneApprovalResult> => {
-  console.log("[API] Approving milestone:", { milestoneId, feedback });
+  console.log("[API] Approving milestone:", { milestoneId });
 
   const result = await apiClient.post<MilestoneApprovalResult>(
     `/projects/milestones/${milestoneId}/approve`,
-    { feedback }
+    {},
   );
 
   console.log("[API] Milestone approved:", result);
   return result;
+};
+
+/**
+ * Reject a milestone and send it back for freelancer revisions.
+ * Endpoint: POST /projects/milestones/:id/reject
+ */
+export const rejectMilestone = async (
+  milestoneId: string,
+  reason: string,
+): Promise<Milestone> => {
+  return apiClient.post<Milestone>(`/projects/milestones/${milestoneId}/reject`, {
+    reason,
+  });
 };

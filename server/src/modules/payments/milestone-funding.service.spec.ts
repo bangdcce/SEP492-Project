@@ -1,4 +1,5 @@
 import { BadRequestException, ConflictException, ForbiddenException, NotImplementedException } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
@@ -67,6 +68,9 @@ describe('MilestoneFundingService', () => {
   const stripeCheckoutServiceMock = {
     createMilestoneCheckoutSession: jest.fn(),
     retrieveCheckoutSession: jest.fn(),
+  };
+  const eventEmitterMock = {
+    emit: jest.fn(),
   };
 
   const fundingIntentRepo = {
@@ -138,6 +142,10 @@ describe('MilestoneFundingService', () => {
           useValue: {
             transaction: jest.fn((callback) => callback(manager)),
           },
+        },
+        {
+          provide: EventEmitter2,
+          useValue: eventEmitterMock,
         },
         {
           provide: WalletService,

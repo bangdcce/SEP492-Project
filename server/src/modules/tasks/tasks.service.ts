@@ -3,19 +3,22 @@ import {
   NotFoundException,
   BadRequestException,
   ForbiddenException,
+  ConflictException,
   Logger,
   InternalServerErrorException,
   Optional,
   OnModuleInit,
 } from '@nestjs/common';
+import { Cron } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, In, IsNull, Repository } from 'typeorm';
+import { DataSource, In, IsNull, LessThanOrEqual, Repository } from 'typeorm';
 import sanitizeHtml from 'sanitize-html';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import * as path from 'path';
+import Decimal from 'decimal.js';
 import { TaskEntity, TaskStatus, TaskPriority } from '../../database/entities/task.entity';
 import { MilestoneEntity, MilestoneStatus } from '../../database/entities/milestone.entity';
-import { EscrowEntity } from '../../database/entities/escrow.entity';
+import { EscrowEntity, EscrowStatus } from '../../database/entities/escrow.entity';
 import { ProjectEntity } from '../../database/entities/project.entity';
 import { UserRole } from '../../database/entities/user.entity';
 import {
@@ -34,6 +37,12 @@ import { ReviewSubmissionDto } from './dto/review-submission.dto';
 import { WorkspaceChatService } from '../workspace-chat/workspace-chat.service';
 import { TasksRealtimeBridge } from './tasks.realtime';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
+import { MilestoneInteractionPolicyService } from '../projects/milestone-interaction-policy.service';
+import { NotificationsService } from '../notifications/notifications.service';
+import {
+  type MilestoneDisputePolicy,
+  resolveMilestoneDisputePolicy,
+} from '../disputes/dispute-milestone-policy';
 
 /**
  * Response type for submission review
@@ -72,6 +81,7 @@ export interface WorkspaceMilestoneEscrowSummary {
 
 export interface WorkspaceMilestoneView extends MilestoneEntity {
   escrow: WorkspaceMilestoneEscrowSummary | null;
+  disputePolicy: MilestoneDisputePolicy;
 }
 
 export interface BoardWithMilestones {
@@ -130,10 +140,21 @@ export interface TaskCommentItem {
   } | null;
 }
 
-export interface ProjectTaskRealtimeEvent {
-  action: 'CREATED' | 'UPDATED';
-  projectId: string;
+export interface TaskCommentMutationResult {
+  comment: TaskCommentItem;
+  task?: TaskEntity | null;
+}
+
+export interface TaskSubmissionCreateResult {
+  submission: TaskSubmissionEntity;
   task: TaskEntity;
+}
+
+export interface ProjectTaskRealtimeEvent {
+  action: 'CREATED' | 'UPDATED' | 'DELETED';
+  projectId: string;
+  task?: TaskEntity | null;
+  taskId?: string;
   milestoneId?: string | null;
   milestoneProgress?: number;
   totalTasks?: number;
@@ -221,6 +242,24 @@ const TASK_CREATION_ALLOWED_MILESTONE_STATUSES = new Set<MilestoneStatus>([
 const TASK_CREATION_LOCK_MESSAGE =
   'Tasks can only be created while the milestone is pending, in progress, or revisions required.';
 
+const TASK_WORK_LOCK_MESSAGE =
+  'Task changes are locked because this milestone is in review, completed, paid, or locked.';
+
+const FINAL_APPROVED_SUBMISSION_STATUSES = [
+  TaskSubmissionStatus.APPROVED,
+  TaskSubmissionStatus.AUTO_APPROVED,
+] as const;
+
+const ACTIVE_SUBMISSION_REVIEW_STATUSES = [
+  TaskSubmissionStatus.PENDING,
+  TaskSubmissionStatus.PENDING_CLIENT_REVIEW,
+] as const;
+
+const TASK_ESCROW_FUNDING_LOCK_MESSAGE =
+  'Milestone workspace is locked until escrow is fully funded.';
+
+const TASK_SUBMISSION_REMINDER_WINDOW_MS = 24 * 60 * 60 * 1000;
+
 const TASK_WORKSPACE_RELATIONS = [
   'assignee',
   'reporter',
@@ -228,6 +267,8 @@ const TASK_WORKSPACE_RELATIONS = [
   'submissions',
   'submissions.submitter',
   'submissions.reviewer',
+  'submissions.brokerReviewer',
+  'submissions.clientReviewer',
 ] as const;
 
 @Injectable()
@@ -258,8 +299,11 @@ export class TasksService implements OnModuleInit {
     private readonly submissionRepository: Repository<TaskSubmissionEntity>,
     private readonly dataSource: DataSource,
     private readonly auditLogsService: AuditLogsService,
+    private readonly milestoneInteractionPolicyService: MilestoneInteractionPolicyService,
     @Optional()
     private readonly workspaceChatService?: WorkspaceChatService,
+    @Optional()
+    private readonly notificationsService?: NotificationsService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -271,6 +315,7 @@ export class TasksService implements OnModuleInit {
       `CREATE INDEX IF NOT EXISTS "IDX_task_comments_taskId_createdAt" ON "task_comments" ("taskId", "createdAt" DESC)`,
       `CREATE INDEX IF NOT EXISTS "IDX_task_comments_actorId" ON "task_comments" ("actorId")`,
       `CREATE INDEX IF NOT EXISTS "IDX_task_submissions_taskId_version" ON "task_submissions" ("taskId", "version" DESC)`,
+      `CREATE INDEX IF NOT EXISTS "IDX_task_submissions_status_clientReviewDueAt" ON "task_submissions" ("status", "clientReviewDueAt")`,
       `CREATE INDEX IF NOT EXISTS "IDX_task_attachments_taskId" ON "task_attachments" ("taskId")`,
       `CREATE INDEX IF NOT EXISTS "IDX_task_attachments_taskId_url" ON "task_attachments" ("taskId", "url")`,
     ];
@@ -302,6 +347,340 @@ export class TasksService implements OnModuleInit {
     } catch (error) {
       this.logger.warn(
         `Workspace audit message skipped for project ${projectId}: ${
+          error instanceof Error ? error.message : 'unknown error'
+        }`,
+      );
+    }
+  }
+
+  private async recordWorkspaceSystemMessageOnce(
+    projectId: string,
+    content: string,
+    taskId?: string | null,
+  ): Promise<boolean> {
+    if (!this.workspaceChatService) {
+      return false;
+    }
+
+    try {
+      const message = await this.workspaceChatService.createSystemMessageOnce(projectId, content, {
+        taskId: taskId ?? null,
+      });
+      return Boolean(message);
+    } catch (error) {
+      this.logger.warn(
+        `Workspace one-time audit message skipped for project ${projectId}: ${
+          error instanceof Error ? error.message : 'unknown error'
+        }`,
+      );
+      return false;
+    }
+  }
+
+  private async getProjectParticipantIds(projectId: string): Promise<string[]> {
+    const project = await this.projectRepository.findOne({
+      where: { id: projectId },
+      select: ['id', 'clientId', 'brokerId', 'freelancerId'],
+    });
+
+    if (!project) {
+      return [];
+    }
+
+    return Array.from(
+      new Set([project.clientId, project.brokerId, project.freelancerId].filter(Boolean)),
+    ).filter((userId): userId is string => Boolean(userId));
+  }
+
+  private async notifyProjectParticipants(
+    projectId: string,
+    title: string,
+    body: string,
+    relatedType: string,
+    relatedId: string,
+  ): Promise<void> {
+    if (!this.notificationsService) {
+      return;
+    }
+
+    try {
+      const recipientIds = await this.getProjectParticipantIds(projectId);
+      if (recipientIds.length === 0) {
+        return;
+      }
+
+      await this.notificationsService.createMany(
+        recipientIds.map((userId) => ({
+          userId,
+          title,
+          body,
+          relatedType,
+          relatedId,
+        })),
+      );
+    } catch (error) {
+      this.logger.warn(
+        `Project participant notification skipped for project ${projectId}: ${
+          error instanceof Error ? error.message : 'unknown error'
+        }`,
+      );
+    }
+  }
+
+  private formatDeadlineForDisplay(value: Date): string {
+    return `${value.toLocaleString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+      timeZone: 'UTC',
+    })} UTC`;
+  }
+
+  private buildNullableTimestampUpdate(value: Date | null): Date | (() => string) {
+    return value ?? (() => 'NULL');
+  }
+
+  private normalizeTaskBoundaryDate(
+    value?: string | Date | null,
+    fieldName = 'task date',
+  ): Date | null {
+    if (value === undefined || value === null || value === '') {
+      return null;
+    }
+
+    const parsedValue = value instanceof Date ? new Date(value.getTime()) : new Date(value);
+    if (Number.isNaN(parsedValue.getTime())) {
+      throw new BadRequestException(`Invalid ${fieldName}.`);
+    }
+
+    return new Date(
+      Date.UTC(
+        parsedValue.getUTCFullYear(),
+        parsedValue.getUTCMonth(),
+        parsedValue.getUTCDate(),
+      ),
+    );
+  }
+
+  private assertTaskScheduleWithinMilestone(
+    taskDates: {
+      startDate?: Date | null;
+      dueDate?: Date | null;
+    },
+    milestone: Pick<MilestoneEntity, 'startDate' | 'dueDate'>,
+  ): void {
+    const milestoneStartDate = this.normalizeTaskBoundaryDate(
+      milestone.startDate,
+      'milestone start date',
+    );
+    const milestoneDueDate = this.normalizeTaskBoundaryDate(
+      milestone.dueDate,
+      'milestone due date',
+    );
+    const normalizedStartDate = taskDates.startDate ?? null;
+    const normalizedDueDate = taskDates.dueDate ?? null;
+
+    if (
+      normalizedStartDate &&
+      normalizedDueDate &&
+      normalizedStartDate.getTime() > normalizedDueDate.getTime()
+    ) {
+      throw new BadRequestException('Task start date cannot be after the due date.');
+    }
+
+    if (
+      milestoneStartDate &&
+      normalizedStartDate &&
+      normalizedStartDate.getTime() < milestoneStartDate.getTime()
+    ) {
+      throw new BadRequestException('Task start date must be on or after the milestone start date.');
+    }
+
+    if (
+      milestoneDueDate &&
+      normalizedStartDate &&
+      normalizedStartDate.getTime() > milestoneDueDate.getTime()
+    ) {
+      throw new BadRequestException('Task start date must be on or before the milestone due date.');
+    }
+
+    if (
+      milestoneStartDate &&
+      normalizedDueDate &&
+      normalizedDueDate.getTime() < milestoneStartDate.getTime()
+    ) {
+      throw new BadRequestException('Task due date must be on or after the milestone start date.');
+    }
+
+    if (
+      milestoneDueDate &&
+      normalizedDueDate &&
+      normalizedDueDate.getTime() > milestoneDueDate.getTime()
+    ) {
+      throw new BadRequestException('Task due date must be on or before the milestone due date.');
+    }
+  }
+
+  private resolveSubmissionDeadline(
+    task: Pick<TaskEntity, 'dueDate'>,
+    milestone?: Pick<MilestoneEntity, 'dueDate'> | null,
+  ): Date | null {
+    return task.dueDate ?? milestone?.dueDate ?? null;
+  }
+
+  private isSubmissionDeadlinePassed(deadline: Date | null, referenceDate = new Date()): boolean {
+    if (!deadline) {
+      return false;
+    }
+
+    const lockAt = new Date(deadline);
+    lockAt.setHours(23, 59, 59, 999);
+    return referenceDate.getTime() > lockAt.getTime();
+  }
+
+  private formatDeadlineDateOnlyForDisplay(value: Date): string {
+    return value.toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      timeZone: 'UTC',
+    });
+  }
+
+  private assertMilestoneTaskCreationDeadlineOpen(
+    milestone: Pick<MilestoneEntity, 'dueDate'>,
+    referenceDate = new Date(),
+  ): void {
+    if (!this.isSubmissionDeadlinePassed(milestone.dueDate ?? null, referenceDate)) {
+      return;
+    }
+
+    throw new ForbiddenException(
+      milestone.dueDate
+        ? `Task creation is locked because the milestone due date passed at the end of ${this.formatDeadlineDateOnlyForDisplay(
+            milestone.dueDate,
+          )}.`
+        : 'Task creation is locked because the milestone due date has passed.',
+    );
+  }
+
+  private async getMilestoneSubmissionDeadlineContext(
+    milestoneId: string,
+  ): Promise<
+    Pick<MilestoneEntity, 'id' | 'projectId' | 'status' | 'startDate' | 'dueDate' | 'title'>
+  > {
+    const milestone = await this.milestoneRepository.findOne({
+      where: { id: milestoneId },
+      select: ['id', 'projectId', 'status', 'startDate', 'dueDate', 'title'],
+    });
+
+    if (!milestone) {
+      throw new NotFoundException('Milestone not found');
+    }
+
+    return milestone;
+  }
+
+  private async hasSubmissionWorkflowStarted(taskId: string): Promise<boolean> {
+    const submissionCount = await this.submissionRepository.count({
+      where: {
+        taskId,
+        status: In([...ACTIVE_SUBMISSION_REVIEW_STATUSES, ...FINAL_APPROVED_SUBMISSION_STATUSES]),
+      },
+    });
+
+    return submissionCount > 0;
+  }
+
+  private async announceSubmissionDeadlineReminder(
+    task: Pick<TaskEntity, 'id' | 'title' | 'projectId'>,
+    deadline: Date,
+  ): Promise<void> {
+    const deadlineLabel = this.formatDeadlineForDisplay(deadline);
+    const message = `Reminder: Freelancer submission for task "${task.title}" is due by ${deadlineLabel}. After that deadline passes, no new submission can be sent.`;
+    const created = await this.recordWorkspaceSystemMessageOnce(task.projectId, message, task.id);
+
+    if (!created) {
+      return;
+    }
+
+    await this.notifyProjectParticipants(
+      task.projectId,
+      'Task submission deadline approaching',
+      `Task "${task.title}" must be submitted by ${deadlineLabel}. After the deadline, submissions are locked.`,
+      'Task',
+      task.id,
+    );
+  }
+
+  private async announceSubmissionDeadlineClosed(
+    task: Pick<TaskEntity, 'id' | 'title' | 'projectId'>,
+    deadline: Date,
+  ): Promise<void> {
+    const deadlineLabel = this.formatDeadlineForDisplay(deadline);
+    const message = `Submission locked: Task "${task.title}" passed its deadline at ${deadlineLabel}, so the freelancer can no longer submit a new version.`;
+    const created = await this.recordWorkspaceSystemMessageOnce(task.projectId, message, task.id);
+
+    if (!created) {
+      return;
+    }
+
+    await this.notifyProjectParticipants(
+      task.projectId,
+      'Task submission locked after due date',
+      `Task "${task.title}" passed its deadline at ${deadlineLabel}. New freelancer submissions are no longer allowed.`,
+      'Task',
+      task.id,
+    );
+  }
+
+  private async notifyTaskStatusTransition(
+    task: Pick<TaskEntity, 'id' | 'title' | 'projectId'>,
+    previousStatus: TaskStatus,
+    nextStatus: TaskStatus,
+    actorId?: string,
+  ): Promise<void> {
+    if (!this.notificationsService || previousStatus === nextStatus) {
+      return;
+    }
+
+    try {
+      const project = await this.projectRepository.findOne({
+        where: { id: task.projectId },
+        select: ['id', 'clientId', 'brokerId', 'freelancerId', 'staffId'],
+      });
+
+      if (!project) {
+        return;
+      }
+
+      const recipientIds = Array.from(
+        new Set(
+          [project.clientId, project.brokerId, project.freelancerId, project.staffId].filter(
+            Boolean,
+          ),
+        ),
+      ).filter((userId): userId is string => Boolean(userId) && userId !== actorId);
+
+      if (recipientIds.length === 0) {
+        return;
+      }
+
+      await this.notificationsService.createMany(
+        recipientIds.map((userId) => ({
+          userId,
+          title: 'Task status updated',
+          body: `Task "${task.title}" moved from ${previousStatus} to ${nextStatus}.`,
+          relatedType: 'Project',
+          relatedId: task.projectId,
+        })),
+      );
+    } catch (error) {
+      this.logger.warn(
+        `Task status notification skipped for task ${task.id}: ${
           error instanceof Error ? error.message : 'unknown error'
         }`,
       );
@@ -346,25 +725,42 @@ export class TasksService implements OnModuleInit {
     return this.supabase;
   }
 
-  private buildAttachmentPath(fileName: string): string {
-    const ext = path.extname(fileName || '').toLowerCase();
-    const unique = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  private sanitizeAttachmentFileName(fileName: string): string {
+    const trimmedName = path.basename(String(fileName || '').trim());
+    const sanitized = Array.from(trimmedName)
+      .filter((char) => char.charCodeAt(0) >= 32)
+      .join('')
+      .replace(/[<>:"/\\|?*]/g, '_')
+      .replace(/\s+/g, ' ')
+      .replace(/\.{2,}/g, '.')
+      .trim();
 
-    return `comments/${unique}${ext}`;
+    return sanitized || 'attachment';
   }
 
-  async uploadFile(file: Express.Multer.File): Promise<{ url: string }> {
+  private buildAttachmentPath(fileName: string): string {
+    const unique = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    const sanitizedFileName = this.sanitizeAttachmentFileName(fileName);
+
+    return `comments/${unique}/${sanitizedFileName}`;
+  }
+
+  async uploadFile(
+    file: Express.Multer.File,
+  ): Promise<{ url: string; fileName: string; fileType: string }> {
     if (!file?.buffer) {
       throw new BadRequestException('File is required');
     }
 
     const supabase = this.getSupabaseClient();
     const bucketName = ATTACHMENT_BUCKET;
+    const originalFileName = this.sanitizeAttachmentFileName(file.originalname || 'attachment');
+    const fileType = file.mimetype || 'application/octet-stream';
     this.logger.log(`Uploading to bucket: ${bucketName}`);
-    const storagePath = this.buildAttachmentPath(file.originalname || 'attachment');
+    const storagePath = this.buildAttachmentPath(originalFileName);
 
     const { error } = await supabase.storage.from(bucketName).upload(storagePath, file.buffer, {
-      contentType: file.mimetype || 'application/octet-stream',
+      contentType: fileType,
       cacheControl: '3600',
       upsert: false,
     });
@@ -386,8 +782,8 @@ export class TasksService implements OnModuleInit {
         context: {
           bucket: ATTACHMENT_BUCKET,
           storagePath,
-          fileName: file.originalname || 'attachment',
-          mimeType: file.mimetype || 'application/octet-stream',
+          fileName: originalFileName,
+          mimeType: fileType,
         },
       });
       throw new InternalServerErrorException('Failed to upload attachment');
@@ -399,7 +795,11 @@ export class TasksService implements OnModuleInit {
       throw new InternalServerErrorException('Upload succeeded, but public URL is missing');
     }
 
-    return { url: data.publicUrl };
+    return {
+      url: data.publicUrl,
+      fileName: originalFileName,
+      fileType,
+    };
   }
 
   async getTaskHistory(taskId: string): Promise<TaskHistoryEntity[]> {
@@ -450,10 +850,59 @@ export class TasksService implements OnModuleInit {
     return sanitizeHtml(content, COMMENT_SANITIZE_OPTIONS).trim();
   }
 
-  private async ensureTaskExists(taskId: string): Promise<void> {
+  private async getTaskOrThrow(taskId: string): Promise<TaskEntity> {
     const task = await this.taskRepository.findOne({ where: { id: taskId } });
     if (!task) {
       throw new NotFoundException('Task not found');
+    }
+
+    return task;
+  }
+
+  private async ensureTaskExists(taskId: string): Promise<void> {
+    await this.getTaskOrThrow(taskId);
+  }
+
+  private isFinalApprovedSubmissionStatus(status?: TaskSubmissionStatus | null): boolean {
+    return FINAL_APPROVED_SUBMISSION_STATUSES.includes(
+      status as (typeof FINAL_APPROVED_SUBMISSION_STATUSES)[number],
+    );
+  }
+
+  private assertMilestoneAllowsTaskWork(milestone: Pick<MilestoneEntity, 'status'>): void {
+    if (!TASK_CREATION_ALLOWED_MILESTONE_STATUSES.has(milestone.status)) {
+      throw new ForbiddenException(TASK_WORK_LOCK_MESSAGE);
+    }
+  }
+
+  private async assertMilestoneInteractionAllowed(milestoneId: string): Promise<void> {
+    await this.milestoneInteractionPolicyService.assertMilestoneUnlockedForWorkspace(milestoneId);
+  }
+
+  private async assertMilestoneAllowsTaskWorkById(milestoneId: string): Promise<MilestoneEntity> {
+    const milestone = await this.getMilestoneSubmissionDeadlineContext(milestoneId);
+
+    await this.assertMilestoneInteractionAllowed(milestone.id);
+    this.assertMilestoneAllowsTaskWork(milestone);
+    return milestone as MilestoneEntity;
+  }
+
+  private getClientReviewDueAt(referenceDate: Date): Date {
+    return new Date(referenceDate.getTime() + 24 * 60 * 60 * 1000);
+  }
+
+  private async ensureNoOpenSubmissionReview(taskId: string): Promise<void> {
+    const openReviewCount = await this.submissionRepository.count({
+      where: {
+        taskId,
+        status: In([...ACTIVE_SUBMISSION_REVIEW_STATUSES]),
+      },
+    });
+
+    if (openReviewCount > 0) {
+      throw new BadRequestException(
+        'Cannot submit a new version while another submission is still waiting for review.',
+      );
     }
   }
 
@@ -524,7 +973,7 @@ export class TasksService implements OnModuleInit {
 
     return this.submissionRepository.find({
       where: { taskId },
-      relations: ['submitter'],
+      relations: ['submitter', 'reviewer', 'brokerReviewer', 'clientReviewer'],
       order: { version: 'DESC', createdAt: 'DESC' },
     });
   }
@@ -533,10 +982,8 @@ export class TasksService implements OnModuleInit {
     taskId: string,
     data: { url: string; title?: string },
   ): Promise<TaskLinkEntity> {
-    const task = await this.taskRepository.findOne({ where: { id: taskId } });
-    if (!task) {
-      throw new NotFoundException('Task not found');
-    }
+    const task = await this.getTaskOrThrow(taskId);
+    await this.assertMilestoneInteractionAllowed(task.milestoneId);
 
     const link = this.taskLinkRepository.create({
       taskId,
@@ -548,6 +995,9 @@ export class TasksService implements OnModuleInit {
   }
 
   async deleteTaskLink(taskId: string, linkId: string): Promise<void> {
+    const task = await this.getTaskOrThrow(taskId);
+    await this.assertMilestoneInteractionAllowed(task.milestoneId);
+
     const link = await this.taskLinkRepository.findOne({
       where: { id: linkId, taskId },
     });
@@ -557,6 +1007,75 @@ export class TasksService implements OnModuleInit {
     }
 
     await this.taskLinkRepository.remove(link);
+  }
+
+  async deleteTask(taskId: string, actorId?: string, actorRole?: UserRole | string): Promise<void> {
+    if (!actorId) {
+      throw new ForbiddenException('Authentication required');
+    }
+
+    if (String(actorRole || '').toUpperCase() !== UserRole.BROKER) {
+      throw new ForbiddenException('Only brokers can delete tasks in project workspace.');
+    }
+
+    const task = await this.getTaskOrThrow(taskId);
+    await this.assertMilestoneAllowsTaskWorkById(task.milestoneId);
+    await this.assertMilestoneEscrowFundedForWorkspace(task.milestoneId);
+
+    if (task.status === TaskStatus.IN_REVIEW || task.status === TaskStatus.DONE) {
+      throw new BadRequestException('Tasks in review or done cannot be deleted.');
+    }
+
+    const project = await this.projectRepository.findOne({
+      where: { id: task.projectId },
+      select: ['id', 'brokerId'],
+    });
+
+    if (!project) {
+      throw new NotFoundException('Project not found for this task');
+    }
+
+    if (!project.brokerId || project.brokerId !== actorId) {
+      throw new ForbiddenException('Only the assigned broker can delete tasks for this project.');
+    }
+
+    const subtasks = await this.taskRepository.find({
+      where: { parentTaskId: taskId },
+      select: ['id'],
+    });
+    const subtaskIds = subtasks.map((subtask) => subtask.id);
+
+    if (subtaskIds.length > 0) {
+      await this.taskRepository.delete(subtaskIds);
+    }
+
+    await this.taskRepository.delete(taskId);
+
+    const { progress, totalTasks, completedTasks } = await this.calculateMilestoneProgress(
+      task.milestoneId,
+    );
+    await this.syncMilestoneStatus(task.milestoneId, progress);
+
+    if (task.parentTaskId) {
+      await this.emitWorkspaceRefreshForTask(task.parentTaskId);
+      return;
+    }
+
+    await this.recordWorkspaceSystemMessage(
+      task.projectId,
+      `Task "${task.title}" was deleted from the workspace.`,
+      task.id,
+    );
+
+    this.emitTaskRealtimeEvent({
+      action: 'DELETED',
+      projectId: task.projectId,
+      taskId: task.id,
+      milestoneId: task.milestoneId,
+      milestoneProgress: progress,
+      totalTasks,
+      completedTasks,
+    });
   }
 
   async getSubtasks(taskId: string): Promise<TaskEntity[]> {
@@ -581,11 +1100,13 @@ export class TasksService implements OnModuleInit {
       assignedTo?: string;
       dueDate?: string;
     },
+    actorRole?: UserRole,
   ): Promise<TaskEntity> {
-    const parent = await this.taskRepository.findOne({ where: { id: parentTaskId } });
-    if (!parent) {
-      throw new NotFoundException('Parent task not found');
-    }
+    this.assertSubtaskManagementAllowed(actorRole);
+    const parent = await this.getTaskOrThrow(parentTaskId);
+    await this.assertMilestoneAllowsTaskWorkById(parent.milestoneId);
+
+    await this.assertMilestoneEscrowFundedForWorkspace(parent.milestoneId);
 
     const subtask = this.taskRepository.create({
       title: data.title,
@@ -611,18 +1132,25 @@ export class TasksService implements OnModuleInit {
       throw new NotFoundException('Subtask not found after creation');
     }
 
+    await this.emitWorkspaceRefreshForTask(parentTaskId);
+
     return created;
   }
 
-  async linkExistingSubtask(parentTaskId: string, subtaskId: string): Promise<TaskEntity> {
+  async linkExistingSubtask(
+    parentTaskId: string,
+    subtaskId: string,
+    actorRole?: UserRole,
+  ): Promise<TaskEntity> {
+    this.assertSubtaskManagementAllowed(actorRole);
     if (parentTaskId === subtaskId) {
       throw new BadRequestException('Task cannot be linked to itself');
     }
 
-    const parent = await this.taskRepository.findOne({ where: { id: parentTaskId } });
-    if (!parent) {
-      throw new NotFoundException('Parent task not found');
-    }
+    const parent = await this.getTaskOrThrow(parentTaskId);
+    await this.assertMilestoneAllowsTaskWorkById(parent.milestoneId);
+
+    await this.assertMilestoneEscrowFundedForWorkspace(parent.milestoneId);
 
     const subtask = await this.taskRepository.findOne({
       where: { id: subtaskId },
@@ -650,11 +1178,44 @@ export class TasksService implements OnModuleInit {
       throw new NotFoundException('Subtask not found after linking');
     }
 
+    await this.emitWorkspaceRefreshForTask(parentTaskId);
+
     return linked;
   }
 
-  async createComment(taskId: string, actorId: string, content: string): Promise<TaskCommentItem> {
-    await this.ensureTaskExists(taskId);
+  private assertSubtaskManagementAllowed(actorRole?: UserRole): void {
+    if (actorRole === UserRole.FREELANCER) {
+      throw new ForbiddenException('Freelancers cannot create or link subtasks.');
+    }
+  }
+
+  private assertSubtaskDoneTransitionAllowed(
+    task: Pick<TaskEntity, 'parentTaskId'>,
+    nextStatus: TaskStatus | string | undefined,
+    actorRole?: UserRole | string,
+  ): void {
+    if (!task.parentTaskId) {
+      return;
+    }
+
+    const normalizedActorRole = String(actorRole || '').toUpperCase();
+
+    if (normalizedActorRole === UserRole.FREELANCER) {
+      throw new ForbiddenException('Freelancers are not allowed to change subtask status.');
+    }
+
+    if (nextStatus === TaskStatus.DONE && normalizedActorRole !== UserRole.BROKER) {
+      throw new ForbiddenException('Only brokers can move subtasks to DONE.');
+    }
+  }
+
+  async createComment(
+    taskId: string,
+    actorId: string,
+    content: string,
+  ): Promise<TaskCommentMutationResult> {
+    const task = await this.getTaskOrThrow(taskId);
+    await this.assertMilestoneInteractionAllowed(task.milestoneId);
 
     const sanitizedContent = this.sanitizeCommentContent(content);
     if (!sanitizedContent) {
@@ -677,17 +1238,41 @@ export class TasksService implements OnModuleInit {
       throw new NotFoundException('Comment not found after creation');
     }
 
+    let attachmentsUpdated = false;
     try {
-      await this.createAttachmentsFromComment(taskId, actorId, sanitizedContent);
+      attachmentsUpdated = await this.createAttachmentsFromComment(
+        taskId,
+        actorId,
+        sanitizedContent,
+      );
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       this.logger.warn(`Failed to extract task attachments: ${message}`);
     }
 
-    return this.mapTaskComment(fullComment);
+    let updatedTask: TaskEntity | null = null;
+    if (attachmentsUpdated) {
+      updatedTask = await this.findTaskWithWorkspaceRelations(taskId);
+      if (updatedTask && !updatedTask.parentTaskId) {
+        this.emitTaskRealtimeEvent({
+          action: 'UPDATED',
+          projectId: updatedTask.projectId,
+          task: updatedTask,
+        });
+      }
+    }
+
+    return {
+      comment: this.mapTaskComment(fullComment),
+      task: updatedTask,
+    };
   }
 
-  async addComment(taskId: string, content: string, actorId: string): Promise<TaskCommentItem> {
+  async addComment(
+    taskId: string,
+    content: string,
+    actorId: string,
+  ): Promise<TaskCommentMutationResult> {
     return this.createComment(taskId, actorId, content);
   }
 
@@ -695,7 +1280,7 @@ export class TasksService implements OnModuleInit {
     commentId: string,
     actorId: string,
     content: string,
-  ): Promise<TaskCommentItem> {
+  ): Promise<TaskCommentMutationResult> {
     const sanitizedContent = this.sanitizeCommentContent(content);
     if (!sanitizedContent) {
       throw new BadRequestException('Content is required');
@@ -713,13 +1298,21 @@ export class TasksService implements OnModuleInit {
       throw new ForbiddenException('You can only edit your own comments');
     }
 
+    const task = await this.getTaskOrThrow(comment.taskId);
+    await this.assertMilestoneInteractionAllowed(task.milestoneId);
+
     if (comment.content !== sanitizedContent) {
       comment.content = sanitizedContent;
       await this.commentRepository.save(comment);
     }
 
+    let attachmentsUpdated = false;
     try {
-      await this.createAttachmentsFromComment(comment.taskId, actorId, sanitizedContent);
+      attachmentsUpdated = await this.createAttachmentsFromComment(
+        comment.taskId,
+        actorId,
+        sanitizedContent,
+      );
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       this.logger.warn(`Failed to extract task attachments: ${message}`);
@@ -730,7 +1323,22 @@ export class TasksService implements OnModuleInit {
       throw new NotFoundException('Comment not found after update');
     }
 
-    return this.mapTaskComment(fullComment);
+    let updatedTask: TaskEntity | null = null;
+    if (attachmentsUpdated) {
+      updatedTask = await this.findTaskWithWorkspaceRelations(comment.taskId);
+      if (updatedTask && !updatedTask.parentTaskId) {
+        this.emitTaskRealtimeEvent({
+          action: 'UPDATED',
+          projectId: updatedTask.projectId,
+          task: updatedTask,
+        });
+      }
+    }
+
+    return {
+      comment: this.mapTaskComment(fullComment),
+      task: updatedTask,
+    };
   }
 
   async deleteComment(
@@ -754,6 +1362,9 @@ export class TasksService implements OnModuleInit {
       throw new ForbiddenException('You can only delete your own comments unless you are an admin');
     }
 
+    const task = await this.getTaskOrThrow(comment.taskId);
+    await this.assertMilestoneInteractionAllowed(task.milestoneId);
+
     await this.commentRepository.remove(comment);
   }
 
@@ -761,19 +1372,20 @@ export class TasksService implements OnModuleInit {
     taskId: string,
     dto: CreateSubmissionDto,
     submitterId?: string,
-  ): Promise<TaskSubmissionEntity> {
+  ): Promise<TaskSubmissionCreateResult> {
     if (!submitterId) {
       throw new ForbiddenException('Authentication required');
     }
 
-    const task = await this.taskRepository.findOne({ where: { id: taskId } });
-    if (!task) {
-      throw new NotFoundException('Task not found');
-    }
+    const task = await this.getTaskOrThrow(taskId);
+
+    await this.assertMilestoneEscrowFundedForWorkspace(task.milestoneId);
+    const milestone = await this.getMilestoneSubmissionDeadlineContext(task.milestoneId);
+    const submissionDeadline = this.resolveSubmissionDeadline(task, milestone);
 
     const project = await this.projectRepository.findOne({
       where: { id: task.projectId },
-      select: ['id', 'freelancerId'],
+      select: ['id', 'brokerId', 'freelancerId'],
     });
 
     if (!project) {
@@ -789,6 +1401,31 @@ export class TasksService implements OnModuleInit {
     if (task.assignedTo && task.assignedTo !== submitterId) {
       throw new ForbiddenException('Only the task assignee can submit work for this task.');
     }
+
+    if (!project.brokerId) {
+      throw new ForbiddenException(
+        'Work submission is unavailable until a broker is assigned to this project.',
+      );
+    }
+
+    await this.assertMilestoneInteractionAllowed(task.milestoneId);
+    this.assertMilestoneAllowsTaskWork(milestone);
+
+    if (this.isSubmissionDeadlinePassed(submissionDeadline)) {
+      if (submissionDeadline) {
+        await this.announceSubmissionDeadlineClosed(task, submissionDeadline);
+      }
+
+      throw new ForbiddenException(
+        submissionDeadline
+          ? `The submission deadline passed at ${this.formatDeadlineForDisplay(
+              submissionDeadline,
+            )}. New freelancer submissions are locked for this task.`
+          : 'New freelancer submissions are locked for this task.',
+      );
+    }
+
+    await this.ensureNoOpenSubmissionReview(taskId);
 
     const latestSubmission = await this.submissionRepository
       .createQueryBuilder('submission')
@@ -807,16 +1444,50 @@ export class TasksService implements OnModuleInit {
       attachments: dto.attachments ?? [],
       version: nextVersion,
       status: TaskSubmissionStatus.PENDING,
+      reviewNote: null,
+      reviewerId: null,
+      reviewedAt: null,
+      brokerReviewNote: null,
+      brokerReviewerId: null,
+      brokerReviewedAt: null,
+      clientReviewNote: null,
+      clientReviewerId: null,
+      clientReviewedAt: null,
+      clientReviewDueAt: null,
+      autoApprovedAt: null,
     });
 
     const saved = await this.submissionRepository.save(submission);
 
     await this.taskRepository.update(taskId, {
       status: TaskStatus.IN_REVIEW,
-      submittedAt: null,
+      submittedAt: this.buildNullableTimestampUpdate(null),
     });
 
-    return saved;
+    const updatedTask = await this.findTaskWithWorkspaceRelations(taskId);
+    if (!updatedTask) {
+      throw new NotFoundException('Task not found after submission');
+    }
+
+    if (!updatedTask.parentTaskId) {
+      this.emitTaskRealtimeEvent({
+        action: 'UPDATED',
+        projectId: updatedTask.projectId,
+        task: updatedTask,
+        milestoneId: updatedTask.milestoneId,
+      });
+    }
+
+    await this.recordWorkspaceSystemMessage(
+      task.projectId,
+      `Submission V${nextVersion} was sent for broker review on task "${task.title}".`,
+      task.id,
+    );
+
+    return {
+      submission: saved,
+      task: updatedTask,
+    };
   }
 
   /**
@@ -839,52 +1510,39 @@ export class TasksService implements OnModuleInit {
     reviewerId: string,
     reviewerRole?: UserRole | string,
   ): Promise<SubmissionReviewResult> {
-    // Step 1: Find the submission
     const submission = await this.submissionRepository.findOne({
       where: { id: submissionId, taskId },
-      relations: ['submitter'],
+      relations: ['submitter', 'reviewer', 'brokerReviewer', 'clientReviewer'],
     });
 
     if (!submission) {
       throw new NotFoundException('Submission not found');
     }
 
-    // Step 2: Check if submission is still pending
-    if (submission.status !== TaskSubmissionStatus.PENDING) {
-      throw new BadRequestException(
-        `Submission has already been reviewed (status: ${submission.status})`,
-      );
-    }
+    const task = await this.getTaskOrThrow(taskId);
+    await this.assertMilestoneInteractionAllowed(task.milestoneId);
 
-    // Step 3: Get the task
-    const task = await this.taskRepository.findOne({
-      where: { id: taskId },
-      relations: ['assignee'],
-    });
-
-    if (!task) {
-      throw new NotFoundException('Task not found');
-    }
+    await this.assertMilestoneEscrowFundedForWorkspace(task.milestoneId);
 
     const project = await this.projectRepository.findOne({
       where: { id: task.projectId },
+      select: ['id', 'clientId', 'brokerId'],
     });
     if (!project) {
       throw new NotFoundException('Project not found for this task');
     }
 
     const normalizedReviewerRole = String(reviewerRole || '').toUpperCase();
-    if (normalizedReviewerRole === UserRole.CLIENT) {
-      if (project.clientId !== reviewerId) {
-        throw new ForbiddenException('Only the project client can review submissions');
-      }
-    } else if (normalizedReviewerRole === UserRole.BROKER) {
-      if (project.brokerId !== reviewerId) {
-        throw new ForbiddenException(
-          'Only the assigned broker can review submissions for this project',
-        );
-      }
-    } else {
+    if (normalizedReviewerRole !== UserRole.CLIENT && normalizedReviewerRole !== UserRole.BROKER) {
+      throw new ForbiddenException(
+        'Only the project client or assigned broker can review submissions',
+      );
+    }
+
+    const canActAsClient = project.clientId === reviewerId;
+    const canActAsBroker = Boolean(project.brokerId && project.brokerId === reviewerId);
+
+    if (!canActAsClient && !canActAsBroker) {
       throw new ForbiddenException(
         'Only the project client or assigned broker can review submissions',
       );
@@ -892,73 +1550,134 @@ export class TasksService implements OnModuleInit {
 
     const previousTaskStatus = task.status;
     const milestoneId = task.milestoneId;
+    const reviewTimestamp = new Date();
+    const trimmedReviewNote = dto.reviewNote?.trim() || null;
+    let resolvedTaskStatus = task.status;
+    let auditMessage = '';
 
-    // Step 4: Update submission with review data
-    submission.status = dto.status;
-    submission.reviewNote = dto.reviewNote ?? null;
-    submission.reviewerId = reviewerId;
-    submission.reviewedAt = new Date();
+    if (submission.status === TaskSubmissionStatus.PENDING) {
+      if (!canActAsBroker) {
+        throw new BadRequestException(
+          'Broker review is required before the client can review this submission.',
+        );
+      }
+
+      if (dto.status === TaskSubmissionStatus.APPROVED) {
+        const unfinishedSubtasks = await this.getUnfinishedSubtasks(task.id);
+        if (unfinishedSubtasks.length > 0) {
+          throw new BadRequestException(
+            `Cannot approve submission: ${unfinishedSubtasks.length} subtasks are still not DONE.`,
+          );
+        }
+      }
+
+      submission.brokerReviewerId = reviewerId;
+      submission.brokerReviewedAt = reviewTimestamp;
+      submission.brokerReviewNote = trimmedReviewNote;
+
+      if (dto.status === TaskSubmissionStatus.APPROVED) {
+        submission.status = TaskSubmissionStatus.APPROVED;
+        submission.clientReviewDueAt = null;
+        submission.clientReviewerId = null;
+        submission.clientReviewedAt = null;
+        submission.clientReviewNote = null;
+        submission.autoApprovedAt = null;
+        submission.reviewNote = trimmedReviewNote;
+        submission.reviewerId = reviewerId;
+        submission.reviewedAt = reviewTimestamp;
+        resolvedTaskStatus = TaskStatus.DONE;
+        auditMessage = `Broker approved submission V${submission.version} for task "${task.title}". The task is now marked DONE.`;
+      } else {
+        submission.status = TaskSubmissionStatus.REQUEST_CHANGES;
+        submission.clientReviewDueAt = null;
+        submission.clientReviewerId = null;
+        submission.clientReviewedAt = null;
+        submission.clientReviewNote = null;
+        submission.autoApprovedAt = null;
+        submission.reviewNote = trimmedReviewNote;
+        submission.reviewerId = reviewerId;
+        submission.reviewedAt = reviewTimestamp;
+        resolvedTaskStatus = TaskStatus.IN_PROGRESS;
+        auditMessage = `Broker requested changes for submission V${submission.version} on task "${task.title}". The task moved back to IN_PROGRESS.`;
+      }
+    } else if (submission.status === TaskSubmissionStatus.PENDING_CLIENT_REVIEW) {
+      if (!canActAsClient) {
+        throw new ForbiddenException('Only the project client can complete client review.');
+      }
+
+      submission.clientReviewerId = reviewerId;
+      submission.clientReviewedAt = reviewTimestamp;
+      submission.clientReviewNote = trimmedReviewNote;
+      submission.reviewNote = trimmedReviewNote;
+      submission.reviewerId = reviewerId;
+      submission.reviewedAt = reviewTimestamp;
+      submission.autoApprovedAt = null;
+      submission.clientReviewDueAt = null;
+
+      if (dto.status === TaskSubmissionStatus.APPROVED) {
+        submission.status = TaskSubmissionStatus.APPROVED;
+        resolvedTaskStatus = TaskStatus.DONE;
+        auditMessage = `Client approved submission V${submission.version} for task "${task.title}". The task is now marked DONE.`;
+      } else {
+        submission.status = TaskSubmissionStatus.REQUEST_CHANGES;
+        resolvedTaskStatus = TaskStatus.IN_PROGRESS;
+        auditMessage = `Client requested changes for submission V${submission.version} on task "${task.title}". The task moved back to IN_PROGRESS.`;
+      }
+    } else {
+      throw new BadRequestException('This submission is no longer waiting for review.');
+    }
 
     await this.submissionRepository.save(submission);
 
-    // Step 5: Update task status based on review decision
-    let newTaskStatus: TaskStatus;
+    await this.taskRepository.update(taskId, {
+      status: resolvedTaskStatus,
+      submittedAt: this.buildNullableTimestampUpdate(
+        this.isFinalApprovedSubmissionStatus(submission.status) ? reviewTimestamp : null,
+      ),
+    });
 
-    if (dto.status === TaskSubmissionStatus.APPROVED) {
-      newTaskStatus = TaskStatus.DONE;
-      this.logger.log(`Submission ${submissionId} APPROVED → Task ${taskId} marked as DONE`);
-    } else {
-      // REQUEST_CHANGES - send back to freelancer
-      newTaskStatus = TaskStatus.IN_PROGRESS;
-      this.logger.log(
-        `Submission ${submissionId} REQUEST_CHANGES → Task ${taskId} sent back to IN_PROGRESS`,
+    if (previousTaskStatus !== resolvedTaskStatus) {
+      await this.createHistory(
+        taskId,
+        'status',
+        previousTaskStatus,
+        resolvedTaskStatus,
+        reviewerId,
       );
     }
 
-    await this.taskRepository.update(taskId, {
-      status: newTaskStatus,
-      submittedAt: dto.status === TaskSubmissionStatus.APPROVED ? submission.reviewedAt : null,
-    });
-
-    // Step 6: Record history
-    if (previousTaskStatus !== newTaskStatus) {
-      await this.createHistory(taskId, 'status', previousTaskStatus, newTaskStatus, reviewerId);
-    }
-
-    // Step 7: Refetch updated task
-    const updatedTask = await this.findTaskWithWorkspaceRelations(taskId);
-
-    if (!updatedTask) {
+    const nextTask = await this.findTaskWithWorkspaceRelations(taskId);
+    if (!nextTask) {
       throw new NotFoundException('Task not found after update');
     }
 
-    // Step 8: Recalculate milestone progress
     const { progress, totalTasks, completedTasks } =
       await this.calculateMilestoneProgress(milestoneId);
 
-    this.logger.log(
-      `Milestone ${milestoneId} progress after review: ${completedTasks}/${totalTasks} = ${progress}%`,
+    await this.syncMilestoneStatus(
+      milestoneId,
+      progress,
+      this.isFinalApprovedSubmissionStatus(submission.status) ? reviewTimestamp : undefined,
     );
 
-    // Step 9: Sync milestone status for both approval and request-changes flows.
-    await this.syncMilestoneStatus(milestoneId, progress);
-
-    // Refetch submission with reviewer relation
-    const updatedSubmission = await this.submissionRepository.findOne({
+    const hydratedSubmission = await this.submissionRepository.findOne({
       where: { id: submissionId },
-      relations: ['submitter', 'reviewer'],
+      relations: ['submitter', 'reviewer', 'brokerReviewer', 'clientReviewer'],
     });
 
-    const reviewAuditMessage =
-      dto.status === TaskSubmissionStatus.APPROVED
-        ? `Submission approved for task "${task.title}". The task is now marked DONE.`
-        : `Changes requested for task "${task.title}". The task has been moved back to IN_PROGRESS.`;
-    await this.recordWorkspaceSystemMessage(task.projectId, reviewAuditMessage, task.id);
+    await this.recordWorkspaceSystemMessage(task.projectId, auditMessage, task.id);
+
+    await this.notifyTaskStatusTransition(
+      nextTask,
+      previousTaskStatus,
+      resolvedTaskStatus,
+      reviewerId,
+    );
 
     this.emitTaskRealtimeEvent({
       action: 'UPDATED',
       projectId: task.projectId,
-      task: updatedTask,
+      task: nextTask,
       milestoneId,
       milestoneProgress: progress,
       totalTasks,
@@ -966,8 +1685,8 @@ export class TasksService implements OnModuleInit {
     });
 
     return {
-      submission: updatedSubmission!,
-      task: updatedTask,
+      submission: hydratedSubmission!,
+      task: nextTask,
       milestoneId,
       milestoneProgress: progress,
       totalTasks,
@@ -990,9 +1709,25 @@ export class TasksService implements OnModuleInit {
   private getFileNameFromUrl(url: string): string {
     try {
       const parsed = new URL(url);
+      const fileNameFromHash = new URLSearchParams(parsed.hash.replace(/^#/, '')).get('filename');
+      if (fileNameFromHash?.trim()) {
+        return decodeURIComponent(fileNameFromHash);
+      }
+
+      const fileNameFromQuery = parsed.searchParams.get('filename');
+      if (fileNameFromQuery?.trim()) {
+        return decodeURIComponent(fileNameFromQuery);
+      }
+
       const name = path.basename(parsed.pathname);
       return name || 'attachment';
     } catch {
+      const hashSegment = url.split('#')[1] || '';
+      const fileNameFromHash = new URLSearchParams(hashSegment).get('filename');
+      if (fileNameFromHash?.trim()) {
+        return decodeURIComponent(fileNameFromHash);
+      }
+
       const cleaned = url.split('?')[0]?.split('#')[0] || '';
       const name = path.basename(cleaned);
       return name || 'attachment';
@@ -1003,10 +1738,10 @@ export class TasksService implements OnModuleInit {
     taskId: string,
     uploaderId: string,
     html: string,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const urls = this.extractImageUrls(html);
     if (urls.length === 0) {
-      return;
+      return false;
     }
 
     const existing = await this.attachmentRepository.find({
@@ -1020,7 +1755,7 @@ export class TasksService implements OnModuleInit {
     const newUrls = urls.filter((url) => !existingUrls.has(url));
 
     if (newUrls.length === 0) {
-      return;
+      return false;
     }
 
     const attachments = newUrls.map((url) =>
@@ -1034,6 +1769,7 @@ export class TasksService implements OnModuleInit {
     );
 
     await this.attachmentRepository.save(attachments);
+    return true;
   }
 
   private async createHistory(
@@ -1090,16 +1826,20 @@ export class TasksService implements OnModuleInit {
         return versionDelta;
       }
 
-      const aTime = a?.reviewedAt
-        ? new Date(a.reviewedAt).getTime()
-        : a?.createdAt
-          ? new Date(a.createdAt).getTime()
-          : 0;
-      const bTime = b?.reviewedAt
-        ? new Date(b.reviewedAt).getTime()
-        : b?.createdAt
-          ? new Date(b.createdAt).getTime()
-          : 0;
+      const aTimeSource =
+        a?.clientReviewedAt ??
+        a?.autoApprovedAt ??
+        a?.reviewedAt ??
+        a?.brokerReviewedAt ??
+        a?.createdAt;
+      const bTimeSource =
+        b?.clientReviewedAt ??
+        b?.autoApprovedAt ??
+        b?.reviewedAt ??
+        b?.brokerReviewedAt ??
+        b?.createdAt;
+      const aTime = aTimeSource ? new Date(aTimeSource).getTime() : 0;
+      const bTime = bTimeSource ? new Date(bTimeSource).getTime() : 0;
 
       return bTime - aTime;
     });
@@ -1130,12 +1870,54 @@ export class TasksService implements OnModuleInit {
     TasksRealtimeBridge.emitProjectTaskChanged(event);
   }
 
+  private async getUnfinishedSubtasks(taskId: string): Promise<TaskEntity[]> {
+    const subtasks = await this.taskRepository.find({
+      where: { parentTaskId: taskId },
+      select: ['id', 'title', 'status'],
+      order: { createdAt: 'ASC' },
+    });
+
+    return subtasks.filter((subtask) => subtask.status !== TaskStatus.DONE);
+  }
+
+  private async emitWorkspaceRefreshForTask(taskId: string): Promise<void> {
+    const task = await this.taskRepository.findOne({
+      where: { id: taskId },
+      select: ['id', 'projectId', 'milestoneId', 'parentTaskId'],
+    });
+
+    if (!task) {
+      return;
+    }
+
+    const rootTaskId = task.parentTaskId ?? task.id;
+    const rootTask = await this.findTaskWithWorkspaceRelations(rootTaskId);
+    if (!rootTask || rootTask.parentTaskId) {
+      return;
+    }
+
+    const milestoneProgressSummary = await this.calculateMilestoneProgress(rootTask.milestoneId);
+    this.emitTaskRealtimeEvent({
+      action: 'UPDATED',
+      projectId: rootTask.projectId,
+      task: rootTask,
+      milestoneId: rootTask.milestoneId,
+      milestoneProgress: milestoneProgressSummary.progress,
+      totalTasks: milestoneProgressSummary.totalTasks,
+      completedTasks: milestoneProgressSummary.completedTasks,
+    });
+  }
+
   async getKanbanBoard(projectId: string): Promise<BoardWithMilestones> {
     // Fetch all tasks for the project
     const tasks = await this.taskRepository.find({
       where: { projectId, parentTaskId: IsNull() },
       relations: [...TASK_WORKSPACE_RELATIONS],
       order: { sortOrder: 'ASC', createdAt: 'DESC' },
+    });
+    const milestoneTaskSnapshots = await this.taskRepository.find({
+      where: { projectId },
+      select: ['id', 'milestoneId', 'status'],
     });
 
     // Fetch all milestones for the project
@@ -1175,11 +1957,46 @@ export class TasksService implements OnModuleInit {
       }
     }
 
+    const milestoneProgressMap = new Map<
+      string,
+      { progress: number; totalTasks: number; completedTasks: number }
+    >();
+    for (const task of milestoneTaskSnapshots) {
+      if (!task.milestoneId) {
+        continue;
+      }
+      const currentSummary = milestoneProgressMap.get(task.milestoneId) ?? {
+        progress: 0,
+        totalTasks: 0,
+        completedTasks: 0,
+      };
+      currentSummary.totalTasks += 1;
+      if (task.status === TaskStatus.DONE) {
+        currentSummary.completedTasks += 1;
+      }
+      milestoneProgressMap.set(task.milestoneId, currentSummary);
+    }
+
     return {
       tasks: board,
       milestones: milestones.map((milestone) => ({
         ...milestone,
+        progress: milestoneProgressMap.get(milestone.id)?.totalTasks
+          ? Math.round(
+              (milestoneProgressMap.get(milestone.id)!.completedTasks /
+                milestoneProgressMap.get(milestone.id)!.totalTasks) *
+                100,
+            )
+          : 0,
+        totalTasks: milestoneProgressMap.get(milestone.id)?.totalTasks ?? 0,
+        completedTasks: milestoneProgressMap.get(milestone.id)?.completedTasks ?? 0,
         escrow: escrowMap.get(milestone.id) ?? null,
+        disputePolicy: resolveMilestoneDisputePolicy({
+          milestoneStatus: milestone.status,
+          escrowStatus: escrowMap.get(milestone.id)?.status ?? null,
+          releasedAt: escrowMap.get(milestone.id)?.releasedAt ?? null,
+          dueDate: milestone.dueDate,
+        }),
       })),
     };
   }
@@ -1209,6 +2026,7 @@ export class TasksService implements OnModuleInit {
     id: string,
     status: KanbanStatus,
     actorId?: string,
+    actorRole?: UserRole | string,
   ): Promise<TaskStatusUpdateResult> {
     // Step 1: Get the task to find its milestoneId
     const task = await this.taskRepository.findOne({
@@ -1220,20 +2038,36 @@ export class TasksService implements OnModuleInit {
       throw new NotFoundException('Task not found');
     }
 
+    this.assertSubtaskDoneTransitionAllowed(task, status, actorRole);
+
+    await this.assertMilestoneAllowsTaskWorkById(task.milestoneId);
+
     const previousStatus = task.status;
     const milestoneId = task.milestoneId;
 
-    if (status === TaskStatus.DONE && previousStatus !== TaskStatus.DONE) {
-      const approvedSubmissionCount = await this.submissionRepository.count({
-        where: {
-          taskId: id,
-          status: TaskSubmissionStatus.APPROVED,
-        },
-      });
+    await this.assertMilestoneEscrowFundedForWorkspace(milestoneId);
 
-      if (approvedSubmissionCount === 0) {
-        throw new BadRequestException('Cannot move to DONE without an approved submission.');
-      }
+    const approvedSubmissionCount = await this.submissionRepository.count({
+      where: {
+        taskId: id,
+        status: In([...FINAL_APPROVED_SUBMISSION_STATUSES]),
+      },
+    });
+
+    if (
+      status === TaskStatus.DONE &&
+      previousStatus !== TaskStatus.DONE &&
+      approvedSubmissionCount === 0
+    ) {
+      throw new BadRequestException('Cannot move to DONE without an approved submission.');
+    }
+
+    if (
+      previousStatus === TaskStatus.DONE &&
+      status !== TaskStatus.DONE &&
+      approvedSubmissionCount > 0
+    ) {
+      throw new BadRequestException('Approved tasks cannot be moved out of DONE.');
     }
 
     // [HISTORY] Record status change
@@ -1245,7 +2079,9 @@ export class TasksService implements OnModuleInit {
     // Step 2: Update the task status
     await this.taskRepository.update(id, {
       status,
-      submittedAt: status === TaskStatus.DONE ? new Date() : null,
+      submittedAt: this.buildNullableTimestampUpdate(
+        status === TaskStatus.DONE ? new Date() : null,
+      ),
     });
 
     // Step 3: Refetch the updated task
@@ -1268,6 +2104,8 @@ export class TasksService implements OnModuleInit {
     );
 
     await this.syncMilestoneStatus(milestoneId, progress);
+
+    await this.notifyTaskStatusTransition(updatedTask, previousStatus, status, actorId);
 
     this.emitTaskRealtimeEvent({
       action: 'UPDATED',
@@ -1299,7 +2137,7 @@ export class TasksService implements OnModuleInit {
   }> {
     // Count all tasks for this milestone
     const totalTasks = await this.taskRepository.count({
-      where: { milestoneId, parentTaskId: IsNull() },
+      where: { milestoneId },
     });
 
     if (totalTasks === 0) {
@@ -1308,7 +2146,7 @@ export class TasksService implements OnModuleInit {
 
     // Count completed (DONE) tasks
     const completedTasks = await this.taskRepository.count({
-      where: { milestoneId, status: TaskStatus.DONE, parentTaskId: IsNull() },
+      where: { milestoneId, status: TaskStatus.DONE },
     });
 
     // Calculate percentage (rounded to integer)
@@ -1370,7 +2208,7 @@ export class TasksService implements OnModuleInit {
       ].includes(milestone.status)
     ) {
       milestone.status = progress === 0 ? MilestoneStatus.PENDING : MilestoneStatus.IN_PROGRESS;
-      milestone.submittedAt = null;
+      milestone.submittedAt = null as never;
       milestone.reviewedByStaffId = null;
       milestone.staffRecommendation = null;
       milestone.staffReviewNote = null;
@@ -1382,6 +2220,38 @@ export class TasksService implements OnModuleInit {
 
     if (shouldSave) {
       await this.milestoneRepository.save(milestone);
+    }
+  }
+
+  private async assertMilestoneEscrowFundedForWorkspace(milestoneId: string): Promise<void> {
+    const escrow = await this.escrowRepository.findOne({
+      where: { milestoneId },
+      select: ['id', 'status', 'fundedAmount', 'totalAmount'],
+    });
+
+    if (!escrow) {
+      throw new ConflictException(
+        'Cannot operate on this milestone workspace before escrow is prepared.',
+      );
+    }
+
+    if (escrow.status !== EscrowStatus.FUNDED) {
+      throw new ForbiddenException(TASK_ESCROW_FUNDING_LOCK_MESSAGE);
+    }
+
+    const fundedAmount = new Decimal(escrow.fundedAmount ?? 0).toDecimalPlaces(
+      2,
+      Decimal.ROUND_HALF_UP,
+    );
+    const totalAmount = new Decimal(escrow.totalAmount ?? 0).toDecimalPlaces(
+      2,
+      Decimal.ROUND_HALF_UP,
+    );
+
+    if (!fundedAmount.equals(totalAmount)) {
+      throw new ForbiddenException(
+        'Milestone workspace requires full escrow funding before task operations are allowed.',
+      );
     }
   }
 
@@ -1401,6 +2271,21 @@ export class TasksService implements OnModuleInit {
     requesterId: string;
     requesterRole?: UserRole | string;
   }): Promise<TaskEntity> {
+    const normalizedTitle = data.title?.trim();
+    const normalizedDescription = data.description?.trim();
+    if (
+      !normalizedTitle ||
+      !normalizedDescription ||
+      !data.projectId ||
+      !data.milestoneId ||
+      !data.startDate ||
+      !data.dueDate
+    ) {
+      throw new BadRequestException(
+        'title, description, projectId, milestoneId, startDate and dueDate are required',
+      );
+    }
+
     const milestone = await this.milestoneRepository.findOne({
       where: { id: data.milestoneId },
     });
@@ -1412,6 +2297,8 @@ export class TasksService implements OnModuleInit {
     if (milestone.projectId !== data.projectId) {
       throw new BadRequestException('Milestone does not belong to this project');
     }
+
+    await this.assertMilestoneEscrowFundedForWorkspace(data.milestoneId);
 
     const normalizedRequesterRole = String(data.requesterRole || '').toUpperCase();
     if (normalizedRequesterRole !== UserRole.BROKER) {
@@ -1428,24 +2315,39 @@ export class TasksService implements OnModuleInit {
     }
 
     if (!project.brokerId || project.brokerId !== data.requesterId) {
-      throw new ForbiddenException(
-        'Only the assigned broker can create tasks for this project.',
-      );
+      throw new ForbiddenException('Only the assigned broker can create tasks for this project.');
     }
+
+    await this.assertMilestoneInteractionAllowed(data.milestoneId);
 
     if (!TASK_CREATION_ALLOWED_MILESTONE_STATUSES.has(milestone.status)) {
       throw new ForbiddenException(TASK_CREATION_LOCK_MESSAGE);
     }
 
+    this.assertMilestoneTaskCreationDeadlineOpen(milestone);
+
+    const normalizedStartDate = this.normalizeTaskBoundaryDate(
+      data.startDate,
+      'task start date',
+    );
+    const normalizedDueDate = this.normalizeTaskBoundaryDate(data.dueDate, 'task due date');
+    this.assertTaskScheduleWithinMilestone(
+      {
+        startDate: normalizedStartDate,
+        dueDate: normalizedDueDate,
+      },
+      milestone,
+    );
+
     // Step A: Create the task
     const newTask = this.taskRepository.create({
-      title: data.title,
-      description: data.description,
+      title: normalizedTitle,
+      description: normalizedDescription,
       projectId: data.projectId,
       milestoneId: data.milestoneId,
       status: TaskStatus.TODO,
-      startDate: data.startDate ? new Date(data.startDate) : undefined,
-      dueDate: data.dueDate ? new Date(data.dueDate) : undefined,
+      startDate: normalizedStartDate ?? undefined,
+      dueDate: normalizedDueDate ?? undefined,
       priority: data.priority ?? TaskPriority.MEDIUM,
       storyPoints: data.storyPoints,
       labels: data.labels,
@@ -1456,8 +2358,13 @@ export class TasksService implements OnModuleInit {
     this.logger.log(`Task created: ${saved.id} - ${saved.title}`);
 
     // Step B: Sync with Calendar (create calendar event if dates provided)
-    if (data.startDate || data.dueDate) {
-      await this.syncTaskToCalendar(saved, data.startDate, data.dueDate, data.organizerId);
+    if (normalizedStartDate || normalizedDueDate) {
+      await this.syncTaskToCalendar(
+        saved,
+        normalizedStartDate?.toISOString(),
+        normalizedDueDate?.toISOString(),
+        data.organizerId,
+      );
     }
 
     const created = await this.findTaskWithWorkspaceRelations(saved.id);
@@ -1489,51 +2396,103 @@ export class TasksService implements OnModuleInit {
     return created;
   }
 
-  async updateTask(id: string, data: Partial<TaskEntity>, actorId?: string): Promise<TaskEntity> {
+  async updateTask(
+    id: string,
+    data: Partial<TaskEntity>,
+    actorId?: string,
+    actorRole?: UserRole | string,
+  ): Promise<TaskEntity> {
     this.logger.log(`Updating task ${id} with actor: ${actorId || 'SYSTEM'}`);
     const task = await this.taskRepository.findOne({ where: { id } });
     if (!task) {
       throw new NotFoundException('Task not found');
     }
 
+    this.assertSubtaskDoneTransitionAllowed(task, data.status, actorRole);
+
+    const milestone = await this.assertMilestoneAllowsTaskWorkById(task.milestoneId);
+    await this.assertMilestoneEscrowFundedForWorkspace(task.milestoneId);
+
+    const hasStartDateUpdate = Object.prototype.hasOwnProperty.call(data, 'startDate');
+    const hasDueDateUpdate = Object.prototype.hasOwnProperty.call(data, 'dueDate');
+    const nextStartDate = hasStartDateUpdate
+      ? this.normalizeTaskBoundaryDate(data.startDate as string | Date | null, 'task start date')
+      : this.normalizeTaskBoundaryDate(task.startDate, 'task start date');
+    const nextDueDate = hasDueDateUpdate
+      ? this.normalizeTaskBoundaryDate(data.dueDate as string | Date | null, 'task due date')
+      : this.normalizeTaskBoundaryDate(task.dueDate, 'task due date');
+
+    if (hasStartDateUpdate && !nextStartDate) {
+      throw new BadRequestException('Task start date is required.');
+    }
+
+    if (hasDueDateUpdate && !nextDueDate) {
+      throw new BadRequestException('Task due date is required.');
+    }
+
+    this.assertTaskScheduleWithinMilestone(
+      {
+        startDate: nextStartDate,
+        dueDate: nextDueDate,
+      },
+      milestone,
+    );
+
+    const updatePayload: Partial<TaskEntity> = { ...data };
+    if (hasStartDateUpdate) {
+      updatePayload.startDate = nextStartDate as TaskEntity['startDate'];
+    }
+    if (hasDueDateUpdate) {
+      updatePayload.dueDate = nextDueDate as TaskEntity['dueDate'];
+    }
+
     // [HISTORY] Check for changes
-    if (data.title && data.title !== task.title) {
-      await this.createHistory(id, 'title', task.title, data.title, actorId);
+    if (updatePayload.title && updatePayload.title !== task.title) {
+      await this.createHistory(id, 'title', task.title, updatePayload.title, actorId);
     }
-    if (data.priority && data.priority !== task.priority) {
-      await this.createHistory(id, 'priority', task.priority, data.priority, actorId);
+    if (updatePayload.priority && updatePayload.priority !== task.priority) {
+      await this.createHistory(id, 'priority', task.priority, updatePayload.priority, actorId);
     }
-    if (data.storyPoints !== undefined && data.storyPoints !== task.storyPoints) {
-      await this.createHistory(id, 'story points', task.storyPoints, data.storyPoints, actorId);
+    if (
+      updatePayload.storyPoints !== undefined &&
+      updatePayload.storyPoints !== task.storyPoints
+    ) {
+      await this.createHistory(
+        id,
+        'story points',
+        task.storyPoints,
+        updatePayload.storyPoints,
+        actorId,
+      );
     }
-    if (data.description && data.description !== task.description) {
+    if (updatePayload.description && updatePayload.description !== task.description) {
       // Don't log full description, just that it changed
       await this.createHistory(id, 'description', '...', 'Updated', actorId);
     }
-    if (data.assignedTo && data.assignedTo !== task.assignedTo) {
+    if (updatePayload.assignedTo && updatePayload.assignedTo !== task.assignedTo) {
       await this.createHistory(
         id,
         'assignee',
         task.assignedTo || 'Unassigned',
-        data.assignedTo,
+        updatePayload.assignedTo,
         actorId,
       );
     }
-    if (data.labels) {
+    if (updatePayload.labels) {
       const oldLabels = JSON.stringify(task.labels || []);
-      const newLabels = JSON.stringify(data.labels || []);
+      const newLabels = JSON.stringify(updatePayload.labels || []);
       if (oldLabels !== newLabels) {
         await this.createHistory(
           id,
           'labels',
           task.labels?.join(', ') || '',
-          data.labels.join(', '),
+          updatePayload.labels.join(', '),
           actorId,
         );
       }
     }
 
-    await this.taskRepository.update(id, data);
+    await this.taskRepository.update(id, updatePayload);
 
     const updated = await this.findTaskWithWorkspaceRelations(id);
 
@@ -1541,15 +2500,257 @@ export class TasksService implements OnModuleInit {
       throw new NotFoundException('Task not found after update');
     }
 
-    if (!updated.parentTaskId) {
+    if (updated.parentTaskId) {
+      await this.emitWorkspaceRefreshForTask(updated.id);
+    } else {
+      const milestoneProgressSummary = await this.calculateMilestoneProgress(updated.milestoneId);
       this.emitTaskRealtimeEvent({
         action: 'UPDATED',
         projectId: updated.projectId,
         task: updated,
+        milestoneId: updated.milestoneId,
+        milestoneProgress: milestoneProgressSummary.progress,
+        totalTasks: milestoneProgressSummary.totalTasks,
+        completedTasks: milestoneProgressSummary.completedTasks,
       });
     }
 
     return updated;
+  }
+
+  @Cron('*/5 * * * *')
+  async remindUpcomingTaskSubmissionDeadlines(): Promise<void> {
+    const now = new Date();
+    const reminderCutoff = new Date(now.getTime() + TASK_SUBMISSION_REMINDER_WINDOW_MS);
+    const upcomingTasks = await this.taskRepository
+      .createQueryBuilder('task')
+      .select(['task.id', 'task.title', 'task.projectId', 'task.milestoneId', 'task.dueDate'])
+      .where('task.parentTaskId IS NULL')
+      .andWhere('task.status != :doneStatus', { doneStatus: TaskStatus.DONE })
+      .andWhere('task.dueDate IS NOT NULL')
+      .andWhere('task.dueDate > :now', { now })
+      .andWhere('task.dueDate <= :reminderCutoff', { reminderCutoff })
+      .orderBy('task.dueDate', 'ASC')
+      .take(100)
+      .getMany();
+
+    for (const task of upcomingTasks) {
+      try {
+        const milestone = await this.getMilestoneSubmissionDeadlineContext(task.milestoneId);
+        if (!TASK_CREATION_ALLOWED_MILESTONE_STATUSES.has(milestone.status)) {
+          continue;
+        }
+
+        const submissionDeadline = this.resolveSubmissionDeadline(task, milestone);
+        if (!submissionDeadline || this.isSubmissionDeadlinePassed(submissionDeadline, now)) {
+          continue;
+        }
+
+        const hasLockedSubmissionFlow = await this.hasSubmissionWorkflowStarted(task.id);
+        if (hasLockedSubmissionFlow) {
+          continue;
+        }
+
+        await this.announceSubmissionDeadlineReminder(task, submissionDeadline);
+      } catch (error) {
+        this.logger.warn(
+          `Upcoming submission reminder skipped for task ${task.id}: ${
+            error instanceof Error ? error.message : 'unknown error'
+          }`,
+        );
+      }
+    }
+  }
+
+  @Cron('*/5 * * * *')
+  async lockExpiredTaskSubmissionWindows(): Promise<void> {
+    const now = new Date();
+    const overdueTasks = await this.taskRepository
+      .createQueryBuilder('task')
+      .select(['task.id', 'task.title', 'task.projectId', 'task.milestoneId', 'task.dueDate'])
+      .where('task.parentTaskId IS NULL')
+      .andWhere('task.status != :doneStatus', { doneStatus: TaskStatus.DONE })
+      .andWhere('task.dueDate IS NOT NULL')
+      .andWhere('task.dueDate <= :now', { now })
+      .orderBy('task.dueDate', 'ASC')
+      .take(100)
+      .getMany();
+
+    for (const task of overdueTasks) {
+      try {
+        const milestone = await this.getMilestoneSubmissionDeadlineContext(task.milestoneId);
+        const submissionDeadline = this.resolveSubmissionDeadline(task, milestone);
+        if (!submissionDeadline || !this.isSubmissionDeadlinePassed(submissionDeadline, now)) {
+          continue;
+        }
+
+        const hasLockedSubmissionFlow = await this.hasSubmissionWorkflowStarted(task.id);
+        if (hasLockedSubmissionFlow) {
+          continue;
+        }
+
+        await this.announceSubmissionDeadlineClosed(task, submissionDeadline);
+      } catch (error) {
+        this.logger.warn(
+          `Submission lock announcement skipped for task ${task.id}: ${
+            error instanceof Error ? error.message : 'unknown error'
+          }`,
+        );
+      }
+    }
+  }
+
+  @Cron('*/5 * * * *')
+  async autoApproveExpiredClientReviews(): Promise<void> {
+    const now = new Date();
+    const dueSubmissions = await this.submissionRepository.find({
+      select: ['id'],
+      where: {
+        status: TaskSubmissionStatus.PENDING_CLIENT_REVIEW,
+        clientReviewDueAt: LessThanOrEqual(now),
+      },
+      order: { clientReviewDueAt: 'ASC' },
+      take: 50,
+    });
+
+    for (const candidate of dueSubmissions) {
+      try {
+        const finalized = await this.finalizeAutoApprovedSubmission(candidate.id, now);
+        if (!finalized) {
+          continue;
+        }
+
+        if (finalized.previousTaskStatus !== finalized.newTaskStatus) {
+          await this.createHistory(
+            finalized.taskId,
+            'status',
+            finalized.previousTaskStatus,
+            finalized.newTaskStatus,
+          );
+        }
+
+        const updatedTask = await this.findTaskWithWorkspaceRelations(finalized.taskId);
+        if (!updatedTask) {
+          continue;
+        }
+
+        const { progress, totalTasks, completedTasks } = await this.calculateMilestoneProgress(
+          finalized.milestoneId,
+        );
+
+        await this.syncMilestoneStatus(finalized.milestoneId, progress, now);
+        await this.recordWorkspaceSystemMessage(
+          finalized.projectId,
+          `Submission V${finalized.version} for task "${finalized.taskTitle}" was auto-approved after 24 hours without client response.`,
+          finalized.taskId,
+        );
+
+        await this.notifyTaskStatusTransition(
+          updatedTask,
+          finalized.previousTaskStatus,
+          finalized.newTaskStatus,
+        );
+
+        this.emitTaskRealtimeEvent({
+          action: 'UPDATED',
+          projectId: finalized.projectId,
+          task: updatedTask,
+          milestoneId: finalized.milestoneId,
+          milestoneProgress: progress,
+          totalTasks,
+          completedTasks,
+        });
+      } catch (error) {
+        this.logger.warn(
+          `Auto-approve skipped for submission ${candidate.id}: ${
+            error instanceof Error ? error.message : 'unknown error'
+          }`,
+        );
+      }
+    }
+  }
+
+  private async finalizeAutoApprovedSubmission(
+    submissionId: string,
+    approvedAt: Date,
+  ): Promise<{
+    taskId: string;
+    taskTitle: string;
+    projectId: string;
+    milestoneId: string;
+    version: number;
+    previousTaskStatus: TaskStatus;
+    newTaskStatus: TaskStatus;
+  } | null> {
+    return this.dataSource.transaction(async (manager) => {
+      const submissionRepo = manager.getRepository(TaskSubmissionEntity);
+      const taskRepo = manager.getRepository(TaskEntity);
+
+      const submission = await submissionRepo.findOne({
+        where: { id: submissionId },
+        select: ['id', 'taskId', 'version', 'status', 'clientReviewDueAt'],
+      });
+
+      if (
+        !submission ||
+        submission.status !== TaskSubmissionStatus.PENDING_CLIENT_REVIEW ||
+        !submission.clientReviewDueAt ||
+        submission.clientReviewDueAt.getTime() > approvedAt.getTime()
+      ) {
+        return null;
+      }
+
+      const autoApprovalNote = 'Automatically approved after 24 hours without client response.';
+
+      const updateResult = await submissionRepo
+        .createQueryBuilder()
+        .update(TaskSubmissionEntity)
+        .set({
+          status: TaskSubmissionStatus.AUTO_APPROVED,
+          autoApprovedAt: approvedAt,
+          clientReviewedAt: approvedAt,
+          clientReviewNote: autoApprovalNote,
+          reviewNote: autoApprovalNote,
+          reviewerId: null,
+          reviewedAt: approvedAt,
+          clientReviewDueAt: null,
+        })
+        .where('id = :submissionId', { submissionId })
+        .andWhere('status = :pendingStatus', {
+          pendingStatus: TaskSubmissionStatus.PENDING_CLIENT_REVIEW,
+        })
+        .andWhere('"clientReviewDueAt" IS NOT NULL')
+        .andWhere('"clientReviewDueAt" <= :approvedAt', { approvedAt })
+        .execute();
+
+      if (!updateResult.affected) {
+        return null;
+      }
+
+      const task = await taskRepo.findOne({
+        where: { id: submission.taskId },
+        select: ['id', 'title', 'projectId', 'milestoneId', 'status'],
+      });
+
+      if (!task) {
+        throw new NotFoundException('Task not found for auto-approved submission');
+      }
+
+      await taskRepo.update(task.id, {
+        status: TaskStatus.DONE,
+        submittedAt: approvedAt,
+      });
+
+      return {
+        taskId: task.id,
+        taskTitle: task.title,
+        projectId: task.projectId,
+        milestoneId: task.milestoneId,
+        version: submission.version,
+        previousTaskStatus: task.status,
+        newTaskStatus: TaskStatus.DONE,
+      };
+    });
   }
 
   /**

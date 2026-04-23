@@ -1,6 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { FundingGateway } from '../../database/entities';
+import { EscrowReleaseService } from './escrow-release.service';
 import { PaymentsController } from './payments.controller';
 import { MilestoneFundingService } from './milestone-funding.service';
 import { PayPalCheckoutService } from './pay-pal-checkout.service';
@@ -22,6 +23,9 @@ describe('PaymentsController', () => {
   const stripeCheckoutService = {
     getClientConfig: jest.fn(),
   };
+  const escrowReleaseService = {
+    releaseRetentionForMilestone: jest.fn(),
+  };
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -40,6 +44,10 @@ describe('PaymentsController', () => {
         {
           provide: PayPalCheckoutService,
           useValue: payPalCheckoutService,
+        },
+        {
+          provide: EscrowReleaseService,
+          useValue: escrowReleaseService,
         },
       ],
     }).compile();
@@ -88,6 +96,28 @@ describe('PaymentsController', () => {
       idempotencyKey: 'idem-1',
     });
     expect(result.success).toBe(true);
+  });
+
+  it('propagates funding service errors after header validation succeeds', async () => {
+    const error = new Error('funding failed');
+    milestoneFundingService.fundMilestone.mockRejectedValue(error);
+
+    await expect(
+      controller.fundMilestone(
+        { id: 'client-1' } as never,
+        'milestone-1',
+        { paymentMethodId: 'method-1', gateway: FundingGateway.INTERNAL_SANDBOX },
+        'idem-1',
+      ),
+    ).rejects.toThrow(error);
+
+    expect(milestoneFundingService.fundMilestone).toHaveBeenCalledWith({
+      milestoneId: 'milestone-1',
+      payerId: 'client-1',
+      paymentMethodId: 'method-1',
+      gateway: FundingGateway.INTERNAL_SANDBOX,
+      idempotencyKey: 'idem-1',
+    });
   });
 
   it('returns the PayPal sandbox config', async () => {

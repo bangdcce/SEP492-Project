@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   ArrowRight,
@@ -16,6 +16,7 @@ import {
   getAppealOwners,
   getCaseloadDisputes,
 } from "../api";
+import { useStaffDashboardRealtime } from "@/features/staff/hooks/useStaffDashboardRealtime";
 import type {
   AppealOwnerSummary,
   DisputeSummary,
@@ -66,6 +67,7 @@ export function AdminAppealQueuePage() {
     null,
   );
   const [ownerDrafts, setOwnerDrafts] = useState<Record<string, string>>({});
+  const realtimeRefreshTimerRef = useRef<number | null>(null);
 
   const loadAppealQueue = useCallback(async () => {
     try {
@@ -92,7 +94,10 @@ export function AdminAppealQueuePage() {
       setOwners(ownerList ?? []);
       setOwnerDrafts(
         Object.fromEntries(
-          nextAppeals.map((dispute) => [dispute.id, getAssignedAdminId(dispute)]),
+          nextAppeals.map((dispute) => [
+            dispute.id,
+            getAssignedAdminId(dispute),
+          ]),
         ),
       );
     } catch (error) {
@@ -106,6 +111,34 @@ export function AdminAppealQueuePage() {
   useEffect(() => {
     void loadAppealQueue();
   }, [loadAppealQueue]);
+
+  const scheduleQueueRefresh = useCallback(() => {
+    if (realtimeRefreshTimerRef.current !== null) {
+      window.clearTimeout(realtimeRefreshTimerRef.current);
+      realtimeRefreshTimerRef.current = null;
+    }
+
+    realtimeRefreshTimerRef.current = window.setTimeout(() => {
+      realtimeRefreshTimerRef.current = null;
+      void loadAppealQueue();
+    }, 500);
+  }, [loadAppealQueue]);
+
+  useEffect(() => {
+    return () => {
+      if (realtimeRefreshTimerRef.current !== null) {
+        window.clearTimeout(realtimeRefreshTimerRef.current);
+      }
+    };
+  }, []);
+
+  useStaffDashboardRealtime({
+    onAppealSubmitted: scheduleQueueRefresh,
+    onAppealResolved: scheduleQueueRefresh,
+    onDisputeStatusChanged: scheduleQueueRefresh,
+    onDisputeAssigned: scheduleQueueRefresh,
+    onDisputeReassigned: scheduleQueueRefresh,
+  });
 
   const counts = useMemo(() => {
     const mine = currentUserId
@@ -174,7 +207,7 @@ export function AdminAppealQueuePage() {
           <p className="mt-2 max-w-3xl text-sm text-slate-600">
             Route open appeals to an admin owner, then continue the review from
             the dispute record. This keeps ownership explicit before the appeal
-            is upheld, overturned, or escalated to another hearing tier.
+            is upheld or overturned through desk review.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -235,11 +268,13 @@ export function AdminAppealQueuePage() {
       </div>
 
       <div className="flex flex-wrap gap-2">
-        {([
-          ["all", `All (${counts.all})`],
-          ["mine", `Mine (${counts.mine})`],
-          ["unassigned", `Unassigned (${counts.unassigned})`],
-        ] as const).map(([value, label]) => (
+        {(
+          [
+            ["all", `All (${counts.all})`],
+            ["mine", `Mine (${counts.mine})`],
+            ["unassigned", `Unassigned (${counts.unassigned})`],
+          ] as const
+        ).map(([value, label]) => (
           <button
             key={value}
             type="button"
@@ -350,7 +385,9 @@ export function AdminAppealQueuePage() {
                     </div>
 
                     <div className="rounded-xl border border-slate-100 bg-white p-4 text-sm leading-6 text-slate-600">
-                      {dispute.flowGuide || dispute.reasonExcerpt || dispute.reason}
+                      {dispute.flowGuide ||
+                        dispute.reasonExcerpt ||
+                        dispute.reason}
                     </div>
                   </div>
 
@@ -416,7 +453,9 @@ export function AdminAppealQueuePage() {
 
                       <button
                         type="button"
-                        onClick={() => navigate(`/admin/disputes/${dispute.id}`)}
+                        onClick={() =>
+                          navigate(`/admin/disputes/${dispute.id}`)
+                        }
                         className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
                       >
                         Open dispute record

@@ -11,10 +11,11 @@ const PASSWORD = 'password123';
 const APP_BASE_URL = 'https://localhost:5173';
 
 const EMAILS = {
-  staff: 'payment.staff.demo@example.com',
-  client: 'payment.client.demo@example.com',
-  freelancer: 'payment.freelancer.demo@example.com',
-  broker: 'payment.broker.demo@example.com',
+  staff: process.env.SHOWCASE_STAFF_EMAIL || 'payment.staff.demo@example.com',
+  client: process.env.SHOWCASE_CLIENT_EMAIL || 'payment.client.demo@example.com',
+  freelancer:
+    process.env.SHOWCASE_FREELANCER_EMAIL || 'payment.freelancer.demo@example.com',
+  broker: process.env.SHOWCASE_BROKER_EMAIL || 'payment.broker.demo@example.com',
 };
 
 function sid(name) {

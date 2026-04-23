@@ -17,6 +17,7 @@ import {
 } from '../../common/utils/supabase-storage.util';
 import { hashDocumentNumber } from '../../common/utils/encryption.util';
 import { FptAiService } from '../../common/services/fpt-ai.service';
+import { MulterFile } from '../../common/types/multer.type';
 import { randomUUID, createHash } from 'crypto';
 
 @Injectable()
@@ -85,18 +86,23 @@ export class KycService {
     }
 
     const documentNumberHash = hashDocumentNumber(dto.documentNumber);
-    const existingDocumentOwner = await this.kycRepo.findOne({
-      where: {
-        userId: Not(userId),
-        documentNumber: documentNumberHash,
-        documentType: dto.documentType,
-        status: In([KycStatus.PENDING, KycStatus.APPROVED]),
-      },
-      select: ['id', 'userId', 'status'],
-    });
+    const enforceDocumentUniqueness =
+      process.env.KYC_ENFORCE_DOCUMENT_UNIQUENESS !== 'false';
 
-    if (existingDocumentOwner) {
-      throw new BadRequestException('This identity document is already used by another account');
+    if (enforceDocumentUniqueness) {
+      const existingDocumentOwner = await this.kycRepo.findOne({
+        where: {
+          userId: Not(userId),
+          documentNumber: documentNumberHash,
+          documentType: dto.documentType,
+          status: In([KycStatus.PENDING, KycStatus.APPROVED]),
+        },
+        select: ['id', 'userId', 'status'],
+      });
+
+      if (existingDocumentOwner) {
+        throw new BadRequestException('This identity document is already used by another account');
+      }
     }
 
     // Step 1: AI Verification BEFORE uploading

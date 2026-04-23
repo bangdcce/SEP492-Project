@@ -8,6 +8,19 @@ interface DisputeRealtimeHandlers {
   onVerdictIssued?: (payload: any) => void;
   onHearingEnded?: (payload: any) => void;
   onSettlementOffered?: (payload: any) => void;
+  onSettlementAccepted?: (payload: any) => void;
+  onSettlementRejected?: (payload: any) => void;
+  onSettlementChatUnlocked?: (payload: any) => void;
+  onDisputeStatusChanged?: (payload: any) => void;
+  onDisputeAssigned?: (payload: any) => void;
+  onDisputeReassigned?: (payload: any) => void;
+  onDisputeInfoRequested?: (payload: any) => void;
+  onDisputeInfoProvided?: (payload: any) => void;
+  onDisputeDefendantResponded?: (payload: any) => void;
+  onDisputeResolved?: (payload: any) => void;
+  onDisputeClosed?: (payload: any) => void;
+  onAppealSubmitted?: (payload: any) => void;
+  onAppealResolved?: (payload: any) => void;
   onAppealDeadlinePassed?: (payload: any) => void;
 }
 
@@ -49,6 +62,45 @@ export const useDisputeRealtime = (
     if (handlers?.onSettlementOffered) {
       socket.on("SETTLEMENT_OFFERED", handlers.onSettlementOffered);
     }
+    if (handlers?.onSettlementAccepted) {
+      socket.on("SETTLEMENT_ACCEPTED", handlers.onSettlementAccepted);
+    }
+    if (handlers?.onSettlementRejected) {
+      socket.on("SETTLEMENT_REJECTED", handlers.onSettlementRejected);
+    }
+    if (handlers?.onSettlementChatUnlocked) {
+      socket.on("SETTLEMENT_CHAT_UNLOCKED", handlers.onSettlementChatUnlocked);
+    }
+    if (handlers?.onDisputeStatusChanged) {
+      socket.on("DISPUTE_STATUS_CHANGED", handlers.onDisputeStatusChanged);
+    }
+    if (handlers?.onDisputeAssigned) {
+      socket.on("DISPUTE_ASSIGNED", handlers.onDisputeAssigned);
+    }
+    if (handlers?.onDisputeReassigned) {
+      socket.on("DISPUTE_REASSIGNED", handlers.onDisputeReassigned);
+    }
+    if (handlers?.onDisputeInfoRequested) {
+      socket.on("DISPUTE_INFO_REQUESTED", handlers.onDisputeInfoRequested);
+    }
+    if (handlers?.onDisputeInfoProvided) {
+      socket.on("DISPUTE_INFO_PROVIDED", handlers.onDisputeInfoProvided);
+    }
+    if (handlers?.onDisputeDefendantResponded) {
+      socket.on("DISPUTE_DEFENDANT_RESPONDED", handlers.onDisputeDefendantResponded);
+    }
+    if (handlers?.onDisputeResolved) {
+      socket.on("DISPUTE_RESOLVED", handlers.onDisputeResolved);
+    }
+    if (handlers?.onDisputeClosed) {
+      socket.on("DISPUTE_CLOSED", handlers.onDisputeClosed);
+    }
+    if (handlers?.onAppealSubmitted) {
+      socket.on("APPEAL_SUBMITTED", handlers.onAppealSubmitted);
+    }
+    if (handlers?.onAppealResolved) {
+      socket.on("APPEAL_RESOLVED", handlers.onAppealResolved);
+    }
     if (handlers?.onAppealDeadlinePassed) {
       socket.on("APPEAL_DEADLINE_PASSED", handlers.onAppealDeadlinePassed);
     }
@@ -74,6 +126,45 @@ export const useDisputeRealtime = (
       if (handlers?.onSettlementOffered) {
         socket.off("SETTLEMENT_OFFERED", handlers.onSettlementOffered);
       }
+      if (handlers?.onSettlementAccepted) {
+        socket.off("SETTLEMENT_ACCEPTED", handlers.onSettlementAccepted);
+      }
+      if (handlers?.onSettlementRejected) {
+        socket.off("SETTLEMENT_REJECTED", handlers.onSettlementRejected);
+      }
+      if (handlers?.onSettlementChatUnlocked) {
+        socket.off("SETTLEMENT_CHAT_UNLOCKED", handlers.onSettlementChatUnlocked);
+      }
+      if (handlers?.onDisputeStatusChanged) {
+        socket.off("DISPUTE_STATUS_CHANGED", handlers.onDisputeStatusChanged);
+      }
+      if (handlers?.onDisputeAssigned) {
+        socket.off("DISPUTE_ASSIGNED", handlers.onDisputeAssigned);
+      }
+      if (handlers?.onDisputeReassigned) {
+        socket.off("DISPUTE_REASSIGNED", handlers.onDisputeReassigned);
+      }
+      if (handlers?.onDisputeInfoRequested) {
+        socket.off("DISPUTE_INFO_REQUESTED", handlers.onDisputeInfoRequested);
+      }
+      if (handlers?.onDisputeInfoProvided) {
+        socket.off("DISPUTE_INFO_PROVIDED", handlers.onDisputeInfoProvided);
+      }
+      if (handlers?.onDisputeDefendantResponded) {
+        socket.off("DISPUTE_DEFENDANT_RESPONDED", handlers.onDisputeDefendantResponded);
+      }
+      if (handlers?.onDisputeResolved) {
+        socket.off("DISPUTE_RESOLVED", handlers.onDisputeResolved);
+      }
+      if (handlers?.onDisputeClosed) {
+        socket.off("DISPUTE_CLOSED", handlers.onDisputeClosed);
+      }
+      if (handlers?.onAppealSubmitted) {
+        socket.off("APPEAL_SUBMITTED", handlers.onAppealSubmitted);
+      }
+      if (handlers?.onAppealResolved) {
+        socket.off("APPEAL_RESOLVED", handlers.onAppealResolved);
+      }
       if (handlers?.onAppealDeadlinePassed) {
         socket.off("APPEAL_DEADLINE_PASSED", handlers.onAppealDeadlinePassed);
       }
@@ -86,6 +177,19 @@ export const useDisputeRealtime = (
     handlers?.onVerdictIssued,
     handlers?.onHearingEnded,
     handlers?.onSettlementOffered,
+    handlers?.onSettlementAccepted,
+    handlers?.onSettlementRejected,
+    handlers?.onSettlementChatUnlocked,
+    handlers?.onDisputeStatusChanged,
+    handlers?.onDisputeAssigned,
+    handlers?.onDisputeReassigned,
+    handlers?.onDisputeInfoRequested,
+    handlers?.onDisputeInfoProvided,
+    handlers?.onDisputeDefendantResponded,
+    handlers?.onDisputeResolved,
+    handlers?.onDisputeClosed,
+    handlers?.onAppealSubmitted,
+    handlers?.onAppealResolved,
     handlers?.onAppealDeadlinePassed,
   ]);
 };

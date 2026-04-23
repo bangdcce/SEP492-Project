@@ -63,6 +63,17 @@ const ACTIVE_BROKER_APPLICATION_STATUSES = [
   ProposalStatus.INVITED,
 ] as const;
 const FREELANCER_PENDING_CLIENT_APPROVAL = 'PENDING_CLIENT_APPROVAL' as const;
+const ACTIVE_FREELANCER_PROPOSAL_STATUSES = [
+  ProposalStatus.PENDING,
+  ProposalStatus.INVITED,
+  ProposalStatus.ACCEPTED,
+  FREELANCER_PENDING_CLIENT_APPROVAL,
+] as const;
+const AUTO_REJECTABLE_FREELANCER_PROPOSAL_STATUSES = [
+  ProposalStatus.PENDING,
+  ProposalStatus.INVITED,
+  FREELANCER_PENDING_CLIENT_APPROVAL,
+] as const;
 const DATE_ONLY_INPUT_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -611,18 +622,14 @@ export class ProjectRequestsService {
 
     return attachments
       .map((attachment) => {
-        const objectStoragePath =
-          extractProjectRequestStoragePath(attachment?.storagePath) ||
-          extractProjectRequestStoragePath(attachment?.url);
-        const localStoragePath =
-          extractUploadStoragePath(attachment?.storagePath) ||
-          extractUploadStoragePath(attachment?.url);
-        const storagePath = objectStoragePath ?? localStoragePath;
+        const rawStoragePath = `${attachment?.storagePath || ''}`.trim();
+        const objectStoragePath = extractProjectRequestStoragePath(rawStoragePath);
+        const localStoragePath = extractUploadStoragePath(rawStoragePath);
+        const storagePath = objectStoragePath ?? localStoragePath ?? undefined;
         const rawUrl = `${attachment?.url || ''}`.trim();
 
-        return {
+        const normalizedAttachment: ProjectRequestAttachmentMetadata = {
           filename: `${attachment?.filename || ''}`.trim(),
-          storagePath,
           url: objectStoragePath || localStoragePath || rawUrl,
           mimetype: attachment?.mimetype?.trim() || null,
           size:
@@ -631,6 +638,12 @@ export class ProjectRequestsService {
               : null,
           category: attachment?.category === 'requirements' ? 'requirements' : 'attachment',
         };
+
+        if (storagePath) {
+          normalizedAttachment.storagePath = storagePath;
+        }
+
+        return normalizedAttachment;
       })
       .filter(
         (attachment) =>
@@ -756,6 +769,26 @@ export class ProjectRequestsService {
     );
   }
 
+  private isActiveFreelancerProposalStatus(status?: string | null) {
+    return ACTIVE_FREELANCER_PROPOSAL_STATUSES.includes(
+      String(status || '').toUpperCase() as (typeof ACTIVE_FREELANCER_PROPOSAL_STATUSES)[number],
+    );
+  }
+
+  private resolveActiveFreelancerProposal(request: ProjectRequestEntity) {
+    const proposals = request.proposals || [];
+    return (
+      proposals.find((proposal) => String(proposal?.status || '').toUpperCase() === 'ACCEPTED') ||
+      proposals.find((proposal) => String(proposal?.status || '').toUpperCase() === 'INVITED') ||
+      proposals.find(
+        (proposal) =>
+          String(proposal?.status || '').toUpperCase() === FREELANCER_PENDING_CLIENT_APPROVAL,
+      ) ||
+      proposals.find((proposal) => String(proposal?.status || '').toUpperCase() === 'PENDING') ||
+      null
+    );
+  }
+
   private toPhaseNumber(phase: RequestFlowPhase): number {
     switch (phase) {
       case 'REQUEST_INTAKE':
@@ -804,6 +837,17 @@ export class ProjectRequestsService {
       techPreferences: request.techPreferences ?? null,
       attachments: await this.hydrateAttachments(request.attachments),
     };
+  }
+
+  private maskUserContact(user?: UserEntity | null) {
+    if (!user) {
+      return;
+    }
+
+    user.email = '********';
+    if ('phoneNumber' in user) {
+      (user as UserEntity & { phoneNumber?: string | null }).phoneNumber = '********';
+    }
   }
 
   private resolveCommercialBaseline(
@@ -947,6 +991,7 @@ export class ProjectRequestsService {
           String(proposal.status || '').toUpperCase() === FREELANCER_PENDING_CLIENT_APPROVAL,
       ),
     );
+    const hasActiveFreelancerProposal = Boolean(this.resolveActiveFreelancerProposal(request));
     const phaseNumber = flowSnapshot?.phaseNumber ?? 0;
     const isReadOnly = Boolean(flowSnapshot?.readOnly);
 
@@ -970,7 +1015,7 @@ export class ProjectRequestsService {
       canInviteFreelancer:
         (isAssignedBroker || isInternal) &&
         Boolean(flowSnapshot?.clientSpecStatus === ProjectSpecStatus.CLIENT_APPROVED) &&
-        !flowSnapshot?.freelancerSelected &&
+        !hasActiveFreelancerProposal &&
         !isReadOnly,
       canApproveFreelancerInvite:
         isClient && !isReadOnly && phaseNumber >= 3 && hasPendingFreelancerApprovals,
@@ -1150,7 +1195,7 @@ export class ProjectRequestsService {
           : 'OPEN';
 
     const freelancerMarket =
-      isProjectLinked || input.freelancerSelectionSummary.selectedFreelancerId
+      isProjectLinked || Boolean(this.resolveActiveFreelancerProposal(input.request))
         ? 'CLOSED'
         : [
               RequestStatus.SPEC_APPROVED,
@@ -1361,7 +1406,7 @@ export class ProjectRequestsService {
       ),
       freelancerProposals: request.proposals,
       specSummary: {
-        clientSpec: clientSpec
+        clientSpec: viewerPermissions.canViewSpecs && clientSpec
           ? {
               id: clientSpec.id,
               title: clientSpec.title,
@@ -1369,7 +1414,7 @@ export class ProjectRequestsService {
               specPhase: clientSpec.specPhase,
             }
           : null,
-        fullSpec: fullSpec
+        fullSpec: viewerPermissions.canViewSpecs && fullSpec
           ? {
               id: fullSpec.id,
               title: fullSpec.title,
@@ -1810,8 +1855,19 @@ export class ProjectRequestsService {
               proposal.freelancerId === user.id &&
               ['INVITED', 'PENDING', 'ACCEPTED'].includes((proposal.status || '').toUpperCase()),
           );
-          if (!hasProposal) {
-            throw new ForbiddenException('Forbidden: You are not invited to this request');
+          const isOpenMarketplaceRequest =
+            request.status === RequestStatus.SPEC_APPROVED &&
+            Boolean(request.brokerId) &&
+            !this.resolveActiveFreelancerProposal(request);
+
+          if (!hasProposal && !isOpenMarketplaceRequest) {
+            throw new ForbiddenException(
+              'Forbidden: You can only view freelancer marketplace requests or requests where you are invited',
+            );
+          }
+
+          if (!hasProposal && request.client) {
+            this.maskUserContact(request.client);
           }
         }
       }
@@ -2327,9 +2383,15 @@ export class ProjectRequestsService {
         Pick<ProjectSpecEntity, 'id' | 'title' | 'status' | 'specPhase' | 'updatedAt' | 'createdAt'>
       >;
       const clientSpec = this.pickLatestSpecByPhase(specs, SpecPhase.CLIENT_SPEC);
+      const activeFreelancerProposal = this.resolveActiveFreelancerProposal(request);
+      if (activeFreelancerProposal) {
+        throw new BadRequestException(
+          'Only one freelancer can be active for a request at a time.',
+        );
+      }
+
       const canRecommendFreelancer =
-        clientSpec?.status === ProjectSpecStatus.CLIENT_APPROVED &&
-        !this.resolveSelectedFreelancerProposal(request);
+        clientSpec?.status === ProjectSpecStatus.CLIENT_APPROVED && !activeFreelancerProposal;
       if (!canRecommendFreelancer) {
         throw new BadRequestException(
           'Freelancer recommendations are only available after the client approves the client spec.',
@@ -2343,6 +2405,19 @@ export class ProjectRequestsService {
       if (existing) {
         throw new Error(
           `Freelancer already associated with this request (Status: ${existing.status})`,
+        );
+      }
+
+      const existingActiveFreelancerProposal = await this.freelancerProposalRepo.findOne({
+        where: {
+          requestId,
+          status: In([...ACTIVE_FREELANCER_PROPOSAL_STATUSES]),
+        },
+      });
+
+      if (existingActiveFreelancerProposal) {
+        throw new BadRequestException(
+          'This request already has an active freelancer recommendation/invitation. Resolve it before inviting another freelancer.',
         );
       }
 
@@ -2400,8 +2475,42 @@ export class ProjectRequestsService {
         );
       }
 
+      const existingAccepted = await this.freelancerProposalRepo.findOne({
+        where: { requestId, status: ProposalStatus.ACCEPTED },
+      });
+
+      if (existingAccepted && existingAccepted.id !== proposal.id) {
+        throw new BadRequestException('A freelancer has already been accepted for this request.');
+      }
+
       proposal.status = 'INVITED';
       const savedProposal = await this.freelancerProposalRepo.save(proposal);
+      const competingRecommendations = (request.proposals || []).filter(
+        (candidate) =>
+          candidate.id !== proposal.id &&
+          this.isActiveFreelancerProposalStatus(candidate.status) &&
+          String(candidate.status || '').toUpperCase() !== 'ACCEPTED',
+      );
+
+      for (const competingRecommendation of competingRecommendations) {
+        competingRecommendation.status = 'REJECTED';
+        await this.freelancerProposalRepo.save(competingRecommendation);
+      }
+
+      const competingProposals = await this.freelancerProposalRepo.find({
+        where: {
+          requestId,
+          status: In([...AUTO_REJECTABLE_FREELANCER_PROPOSAL_STATUSES]),
+        },
+      });
+
+      for (const competingProposal of competingProposals) {
+        if (competingProposal.id === proposal.id) {
+          continue;
+        }
+        competingProposal.status = 'REJECTED';
+        await this.freelancerProposalRepo.save(competingProposal);
+      }
 
       await this.notifyUsers([
         {
@@ -2518,6 +2627,35 @@ export class ProjectRequestsService {
     });
     console.log(`Get Freelancer Request Access List Successful: ${requests.length} request(s)`);
     return requests;
+  }
+
+  async getFreelancerMarketplaceRequests() {
+    const requests = await this.requestRepo.find({
+      where: { status: RequestStatus.SPEC_APPROVED },
+      relations: ['client', 'broker', 'proposals'],
+      order: { createdAt: 'DESC' },
+    });
+
+    const openRequests = requests.filter(
+      (request) => Boolean(request.brokerId) && !this.resolveActiveFreelancerProposal(request),
+    );
+
+    const hydratedRequests = await Promise.all(
+      openRequests.map(async (request) => {
+        this.maskUserContact(request.client);
+
+        return {
+          ...request,
+          attachments: await this.hydrateAttachments(request.attachments),
+          proposals: [],
+        };
+      }),
+    );
+
+    console.log(
+      `Get Freelancer Marketplace Requests Successful: ${hydratedRequests.length} request(s)`,
+    );
+    return hydratedRequests;
   }
 
   async applyToRequest(requestId: string, brokerId: string, coverLetter: string) {
@@ -3143,7 +3281,9 @@ export class ProjectRequestsService {
             .set({ status: 'REJECTED' })
             .where('requestId = :requestId', { requestId: proposal.requestId })
             .andWhere('id != :id', { id: proposal.id })
-            .andWhere('status IN (:...statuses)', { statuses: ['INVITED', 'PENDING'] })
+            .andWhere('status IN (:...statuses)', {
+              statuses: [...AUTO_REJECTABLE_FREELANCER_PROPOSAL_STATUSES],
+            })
             .execute();
         } else {
           proposal.status = 'REJECTED';

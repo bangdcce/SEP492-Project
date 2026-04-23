@@ -16,10 +16,13 @@ type WorkspaceDatePickerProps = {
   onChange: (value: string | null) => void;
   placeholder?: string;
   disabled?: boolean;
+  minDate?: string | Date | null;
+  maxDate?: string | Date | null;
   className?: string;
   contentClassName?: string;
   tone?: "default" | "danger";
   align?: "start" | "center" | "end";
+  allowClear?: boolean;
 };
 
 const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
@@ -41,6 +44,21 @@ function parsePickerDate(value?: string | null): Date | undefined {
 
   const parsedDate = new Date(normalizedValue);
   return Number.isNaN(parsedDate.getTime()) ? undefined : parsedDate;
+}
+
+function normalizeBoundaryDate(value?: string | Date | null): Date | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  const parsedDate =
+    value instanceof Date ? new Date(value.getTime()) : parsePickerDate(value);
+  if (!parsedDate || Number.isNaN(parsedDate.getTime())) {
+    return undefined;
+  }
+
+  parsedDate.setHours(0, 0, 0, 0);
+  return parsedDate;
 }
 
 function toPickerValue(date: Date): string {
@@ -70,27 +88,68 @@ export function WorkspaceDatePicker({
   onChange,
   placeholder = "Set date",
   disabled = false,
+  minDate,
+  maxDate,
   className,
   contentClassName,
   tone = "default",
   align = "start",
+  allowClear = true,
 }: WorkspaceDatePickerProps) {
   const [open, setOpen] = useState(false);
   const selectedDate = useMemo(() => parsePickerDate(value), [value]);
+  const normalizedMinDate = useMemo(
+    () => normalizeBoundaryDate(minDate),
+    [minDate],
+  );
+  const normalizedMaxDate = useMemo(
+    () => normalizeBoundaryDate(maxDate),
+    [maxDate],
+  );
   const hasValue = Boolean(selectedDate);
 
+  const isSelectableDate = (candidateDate: Date) => {
+    const normalizedCandidateDate = new Date(candidateDate.getTime());
+    normalizedCandidateDate.setHours(0, 0, 0, 0);
+
+    if (
+      normalizedMinDate &&
+      normalizedCandidateDate.getTime() < normalizedMinDate.getTime()
+    ) {
+      return false;
+    }
+
+    if (
+      normalizedMaxDate &&
+      normalizedCandidateDate.getTime() > normalizedMaxDate.getTime()
+    ) {
+      return false;
+    }
+
+    return true;
+  };
+
   const handleSelect = (nextDate?: Date) => {
+    if (nextDate && !isSelectableDate(nextDate)) {
+      return;
+    }
     onChange(nextDate ? toPickerValue(nextDate) : null);
     setOpen(false);
   };
 
   const handlePresetClick = (resolveDate: () => Date) => {
     const nextDate = resolveDate();
+    if (!isSelectableDate(nextDate)) {
+      return;
+    }
     onChange(toPickerValue(nextDate));
     setOpen(false);
   };
 
   const handleClear = () => {
+    if (!allowClear) {
+      return;
+    }
     onChange(null);
     setOpen(false);
   };
@@ -147,6 +206,7 @@ export function WorkspaceDatePicker({
               key={preset.key}
               type="button"
               onClick={() => handlePresetClick(preset.resolveDate)}
+              disabled={!isSelectableDate(preset.resolveDate())}
               className="inline-flex h-8 items-center justify-center rounded-full border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 transition-colors hover:border-teal-300 hover:bg-teal-50 hover:text-teal-700"
             >
               {preset.label}
@@ -159,24 +219,27 @@ export function WorkspaceDatePicker({
             mode="single"
             selected={selectedDate}
             onSelect={handleSelect}
+            disabled={(date) => !isSelectableDate(date)}
             initialFocus
             className="w-full rounded-xl border border-slate-200 bg-white"
           />
         </div>
 
-        <div className="flex justify-end border-t border-slate-200 bg-slate-50/80 px-2.5 py-1.5">
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={handleClear}
-            disabled={!hasValue}
-            className="text-slate-500 hover:text-slate-700"
-          >
-            <X className="h-4 w-4" />
-            Clear
-          </Button>
-        </div>
+        {allowClear ? (
+          <div className="flex justify-end border-t border-slate-200 bg-slate-50/80 px-2.5 py-1.5">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={handleClear}
+              disabled={!hasValue}
+              className="text-slate-500 hover:text-slate-700"
+            >
+              <X className="h-4 w-4" />
+              Clear
+            </Button>
+          </div>
+        ) : null}
       </PopoverContent>
     </Popover>
   );

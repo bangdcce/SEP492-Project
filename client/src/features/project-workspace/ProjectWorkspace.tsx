@@ -20,14 +20,14 @@ import { getStoredJson } from "@/shared/utils/storage";
 import { toast } from "sonner";
 import { completeStripeMilestoneFunding } from "@/features/payments/api";
 import {
-  fetchBoard,
+  fetchBoardWorkspaceData,
   updateTaskStatus,
   createTask,
   createTaskSubmission,
   reviewSubmission,
-  fetchMilestones,
   createMilestone,
   approveMilestone,
+  rejectMilestone,
   fetchProject,
   requestMilestoneReview,
   reviewMilestoneAsBroker,
@@ -39,6 +39,7 @@ import type {
   Milestone,
   ProjectTaskRealtimeEvent,
   Task,
+  TaskPriority,
 } from "./types";
 import { KanbanColumn } from "./components/board/KanbanColumn";
 import {
@@ -52,15 +53,31 @@ import { CalendarView } from "./components/calendar/CalendarView";
 import { MilestoneApprovalCard } from "./components/milestone/MilestoneApprovalCard";
 import { MilestoneFundingCard } from "./components/milestone/MilestoneFundingCard";
 import { ProjectReviewActionsCard } from "./components/review/ProjectReviewActionsCard";
-import { ProjectOverview } from "./components/overview/ProjectOverview";
+import {
+  ProjectOverview,
+  type ProjectOverviewBoardFocus,
+} from "./components/overview/ProjectOverview";
 import { WorkspaceChatDrawer } from "./components/chat/WorkspaceChatDrawer";
-import { calculateProgress, getLatestApprovedSubmission } from "./utils";
+import {
+  calculateProgress,
+  getLatestApprovedSubmission,
+  getTaskActionOwner,
+  type TaskActionOwner,
+} from "./utils";
+import { buildMilestoneInteractionGateMap } from "./milestone-interaction";
+import {
+  BOARD_COLUMNS,
+  buildBoardMeta,
+  createEmptyBoard,
+  moveTaskInBoard,
+  removeTaskFromBoard,
+  upsertTaskInBoard,
+} from "./board-state";
 import { CreateDisputeModal } from "@/features/disputes/components/wizard/CreateDisputeModal";
 import {
   connectSocket,
   connectNamespacedSocket,
   disconnectNamespacedSocket,
-  getNamespacedSocket,
 } from "@/shared/realtime/socket";
 import { contractsApi } from "@/features/contracts/api";
 import type { Contract as ContractDetail } from "@/features/contracts/types";
@@ -72,14 +89,11 @@ import {
   resolveBillingRoute,
 } from "@/features/payments/roleRoutes";
 
-const initialBoard: KanbanBoard = {
-  TODO: [],
-  IN_PROGRESS: [],
-  IN_REVIEW: [],
-  DONE: [],
-};
 const WORKSPACE_CHAT_NAMESPACE = "/ws/workspace";
 type WorkspaceViewMode = "summary" | "board" | "calendar";
+type WorkspaceTaskActionFilter = "ALL" | TaskActionOwner;
+type WorkspaceMilestoneSelection = string | null;
+const ALL_WORKSPACE_MILESTONES_KEY = "__all__";
 
 const parseWorkspaceViewMode = (value: string | null): WorkspaceViewMode => {
   if (value === "board" || value === "calendar") {
@@ -89,12 +103,6 @@ const parseWorkspaceViewMode = (value: string | null): WorkspaceViewMode => {
   return "summary";
 };
 const TASKS_REALTIME_NAMESPACE = "/ws/tasks";
-const BOARD_COLUMNS: KanbanColumnKey[] = [
-  "TODO",
-  "IN_PROGRESS",
-  "IN_REVIEW",
-  "DONE",
-];
 const TASK_CREATION_ALLOWED_MILESTONE_STATUSES = new Set<Milestone["status"]>([
   "PENDING",
   "IN_PROGRESS",
@@ -102,21 +110,123 @@ const TASK_CREATION_ALLOWED_MILESTONE_STATUSES = new Set<Milestone["status"]>([
 ]);
 const TASK_CREATION_LOCK_MESSAGE =
   "Tasks can only be added while the milestone is pending, in progress, or revisions required.";
-const WARRANTY_WINDOW_DAYS = 30;
-const DISPUTE_PRE_DELIVERY_MILESTONE_STATUSES = new Set<string>([
-  "IN_PROGRESS",
-  "SUBMITTED",
-  "REVISIONS_REQUIRED",
-  "PENDING_STAFF_REVIEW",
-  "PENDING_CLIENT_APPROVAL",
-]);
-const DISPUTE_POST_DELIVERY_MILESTONE_STATUSES = new Set<string>([
-  "COMPLETED",
-  "PAID",
-]);
+const TASK_MUTATION_LOCK_MESSAGE =
+  "Task changes are locked because this milestone is in review, completed, paid, or locked.";
+const WORKSPACE_TASK_STATUS_FILTER_OPTIONS: Array<{ value: KanbanColumnKey | "ALL"; label: string }> = [
+  { value: "ALL", label: "All statuses" },
+  { value: "TODO", label: "To do" },
+  { value: "IN_PROGRESS", label: "In progress" },
+  { value: "IN_REVIEW", label: "In review" },
+  { value: "DONE", label: "Done" },
+];
+const WORKSPACE_TASK_PRIORITY_FILTER_OPTIONS: Array<{
+  value: TaskPriority | "ALL";
+  label: string;
+}> = [
+  { value: "ALL", label: "All priorities" },
+  { value: "LOW", label: "Low" },
+  { value: "MEDIUM", label: "Medium" },
+  { value: "HIGH", label: "High" },
+  { value: "URGENT", label: "Urgent" },
+];
+const WORKSPACE_TASK_ACTION_FILTER_OPTIONS: Array<{
+  value: WorkspaceTaskActionFilter;
+  label: string;
+}> = [
+  { value: "ALL", label: "All queues" },
+  { value: "FREELANCER", label: "Freelancer queue" },
+  { value: "BROKER", label: "Broker review" },
+  { value: "CLIENT", label: "Client review" },
+];
+const DISPUTE_PARTICIPANT_ROLES = new Set(["CLIENT", "BROKER", "FREELANCER"]);
 
 const normalizeMilestoneKey = (value?: string | null) =>
   value == null ? null : String(value);
+
+const normalizeTaskDate = (value?: string | null): Date | null => {
+  if (!value) {
+    return null;
+  }
+
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+const normalizeBoundaryDate = (value?: string | null): Date | null => {
+  const parsedDate = normalizeTaskDate(value);
+  if (!parsedDate) {
+    return null;
+  }
+
+  parsedDate.setHours(0, 0, 0, 0);
+  return parsedDate;
+};
+
+const getMilestoneTaskCreationDeadlineLockReason = (
+  milestone?: Pick<Milestone, "dueDate"> | null,
+) => {
+  const dueDate = normalizeBoundaryDate(milestone?.dueDate);
+  if (!dueDate) {
+    return null;
+  }
+
+  const lockAt = new Date(dueDate.getTime());
+  lockAt.setHours(23, 59, 59, 999);
+  if (Date.now() <= lockAt.getTime()) {
+    return null;
+  }
+
+  return `Task creation is locked because the milestone due date passed at the end of ${dueDate.toLocaleDateString(
+    undefined,
+    {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    },
+  )}.`;
+};
+
+const formatDateInputValue = (value: Date) => {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const clampDateToRange = (
+  value: Date,
+  minDate?: Date | null,
+  maxDate?: Date | null,
+) => {
+  const normalizedValue = new Date(value.getTime());
+  normalizedValue.setHours(0, 0, 0, 0);
+
+  if (minDate && normalizedValue.getTime() < minDate.getTime()) {
+    return new Date(minDate.getTime());
+  }
+
+  if (maxDate && normalizedValue.getTime() > maxDate.getTime()) {
+    return new Date(maxDate.getTime());
+  }
+
+  return normalizedValue;
+};
+
+const isTaskOverdue = (task: Task): boolean => {
+  if (task.status === "DONE") {
+    return false;
+  }
+
+  const dueDate = normalizeTaskDate(task.dueDate ?? task.startDate ?? null);
+  if (!dueDate) {
+    return false;
+  }
+
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+  dueDate.setHours(0, 0, 0, 0);
+  return dueDate.getTime() < now.getTime();
+};
 
 const formatMilestoneRuntimeStatus = (status?: string | null) => {
   switch (status?.toUpperCase()) {
@@ -135,15 +245,6 @@ const formatMilestoneRuntimeStatus = (status?: string | null) => {
   }
 };
 
-const parseWorkspaceDate = (value?: string | null): Date | null => {
-  if (!value) return null;
-  const normalizedValue = /^\d{4}-\d{2}-\d{2}$/.test(value)
-    ? `${value}T00:00:00.000Z`
-    : value;
-  const parsed = new Date(normalizedValue);
-  return Number.isFinite(parsed.getTime()) ? parsed : null;
-};
-
 type ProjectWorkspaceMember = {
   id: string;
   name: string;
@@ -153,13 +254,15 @@ type ProjectWorkspaceMember = {
 };
 
 // Helper to get current user from storage (session/local)
-const getCurrentUser = (): { id: string; role?: string } | null => {
-  return getStoredJson<{ id: string; role?: string }>(STORAGE_KEYS.USER);
+const getCurrentUser = (): { id: string; role?: string; email?: string | null } | null => {
+  return getStoredJson<{ id: string; role?: string; email?: string | null }>(
+    STORAGE_KEYS.USER,
+  );
 };
 
 export function ProjectWorkspace() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const [board, setBoard] = useState<KanbanBoard>(initialBoard);
+  const [board, setBoard] = useState<KanbanBoard>(() => createEmptyBoard());
   const [project, setProject] = useState<WorkspaceProject | null>(null);
   const [contractDetail, setContractDetail] = useState<ContractDetail | null>(
     null,
@@ -204,9 +307,20 @@ export function ProjectWorkspace() {
     null,
   );
   const [isMyTasksFilter, setIsMyTasksFilter] = useState(false);
+  const [selectedStatusFilter, setSelectedStatusFilter] = useState<
+    KanbanColumnKey | "ALL"
+  >("ALL");
+  const [selectedPriorityFilter, setSelectedPriorityFilter] = useState<
+    TaskPriority | "ALL"
+  >("ALL");
+  const [selectedActionOwnerFilter, setSelectedActionOwnerFilter] =
+    useState<WorkspaceTaskActionFilter>("ALL");
+  const [isOverdueOnlyFilter, setIsOverdueOnlyFilter] = useState(false);
+  const [showSubtasksInWorkspaceViews, setShowSubtasksInWorkspaceViews] =
+    useState(true);
 
   // Task Detail Modal state
-  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [isTaskDetailOpen, setIsTaskDetailOpen] = useState(false);
   const [isQuickActionRunning, setIsQuickActionRunning] = useState(false);
   const [quickActionTitle, setQuickActionTitle] = useState<string | null>(null);
@@ -217,6 +331,10 @@ export function ProjectWorkspace() {
       note?: string;
     }>
   >([]);
+  const boardViewportRef = useRef<HTMLDivElement | null>(null);
+  const [boardViewportHeight, setBoardViewportHeight] = useState<number | null>(
+    null,
+  );
 
   const { projectId } = useParams();
   const location = useLocation();
@@ -225,28 +343,42 @@ export function ProjectWorkspace() {
     () => parseWorkspaceViewMode(searchParams.get("view")),
     [searchParams],
   );
-  const requestedMilestoneId = useMemo(
-    () => normalizeMilestoneKey(searchParams.get("milestone")),
+  const requestedMilestoneSelection = useMemo<WorkspaceMilestoneSelection>(
+    () => {
+      const requestedMilestone = searchParams.get("milestone");
+      if (requestedMilestone === ALL_WORKSPACE_MILESTONES_KEY) {
+        return ALL_WORKSPACE_MILESTONES_KEY;
+      }
+
+      return normalizeMilestoneKey(requestedMilestone);
+    },
     [searchParams],
   );
+  const isAllMilestonesMode =
+    requestedMilestoneSelection === ALL_WORKSPACE_MILESTONES_KEY;
   const selectedMilestoneId = useMemo(() => {
     if (milestones.length === 0) {
       return null;
     }
 
+    if (isAllMilestonesMode) {
+      return null;
+    }
+
     const requestedMilestoneExists = Boolean(
-      requestedMilestoneId &&
+      requestedMilestoneSelection &&
         milestones.some(
-          (milestone) => normalizeMilestoneKey(milestone.id) === requestedMilestoneId,
+          (milestone) =>
+            normalizeMilestoneKey(milestone.id) === requestedMilestoneSelection,
         ),
     );
 
-    if (requestedMilestoneId && requestedMilestoneExists) {
-      return requestedMilestoneId;
+    if (requestedMilestoneSelection && requestedMilestoneExists) {
+      return requestedMilestoneSelection;
     }
 
     return milestones[0]?.id ?? null;
-  }, [milestones, requestedMilestoneId]);
+  }, [isAllMilestonesMode, milestones, requestedMilestoneSelection]);
 
   const updateWorkspaceSearchParams = useCallback(
     ({
@@ -254,16 +386,20 @@ export function ProjectWorkspace() {
       nextMilestoneId,
     }: {
       nextViewMode?: WorkspaceViewMode;
-      nextMilestoneId?: string | null;
+      nextMilestoneId?: WorkspaceMilestoneSelection;
     }) => {
       const resolvedViewMode = nextViewMode ?? viewMode;
       const resolvedMilestoneId =
-        nextMilestoneId === undefined ? selectedMilestoneId : nextMilestoneId;
+        nextMilestoneId === undefined
+          ? requestedMilestoneSelection
+          : nextMilestoneId;
       const nextSearchParams = new URLSearchParams(searchParams);
 
       nextSearchParams.set("view", resolvedViewMode);
 
-      if (resolvedMilestoneId) {
+      if (resolvedMilestoneId === ALL_WORKSPACE_MILESTONES_KEY) {
+        nextSearchParams.set("milestone", ALL_WORKSPACE_MILESTONES_KEY);
+      } else if (resolvedMilestoneId) {
         nextSearchParams.set("milestone", resolvedMilestoneId);
       } else {
         nextSearchParams.delete("milestone");
@@ -273,11 +409,11 @@ export function ProjectWorkspace() {
         setSearchParams(nextSearchParams, { replace: true });
       }
     },
-    [searchParams, selectedMilestoneId, setSearchParams, viewMode],
+    [requestedMilestoneSelection, searchParams, setSearchParams, viewMode],
   );
 
   const setSelectedMilestoneId = useCallback(
-    (id: string | null) => {
+    (id: WorkspaceMilestoneSelection) => {
       updateWorkspaceSearchParams({ nextMilestoneId: id });
     },
     [updateWorkspaceSearchParams],
@@ -294,6 +430,7 @@ export function ProjectWorkspace() {
   const [currentUser, setCurrentUser] = useState<{
     id: string;
     role?: string;
+    email?: string | null;
   } | null>(() => getCurrentUser());
 
   useEffect(() => {
@@ -319,7 +456,7 @@ export function ProjectWorkspace() {
       return;
     }
 
-    const socket = getNamespacedSocket(WORKSPACE_CHAT_NAMESPACE);
+    const socket = connectNamespacedSocket(WORKSPACE_CHAT_NAMESPACE);
 
     const joinWorkspaceChatRoom = () => {
       socket.emit("joinProjectChat", { projectId });
@@ -345,9 +482,7 @@ export function ProjectWorkspace() {
     socket.on("connect", joinWorkspaceChatRoom);
     socket.on("newProjectMessage", handleNewProjectMessage);
 
-    if (!socket.connected) {
-      socket.connect();
-    } else {
+    if (socket.connected) {
       joinWorkspaceChatRoom();
     }
 
@@ -355,9 +490,88 @@ export function ProjectWorkspace() {
       socket.emit("leaveProjectChat", { projectId });
       socket.off("connect", joinWorkspaceChatRoom);
       socket.off("newProjectMessage", handleNewProjectMessage);
-      disconnectNamespacedSocket(WORKSPACE_CHAT_NAMESPACE);
     };
   }, [currentUser?.id, projectId]);
+
+  useEffect(() => {
+    if (viewMode !== "board") {
+      return;
+    }
+
+    const viewportElement = boardViewportRef.current;
+    if (!viewportElement) {
+      return;
+    }
+
+    let animationFrameId: number | null = null;
+    const mainElement = viewportElement.closest("main");
+    const footerElement =
+      mainElement instanceof HTMLElement
+        ? mainElement.querySelector("footer")
+        : null;
+
+    const measureBoardViewport = () => {
+      const element = boardViewportRef.current;
+      if (!element) {
+        return;
+      }
+
+      const rect = element.getBoundingClientRect();
+      const footerHeight =
+        footerElement instanceof HTMLElement ? footerElement.offsetHeight : 0;
+      const bottomReserve = Math.max(208, footerHeight + 56);
+      const availableHeight = Math.floor(window.innerHeight - rect.top - bottomReserve);
+      const nextHeight = Math.max(332, Math.min(388, availableHeight));
+
+      setBoardViewportHeight((currentHeight) =>
+        currentHeight === nextHeight ? currentHeight : nextHeight,
+      );
+    };
+
+    const scheduleMeasurement = () => {
+      if (animationFrameId !== null) {
+        window.cancelAnimationFrame(animationFrameId);
+      }
+
+      animationFrameId = window.requestAnimationFrame(() => {
+        animationFrameId = null;
+        measureBoardViewport();
+      });
+    };
+
+    scheduleMeasurement();
+
+    const resizeObserver =
+      typeof ResizeObserver !== "undefined"
+        ? new ResizeObserver(() => {
+            scheduleMeasurement();
+          })
+        : null;
+
+    resizeObserver?.observe(viewportElement);
+    if (mainElement instanceof HTMLElement) {
+      resizeObserver?.observe(mainElement);
+    }
+    if (footerElement instanceof HTMLElement) {
+      resizeObserver?.observe(footerElement);
+    }
+
+    window.addEventListener("resize", scheduleMeasurement);
+
+    return () => {
+      if (animationFrameId !== null) {
+        window.cancelAnimationFrame(animationFrameId);
+      }
+      resizeObserver?.disconnect();
+      window.removeEventListener("resize", scheduleMeasurement);
+    };
+  }, [
+    viewMode,
+    selectedMilestoneId,
+    loading,
+    error,
+    milestones.length,
+  ]);
 
   const isProjectDisputed = useMemo(() => {
     const status = project?.status?.toUpperCase();
@@ -372,17 +586,23 @@ export function ProjectWorkspace() {
   const isProjectInteractionLocked = isProjectDisputed || isProjectCanceled;
 
   const currentRole = currentUser?.role?.toUpperCase();
+  const canCurrentUserRaiseDispute = DISPUTE_PARTICIPANT_ROLES.has(
+    currentRole ?? "",
+  );
   const billingRole = normalizeSupportedBillingRole(currentRole);
   const isBroker = currentRole === "BROKER";
   const isFreelancer = currentRole === "FREELANCER";
-  const isQuickRoleActionsEnabled =
-    import.meta.env.DEV ||
-    import.meta.env.VITE_ENABLE_TASK_AUTOFILL_TEST === "true";
   const isAssignedBroker = Boolean(
     isBroker && currentUser?.id && project?.brokerId === currentUser.id,
   );
   const isProjectFreelancer = Boolean(
     isFreelancer && currentUser?.id && project?.freelancerId === currentUser.id,
+  );
+  const canActAsBrokerReviewer = Boolean(
+    currentUser?.id && project?.brokerId === currentUser.id,
+  );
+  const canActAsClientReviewer = Boolean(
+    currentUser?.id && project?.clientId === currentUser.id,
   );
 
   // Clients, internal reviewers, and disputed projects are read-only for task mutations.
@@ -401,8 +621,8 @@ export function ProjectWorkspace() {
   );
 
   const canReviewTaskSubmissions = useMemo(() => {
-    return currentRole === "CLIENT" || isAssignedBroker;
-  }, [currentRole, isAssignedBroker]);
+    return canActAsClientReviewer || canActAsBrokerReviewer;
+  }, [canActAsBrokerReviewer, canActAsClientReviewer]);
 
   const assignedBrokerLabel = useMemo(() => {
     if (!project?.brokerId) {
@@ -490,38 +710,10 @@ export function ProjectWorkspace() {
         })),
     [projectMembers],
   );
-
-  const canRaiseDisputeForMilestone = useCallback((milestone?: Milestone | null) => {
-    if (!milestone?.status) {
-      return false;
-    }
-
-    const normalizedStatus = milestone.status.toUpperCase();
-
-    if (DISPUTE_PRE_DELIVERY_MILESTONE_STATUSES.has(normalizedStatus)) {
-      return true;
-    }
-
-    if (!DISPUTE_POST_DELIVERY_MILESTONE_STATUSES.has(normalizedStatus)) {
-      return false;
-    }
-
-    if (normalizedStatus !== "PAID") {
-      return true;
-    }
-
-    const paidReferenceDate =
-      parseWorkspaceDate(milestone.escrow?.releasedAt) ||
-      parseWorkspaceDate(milestone.dueDate);
-    if (!paidReferenceDate) {
-      return true;
-    }
-
-    const warrantyDeadline = new Date(paidReferenceDate);
-    warrantyDeadline.setDate(warrantyDeadline.getDate() + WARRANTY_WINDOW_DAYS);
-
-    return Date.now() <= warrantyDeadline.getTime();
-  }, []);
+  const availableMilestoneIds = useMemo(
+    () => milestones.map((milestone) => milestone.id),
+    [milestones],
+  );
 
   const specFeatureOptions = useMemo<SpecFeatureOption[]>(() => {
     const features = contractDetail?.project?.request?.spec?.features;
@@ -607,11 +799,11 @@ export function ProjectWorkspace() {
           setLoading(true);
         }
         setError(null);
-        const [milestoneData, boardData, projectData] = await Promise.all([
-          fetchMilestones(projectId),
-          fetchBoard(projectId),
-          fetchProject(projectId),
-        ]);
+        const [{ milestones: milestoneData, tasks: boardData }, projectData] =
+          await Promise.all([
+            fetchBoardWorkspaceData(projectId),
+            fetchProject(projectId),
+          ]);
 
         let contractData: ContractDetail | null = null;
         const contracts = Array.isArray(projectData?.contracts)
@@ -645,12 +837,7 @@ export function ProjectWorkspace() {
         setMilestones(milestoneData || []);
         setProject(projectData);
         setContractDetail(contractData);
-        setBoard({
-          TODO: boardData?.TODO || [],
-          IN_PROGRESS: boardData?.IN_PROGRESS || [],
-          IN_REVIEW: boardData?.IN_REVIEW || [],
-          DONE: boardData?.DONE || [],
-        });
+        setBoard(boardData || createEmptyBoard());
       } catch (err: any) {
         setContractDetail(null);
         setError(err?.message || "Failed to load task board");
@@ -701,65 +888,6 @@ export function ProjectWorkspace() {
     ],
     [],
   );
-
-  const openCreateModal = () => {
-    if (!activeMilestone) {
-      const message = "Select a milestone before creating a task.";
-      setError(message);
-      toast.warning(message);
-      return;
-    }
-
-    if (!isAssignedBroker) {
-      const message = "Only the assigned broker can create tasks for this project.";
-      setError(message);
-      toast.warning(message);
-      return;
-    }
-
-    if (!canCreateTasksForSelectedMilestone) {
-      setError(TASK_CREATION_LOCK_MESSAGE);
-      toast.warning(TASK_CREATION_LOCK_MESSAGE);
-      return;
-    }
-
-    setIsModalOpen(true);
-  };
-  const openCreateMilestoneModal = () => {
-    if (isMilestoneStructureLocked) {
-      const message =
-        "Milestone scope is locked by the contract. Amendment support is not available yet.";
-      setError(message);
-      toast.warning(message);
-      return;
-    }
-    if (!isAssignedBroker) {
-      const message =
-        "Only the assigned broker can add or edit milestone scope.";
-      setError(message);
-      toast.warning(message);
-      return;
-    }
-    if (isProjectInteractionLocked) {
-      setError(
-        isProjectCanceled
-          ? "Project is cancelled. Milestone changes are now read-only."
-          : "Project is under dispute. Milestone changes are locked in read-only mode.",
-      );
-      return;
-    }
-
-    setNewMilestoneTitle("");
-    setNewMilestoneAmount("0");
-    setNewMilestoneDescription("");
-    setNewMilestoneStartDate("");
-    setNewMilestoneDueDate("");
-    setNewMilestoneDeliverableType(DeliverableType.SOURCE_CODE);
-    setNewMilestoneRetentionAmount("0");
-    setNewMilestoneAcceptanceCriteriaText("");
-    setIsMilestoneModalOpen(true);
-  };
-  const handleSelectMilestone = (id: string) => setSelectedMilestoneId(id);
 
   const handleCreateMilestone = async () => {
     if (!projectId) {
@@ -851,43 +979,101 @@ export function ProjectWorkspace() {
       .join(" ");
   };
 
-  const filteredBoard = useMemo(() => {
-    const selectedMilestoneKey = normalizeMilestoneKey(selectedMilestoneId);
-    if (!selectedMilestoneKey) return board;
-    const filterByMilestone = (tasks: Task[]) =>
-      tasks.filter(
-        (task) =>
-          normalizeMilestoneKey(task.milestoneId ?? null) === selectedMilestoneKey,
-      );
-    return {
-      TODO: filterByMilestone(board.TODO),
-      IN_PROGRESS: filterByMilestone(board.IN_PROGRESS),
-      IN_REVIEW: filterByMilestone(board.IN_REVIEW),
-      DONE: filterByMilestone(board.DONE),
-    };
-  }, [board, selectedMilestoneId]);
-
-  const tasksByMilestone = useMemo(() => {
-    const map: Record<string, Task[]> = {};
-    ["TODO", "IN_PROGRESS", "IN_REVIEW", "DONE"].forEach((col) => {
-      board[col as KanbanColumnKey].forEach((t) => {
-        const milestoneKey = normalizeMilestoneKey(t.milestoneId ?? null);
-        if (!milestoneKey) return;
-        if (!map[milestoneKey]) map[milestoneKey] = [];
-        map[milestoneKey].push(t);
-      });
-    });
-    return map;
-  }, [board]);
+  const boardMeta = useMemo(() => buildBoardMeta(board), [board]);
+  const milestoneMap = useMemo(
+    () => new Map(milestones.map((milestone) => [milestone.id, milestone])),
+    [milestones],
+  );
+  const milestoneInteractionGates = useMemo(
+    () => buildMilestoneInteractionGateMap(milestones),
+    [milestones],
+  );
   const selectedMilestoneKey = normalizeMilestoneKey(selectedMilestoneId);
-  const activeMilestone = selectedMilestoneKey
-    ? milestones.find((m) => normalizeMilestoneKey(m.id) === selectedMilestoneKey)
-    : null;
-  const activeTasks =
-    selectedMilestoneKey && tasksByMilestone[selectedMilestoneKey]
-      ? tasksByMilestone[selectedMilestoneKey]
-      : [];
-  const activeProgress = calculateProgress(activeTasks);
+  const activeMilestone = useMemo(
+    () =>
+      selectedMilestoneKey
+        ? milestones.find((milestone) => milestone.id === selectedMilestoneKey) ?? null
+        : null,
+    [milestones, selectedMilestoneKey],
+  );
+  const activeMilestoneStartBoundary = useMemo(
+    () => normalizeBoundaryDate(activeMilestone?.startDate),
+    [activeMilestone?.startDate],
+  );
+  const activeMilestoneDueBoundary = useMemo(
+    () => normalizeBoundaryDate(activeMilestone?.dueDate),
+    [activeMilestone?.dueDate],
+  );
+  const getTaskDateRangeValidationError = useCallback(
+    (startDateValue?: string | null, dueDateValue?: string | null) => {
+      const nextStartDate = normalizeBoundaryDate(startDateValue);
+      const nextDueDate = normalizeBoundaryDate(dueDateValue);
+
+      if (
+        nextStartDate &&
+        nextDueDate &&
+        nextStartDate.getTime() > nextDueDate.getTime()
+      ) {
+        return "Task start date cannot be after the due date.";
+      }
+
+      if (
+        activeMilestoneStartBoundary &&
+        nextStartDate &&
+        nextStartDate.getTime() < activeMilestoneStartBoundary.getTime()
+      ) {
+        return `Task start date must be on or after ${formatOptionalDate(activeMilestone?.startDate)}.`;
+      }
+
+      if (
+        activeMilestoneDueBoundary &&
+        nextStartDate &&
+        nextStartDate.getTime() > activeMilestoneDueBoundary.getTime()
+      ) {
+        return `Task start date must be on or before ${formatOptionalDate(activeMilestone?.dueDate)}.`;
+      }
+
+      if (
+        activeMilestoneStartBoundary &&
+        nextDueDate &&
+        nextDueDate.getTime() < activeMilestoneStartBoundary.getTime()
+      ) {
+        return `Task due date must be on or after ${formatOptionalDate(activeMilestone?.startDate)}.`;
+      }
+
+      if (
+        activeMilestoneDueBoundary &&
+        nextDueDate &&
+        nextDueDate.getTime() > activeMilestoneDueBoundary.getTime()
+      ) {
+        return `Task due date must be on or before ${formatOptionalDate(activeMilestone?.dueDate)}.`;
+      }
+
+      return null;
+    },
+    [
+      activeMilestone?.dueDate,
+      activeMilestone?.startDate,
+      activeMilestoneDueBoundary,
+      activeMilestoneStartBoundary,
+    ],
+  );
+  const activeMilestoneInteractionGate = useMemo(
+    () =>
+      selectedMilestoneKey ? milestoneInteractionGates[selectedMilestoneKey] ?? null : null,
+    [milestoneInteractionGates, selectedMilestoneKey],
+  );
+  const activeTasks = useMemo(
+    () =>
+      selectedMilestoneKey
+        ? boardMeta.tasksByMilestone[selectedMilestoneKey] ?? []
+        : [],
+    [boardMeta.tasksByMilestone, selectedMilestoneKey],
+  );
+  const activeProgress =
+    typeof activeMilestone?.progress === "number"
+      ? activeMilestone.progress
+      : calculateProgress(activeTasks);
   const quickSubmitCandidateTask = useMemo(() => {
     if (activeTasks.length === 0) {
       return null;
@@ -937,18 +1123,134 @@ export function ProjectWorkspace() {
     return null;
   }, [activeTasks]);
   const activeMilestoneStatus = activeMilestone?.status?.toUpperCase() ?? null;
+  const activeMilestoneDisputePolicy = activeMilestone?.disputePolicy ?? null;
+  const canOpenActiveMilestoneDispute = Boolean(
+    activeMilestone &&
+      activeMilestoneDisputePolicy?.canRaise &&
+      canCurrentUserRaiseDispute &&
+      !isProjectDisputed,
+  );
+  const activeMilestoneDisputeMessage = useMemo(() => {
+    if (isProjectDisputed) {
+      return "This project already has an active dispute. Continue from the dispute workspace instead of opening a new one here.";
+    }
+    if (!canCurrentUserRaiseDispute) {
+      return "Only project participants can open a milestone dispute.";
+    }
+    return activeMilestoneDisputePolicy?.reason ?? null;
+  }, [
+    activeMilestoneDisputePolicy?.reason,
+    canCurrentUserRaiseDispute,
+    isProjectDisputed,
+  ]);
+  const projectInteractionLockReason = useMemo(() => {
+    if (!isProjectInteractionLocked) {
+      return null;
+    }
+
+    return isProjectCanceled
+      ? "Project is cancelled. Task changes are locked in read-only mode."
+      : "Project is under dispute. Task changes are locked in read-only mode.";
+  }, [isProjectCanceled, isProjectInteractionLocked]);
+  const selectedMilestoneInteractionReason =
+    activeMilestoneInteractionGate?.isUnlocked === false
+      ? activeMilestoneInteractionGate.reason
+      : null;
+  const selectedMilestoneTaskCreationReason = useMemo(() => {
+    if (selectedMilestoneInteractionReason) {
+      return selectedMilestoneInteractionReason;
+    }
+
+    const deadlineLockReason = getMilestoneTaskCreationDeadlineLockReason(activeMilestone);
+    if (deadlineLockReason) {
+      return deadlineLockReason;
+    }
+
+    if (
+      activeMilestone &&
+      !TASK_CREATION_ALLOWED_MILESTONE_STATUSES.has(activeMilestone.status)
+    ) {
+      return TASK_CREATION_LOCK_MESSAGE;
+    }
+
+    return null;
+  }, [activeMilestone, selectedMilestoneInteractionReason]);
+  const selectedMilestoneTaskMutationReason = useMemo(() => {
+    if (selectedMilestoneInteractionReason) {
+      return selectedMilestoneInteractionReason;
+    }
+
+    if (
+      activeMilestone &&
+      !TASK_CREATION_ALLOWED_MILESTONE_STATUSES.has(activeMilestone.status)
+    ) {
+      return TASK_MUTATION_LOCK_MESSAGE;
+    }
+
+    return null;
+  }, [activeMilestone, selectedMilestoneInteractionReason]);
+  const getTaskInteractionLockReason = useCallback(
+    (milestoneId?: string | null) => {
+      if (projectInteractionLockReason) {
+        return projectInteractionLockReason;
+      }
+
+      const normalizedMilestoneId = normalizeMilestoneKey(milestoneId);
+      if (!normalizedMilestoneId) {
+        return selectedMilestoneInteractionReason;
+      }
+
+      const gate = milestoneInteractionGates[normalizedMilestoneId];
+      return gate?.isUnlocked === false ? gate.reason : null;
+    },
+    [
+      milestoneInteractionGates,
+      projectInteractionLockReason,
+      selectedMilestoneInteractionReason,
+    ],
+  );
+  const getTaskMutationLockReason = useCallback(
+    (milestoneId?: string | null) => {
+      const interactionReason = getTaskInteractionLockReason(milestoneId);
+      if (interactionReason) {
+        return interactionReason;
+      }
+
+      const normalizedMilestoneId = normalizeMilestoneKey(milestoneId);
+      const milestone = normalizedMilestoneId
+        ? milestoneMap.get(normalizedMilestoneId) ?? null
+        : activeMilestone;
+      if (
+        milestone &&
+        !TASK_CREATION_ALLOWED_MILESTONE_STATUSES.has(milestone.status)
+      ) {
+        return TASK_MUTATION_LOCK_MESSAGE;
+      }
+
+      return null;
+    },
+    [activeMilestone, getTaskInteractionLockReason, milestoneMap],
+  );
   const canCreateTasksForSelectedMilestone = useMemo(() => {
-    if (isReadOnly || !activeMilestone || !isAssignedBroker) {
+    if (
+      isReadOnly ||
+      !activeMilestone ||
+      !isAssignedBroker ||
+      Boolean(selectedMilestoneTaskCreationReason)
+    ) {
       return false;
     }
 
     return TASK_CREATION_ALLOWED_MILESTONE_STATUSES.has(activeMilestone.status);
-  }, [activeMilestone, isAssignedBroker, isReadOnly]);
+  }, [
+    activeMilestone,
+    isAssignedBroker,
+    isReadOnly,
+    selectedMilestoneTaskCreationReason,
+  ]);
   const taskCommandUnavailableMessage = useMemo(() => {
-    if (isProjectInteractionLocked) {
-      return isProjectCanceled
-        ? "Task creation via chat is locked because this project is cancelled."
-        : "Task creation via chat is locked while the project is in dispute.";
+    if (projectInteractionLockReason) {
+      return projectInteractionLockReason;
     }
 
     if (
@@ -967,6 +1269,10 @@ export function ProjectWorkspace() {
       return "Select an editable milestone before creating tasks via chat.";
     }
 
+    if (selectedMilestoneTaskCreationReason) {
+      return selectedMilestoneTaskCreationReason;
+    }
+
     if (!TASK_CREATION_ALLOWED_MILESTONE_STATUSES.has(activeMilestone.status)) {
       return "Cannot create tasks via chat for a completed, locked, or review-stage milestone.";
     }
@@ -976,9 +1282,193 @@ export function ProjectWorkspace() {
     activeMilestone,
     currentRole,
     isAssignedBroker,
+    projectInteractionLockReason,
+    selectedMilestoneTaskCreationReason,
+  ]);
+
+  const openCreateModal = useCallback(() => {
+    if (!activeMilestone) {
+      const message = "Select a milestone before creating a task.";
+      setError(message);
+      toast.warning(message);
+      return;
+    }
+
+    if (!isAssignedBroker) {
+      const message = "Only the assigned broker can create tasks for this project.";
+      setError(message);
+      toast.warning(message);
+      return;
+    }
+
+    if (!canCreateTasksForSelectedMilestone) {
+      const message = taskCommandUnavailableMessage || TASK_CREATION_LOCK_MESSAGE;
+      setError(message);
+      toast.warning(message);
+      return;
+    }
+
+    const draftStartDate = normalizeBoundaryDate(newStartDate);
+    const draftDueDate = normalizeBoundaryDate(newDueDate);
+    const boundedStartDate = draftStartDate
+      ? clampDateToRange(
+          draftStartDate,
+          activeMilestoneStartBoundary,
+          activeMilestoneDueBoundary,
+        )
+      : null;
+    const boundedDueDate = draftDueDate
+      ? clampDateToRange(
+          draftDueDate,
+          activeMilestoneStartBoundary,
+          activeMilestoneDueBoundary,
+        )
+      : null;
+    const resolvedDueDate =
+      boundedStartDate &&
+      boundedDueDate &&
+      boundedDueDate.getTime() < boundedStartDate.getTime()
+        ? boundedStartDate
+        : boundedDueDate;
+
+    if (draftStartDate && boundedStartDate) {
+      const nextStartDate = formatDateInputValue(boundedStartDate);
+      if (nextStartDate !== newStartDate) {
+        setNewStartDate(nextStartDate);
+      }
+    }
+
+    if (draftDueDate && resolvedDueDate) {
+      const nextDueDate = formatDateInputValue(resolvedDueDate);
+      if (nextDueDate !== newDueDate) {
+        setNewDueDate(nextDueDate);
+      }
+    }
+
+    setIsModalOpen(true);
+  }, [
+    activeMilestone,
+    activeMilestoneDueBoundary,
+    activeMilestoneStartBoundary,
+    canCreateTasksForSelectedMilestone,
+    isAssignedBroker,
+    newDueDate,
+    newStartDate,
+    taskCommandUnavailableMessage,
+  ]);
+
+  const handleCreateTaskFromCalendarDate = useCallback(
+    (start: Date, end: Date) => {
+      if (!activeMilestone) {
+        const message = "Select a milestone before creating a task.";
+        setError(message);
+        toast.warning(message);
+        return;
+      }
+
+      if (!isAssignedBroker) {
+        const message = "Only the assigned broker can create tasks for this project.";
+        setError(message);
+        toast.warning(message);
+        return;
+      }
+
+      if (!canCreateTasksForSelectedMilestone) {
+        const message = taskCommandUnavailableMessage || TASK_CREATION_LOCK_MESSAGE;
+        setError(message);
+        toast.warning(message);
+        return;
+      }
+
+      const normalizedStart = new Date(start);
+      normalizedStart.setHours(0, 0, 0, 0);
+      const normalizedEnd = new Date(end);
+      normalizedEnd.setHours(0, 0, 0, 0);
+      const rawDueSource =
+        normalizedEnd.getTime() > normalizedStart.getTime()
+          ? new Date(normalizedEnd.getTime() - 24 * 60 * 60 * 1000)
+          : normalizedStart;
+      rawDueSource.setHours(0, 0, 0, 0);
+
+      const boundedStart = clampDateToRange(
+        normalizedStart,
+        activeMilestoneStartBoundary,
+        activeMilestoneDueBoundary,
+      );
+      const boundedDue = clampDateToRange(
+        rawDueSource,
+        activeMilestoneStartBoundary,
+        activeMilestoneDueBoundary,
+      );
+      const resolvedDue =
+        boundedDue.getTime() < boundedStart.getTime() ? boundedStart : boundedDue;
+
+      if (
+        boundedStart.getTime() !== normalizedStart.getTime() ||
+        resolvedDue.getTime() !== rawDueSource.getTime()
+      ) {
+        toast.warning(
+          "Task dates were adjusted to stay inside the selected milestone schedule.",
+        );
+      }
+
+      setNewStartDate(formatDateInputValue(boundedStart));
+      setNewDueDate(formatDateInputValue(resolvedDue));
+      setIsModalOpen(true);
+    },
+    [
+      activeMilestone,
+      activeMilestoneDueBoundary,
+      activeMilestoneStartBoundary,
+      canCreateTasksForSelectedMilestone,
+      isAssignedBroker,
+      taskCommandUnavailableMessage,
+    ],
+  );
+
+  const openCreateMilestoneModal = useCallback(() => {
+    if (isMilestoneStructureLocked) {
+      const message =
+        "Milestone scope is locked by the contract. Amendment support is not available yet.";
+      setError(message);
+      toast.warning(message);
+      return;
+    }
+    if (!isAssignedBroker) {
+      const message =
+        "Only the assigned broker can add or edit milestone scope.";
+      setError(message);
+      toast.warning(message);
+      return;
+    }
+    if (isProjectInteractionLocked) {
+      setError(
+        isProjectCanceled
+          ? "Project is cancelled. Milestone changes are now read-only."
+          : "Project is under dispute. Milestone changes are locked in read-only mode.",
+      );
+      return;
+    }
+
+    setNewMilestoneTitle("");
+    setNewMilestoneAmount("0");
+    setNewMilestoneDescription("");
+    setNewMilestoneStartDate("");
+    setNewMilestoneDueDate("");
+    setNewMilestoneDeliverableType(DeliverableType.SOURCE_CODE);
+    setNewMilestoneRetentionAmount("0");
+    setNewMilestoneAcceptanceCriteriaText("");
+    setIsMilestoneModalOpen(true);
+  }, [
+    isAssignedBroker,
+    isMilestoneStructureLocked,
     isProjectCanceled,
     isProjectInteractionLocked,
   ]);
+
+  const handleSelectMilestone = useCallback((id: string) => {
+    setSelectedMilestoneId(id);
+  }, [setSelectedMilestoneId]);
 
   const contractHref =
     project?.contracts?.[0]?.id && currentUser?.role
@@ -1001,7 +1491,9 @@ export function ProjectWorkspace() {
     const workspacePath = workspaceRoutePattern.replace(":projectId", projectId);
     const returnParams = new URLSearchParams();
     returnParams.set("view", viewMode);
-    if (selectedMilestoneId) {
+    if (isAllMilestonesMode) {
+      returnParams.set("milestone", ALL_WORKSPACE_MILESTONES_KEY);
+    } else if (selectedMilestoneId) {
       returnParams.set("milestone", selectedMilestoneId);
     }
 
@@ -1013,164 +1505,207 @@ export function ProjectWorkspace() {
     }
 
     return `${billingBaseRoute}?${billingParams.toString()}`;
-  }, [activeMilestone?.title, currentRole, projectId, selectedMilestoneId, viewMode]);
-
-  // Get all tasks in a flat array for calendar view
-  const allTasks = useMemo(() => {
-    const tasks: Task[] = [];
-    ["TODO", "IN_PROGRESS", "IN_REVIEW", "DONE"].forEach((col) => {
-      tasks.push(...board[col as KanbanColumnKey]);
-    });
-    return tasks;
-  }, [board]);
-  const calendarTasks = useMemo(() => {
-    const milestoneKey = normalizeMilestoneKey(selectedMilestoneId);
-    if (!milestoneKey) {
-      return allTasks;
-    }
-
-    return allTasks.filter(
-      (task) => normalizeMilestoneKey(task.milestoneId ?? null) === milestoneKey,
-    );
-  }, [allTasks, selectedMilestoneId]);
-
-  // Derive unique assignees for filter
-  const uniqueAssignees = useMemo(() => {
-    const map = new Map<
-      string,
-      { id: string; name: string; avatar?: string }
-    >();
-    allTasks.forEach((t) => {
-      if (t.assignee && t.assignee.id) {
-        map.set(t.assignee.id, {
-          id: t.assignee.id,
-          name: t.assignee.fullName || "Unknown",
-          avatar: t.assignee.avatarUrl,
-        });
-      }
-    });
-    return Array.from(map.values());
-  }, [allTasks]);
-
-  // Filter Logic: processedBoard applies Search & Text filters on top of Milestone filter
-  const processedBoard = useMemo(() => {
-    let result = { ...filteredBoard }; // Start with milestone-filtered board
-
-    // 1. Text Search
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase();
-      result = {
-        TODO: result.TODO.filter((t) => t.title.toLowerCase().includes(query)),
-        IN_PROGRESS: result.IN_PROGRESS.filter((t) =>
-          t.title.toLowerCase().includes(query),
-        ),
-        IN_REVIEW: result.IN_REVIEW.filter((t) =>
-          t.title.toLowerCase().includes(query),
-        ),
-        DONE: result.DONE.filter((t) => t.title.toLowerCase().includes(query)),
-      };
-    }
-
-    // 2. Assignee Filter
-    if (selectedAssigneeId) {
-      const filterByAssignee = (list: Task[]) =>
-        list.filter((t) => t.assignee?.id === selectedAssigneeId);
-      result = {
-        TODO: filterByAssignee(result.TODO),
-        IN_PROGRESS: filterByAssignee(result.IN_PROGRESS),
-        IN_REVIEW: filterByAssignee(result.IN_REVIEW),
-        DONE: filterByAssignee(result.DONE),
-      };
-    } else if (isMyTasksFilter && currentUser?.id) {
-      // "Only My Issues" filter
-      const filterByMe = (list: Task[]) =>
-        list.filter((t) => t.assignee?.id === currentUser.id);
-      result = {
-        TODO: filterByMe(result.TODO),
-        IN_PROGRESS: filterByMe(result.IN_PROGRESS),
-        IN_REVIEW: filterByMe(result.IN_REVIEW),
-        DONE: filterByMe(result.DONE),
-      };
-    }
-
-    return result;
   }, [
-    filteredBoard,
-    searchQuery,
-    selectedAssigneeId,
-    isMyTasksFilter,
-    currentUser,
+    activeMilestone?.title,
+    currentRole,
+    isAllMilestonesMode,
+    projectId,
+    selectedMilestoneId,
+    viewMode,
   ]);
 
-  // Handle viewing task details (from Calendar or Kanban)
-  const handleViewTaskDetails = (taskId: string) => {
-    const task = allTasks.find((t) => t.id === taskId);
-    if (task) {
-      setSelectedTask(task);
-      setIsTaskDetailOpen(true);
+  const allTasks = boardMeta.allTasks;
+  const activeAssigneeFilterId = useMemo(
+    () => selectedAssigneeId || (isMyTasksFilter ? currentUser?.id ?? null : null),
+    [currentUser?.id, isMyTasksFilter, selectedAssigneeId],
+  );
+  const taskMatchesWorkspaceFilters = useCallback(
+    (task: Task) => {
+      const normalizedMilestoneId = normalizeMilestoneKey(selectedMilestoneId);
+      const normalizedSearch = searchQuery.trim().toLowerCase();
+
+      if (
+        normalizedMilestoneId &&
+        normalizeMilestoneKey(task.milestoneId ?? null) !== normalizedMilestoneId
+      ) {
+        return false;
+      }
+
+      if (
+        normalizedSearch &&
+        !task.title.toLowerCase().includes(normalizedSearch)
+      ) {
+        return false;
+      }
+
+      if (activeAssigneeFilterId && task.assignee?.id !== activeAssigneeFilterId) {
+        return false;
+      }
+
+      if (
+        selectedActionOwnerFilter !== "ALL" &&
+        getTaskActionOwner(task) !== selectedActionOwnerFilter
+      ) {
+        return false;
+      }
+
+      if (selectedStatusFilter !== "ALL" && task.status !== selectedStatusFilter) {
+        return false;
+      }
+
+      if (
+        selectedPriorityFilter !== "ALL" &&
+        task.priority !== selectedPriorityFilter
+      ) {
+        return false;
+      }
+
+      if (isOverdueOnlyFilter && !isTaskOverdue(task)) {
+        return false;
+      }
+
+      if (!showSubtasksInWorkspaceViews && task.parentTaskId) {
+        return false;
+      }
+
+      return true;
+    },
+    [
+      activeAssigneeFilterId,
+      isOverdueOnlyFilter,
+      searchQuery,
+      selectedActionOwnerFilter,
+      selectedMilestoneId,
+      selectedPriorityFilter,
+      selectedStatusFilter,
+      showSubtasksInWorkspaceViews,
+    ],
+  );
+  const filteredWorkspaceTasks = useMemo(
+    () => allTasks.filter(taskMatchesWorkspaceFilters),
+    [allTasks, taskMatchesWorkspaceFilters],
+  );
+  const calendarTasks = useMemo(() => {
+    return filteredWorkspaceTasks;
+  }, [filteredWorkspaceTasks]);
+  const uniqueAssignees = boardMeta.uniqueAssignees;
+
+  const processedBoard = useMemo(() => {
+    if (
+      !searchQuery.trim() &&
+      !activeAssigneeFilterId &&
+      selectedActionOwnerFilter === "ALL" &&
+      selectedStatusFilter === "ALL" &&
+      selectedPriorityFilter === "ALL" &&
+      !isOverdueOnlyFilter &&
+      showSubtasksInWorkspaceViews &&
+      !selectedMilestoneId
+    ) {
+      return board;
     }
-  };
 
-  // Handle closing task detail modal
-  const handleCloseTaskDetail = () => {
-    setIsTaskDetailOpen(false);
-    setSelectedTask(null);
-  };
-
-  // Handle task update from modal
-  const handleTaskUpdate = (updatedTask: Task) => {
-    setSelectedTask((currentTask) => {
-      if (!currentTask || currentTask.id !== updatedTask.id) {
-        return updatedTask;
-      }
-
-      return {
-        ...currentTask,
-        ...updatedTask,
-        submissions: updatedTask.submissions ?? currentTask.submissions,
-      };
-    });
-
-    // Update board state
-    setBoard((prevBoard) => {
-      const newBoard = { ...prevBoard };
-
-      // Find and replace the task in the board columns
-      Object.keys(newBoard).forEach((key) => {
-        const colKey = key as KanbanColumnKey;
-        newBoard[colKey] = newBoard[colKey].map((t) =>
-          t.id === updatedTask.id
-            ? {
-                ...t,
-                ...updatedTask,
-                submissions: updatedTask.submissions ?? t.submissions,
-              }
-            : t,
-        );
-
-        // Handle status change if column doesn't match
-        if (updatedTask.status !== colKey) {
-          // If task is in this column but status changed, logic is complex
-          // For simplicity, we might reload board or carefully move it
-          // But existing drag-drop logic handles status changes well.
-          // If status changed via modal dropdown:
-          if (newBoard[colKey].find((t) => t.id === updatedTask.id)) {
-            // Remove from old column
-            newBoard[colKey] = newBoard[colKey].filter(
-              (t) => t.id !== updatedTask.id,
-            );
-          }
-        }
+    return BOARD_COLUMNS.reduce<KanbanBoard>((nextBoard, columnKey) => {
+      const sourceTasks = board[columnKey];
+      const filteredTasks = sourceTasks.filter(taskMatchesWorkspaceFilters);
+      nextBoard[columnKey] =
+        filteredTasks.length === sourceTasks.length ? sourceTasks : filteredTasks;
+      return nextBoard;
+    }, createEmptyBoard());
+  }, [
+    board,
+    activeAssigneeFilterId,
+    isOverdueOnlyFilter,
+    searchQuery,
+    selectedActionOwnerFilter,
+    selectedMilestoneId,
+    selectedPriorityFilter,
+    selectedStatusFilter,
+    showSubtasksInWorkspaceViews,
+    taskMatchesWorkspaceFilters,
+  ]);
+  const hasActiveWorkspaceTaskFilters = useMemo(
+    () =>
+      Boolean(
+        searchQuery.trim() ||
+          activeAssigneeFilterId ||
+          selectedActionOwnerFilter !== "ALL" ||
+          selectedStatusFilter !== "ALL" ||
+          selectedPriorityFilter !== "ALL" ||
+          isOverdueOnlyFilter ||
+          !showSubtasksInWorkspaceViews,
+      ),
+    [
+      activeAssigneeFilterId,
+      isOverdueOnlyFilter,
+      searchQuery,
+      selectedActionOwnerFilter,
+      selectedPriorityFilter,
+      selectedStatusFilter,
+      showSubtasksInWorkspaceViews,
+    ],
+  );
+  const clearWorkspaceTaskFilters = useCallback(() => {
+    setSearchQuery("");
+    setSelectedAssigneeId(null);
+    setIsMyTasksFilter(false);
+    setSelectedStatusFilter("ALL");
+    setSelectedPriorityFilter("ALL");
+    setSelectedActionOwnerFilter("ALL");
+    setIsOverdueOnlyFilter(false);
+    setShowSubtasksInWorkspaceViews(true);
+  }, []);
+  const handleOpenOverviewBoardFocus = useCallback(
+    ({ actionOwner, overdueOnly }: ProjectOverviewBoardFocus) => {
+      setSearchQuery("");
+      setSelectedAssigneeId(null);
+      setIsMyTasksFilter(false);
+      setSelectedPriorityFilter("ALL");
+      setSelectedActionOwnerFilter(actionOwner);
+      setSelectedStatusFilter("ALL");
+      setIsOverdueOnlyFilter(overdueOnly);
+      setShowSubtasksInWorkspaceViews(true);
+      updateWorkspaceSearchParams({
+        nextViewMode: "board",
+        nextMilestoneId: ALL_WORKSPACE_MILESTONES_KEY,
       });
+    },
+    [updateWorkspaceSearchParams],
+  );
 
-      // If status changed, ensure it's in the new column
-      if (!newBoard[updatedTask.status].find((t) => t.id === updatedTask.id)) {
-        newBoard[updatedTask.status].push(updatedTask);
+  const selectedTask = useMemo(
+    () => (selectedTaskId ? boardMeta.taskMap.get(selectedTaskId) ?? null : null),
+    [boardMeta.taskMap, selectedTaskId],
+  );
+  const selectedTaskMilestone = useMemo(
+    () =>
+      selectedTask?.milestoneId ? milestoneMap.get(selectedTask.milestoneId) ?? null : null,
+    [milestoneMap, selectedTask?.milestoneId],
+  );
+  const selectedTaskInteractionReason = useMemo(
+    () => getTaskInteractionLockReason(selectedTask?.milestoneId),
+    [getTaskInteractionLockReason, selectedTask?.milestoneId],
+  );
+  const selectedTaskMutationReason = useMemo(
+    () => getTaskMutationLockReason(selectedTask?.milestoneId),
+    [getTaskMutationLockReason, selectedTask?.milestoneId],
+  );
+
+  const handleViewTaskDetails = useCallback(
+    (taskId: string) => {
+      if (!boardMeta.taskMap.has(taskId)) {
+        return;
       }
 
-      return newBoard;
-    });
-  };
+      setSelectedTaskId(taskId);
+      setIsTaskDetailOpen(true);
+    },
+    [boardMeta.taskMap],
+  );
+
+  const handleCloseTaskDetail = useCallback(() => {
+    setIsTaskDetailOpen(false);
+    setSelectedTaskId(null);
+  }, []);
 
   const upsertTaskIntoBoard = useCallback((incomingTask: Task) => {
     if (!incomingTask?.id) {
@@ -1182,62 +1717,45 @@ export function ProjectWorkspace() {
       status: incomingTask.status ?? "TODO",
     };
 
-    setBoard((prevBoard) => {
-      const existingColumn =
-        BOARD_COLUMNS.find((columnKey) =>
-          prevBoard[columnKey].some((task) => task.id === normalizedTask.id),
-        ) ?? null;
-      const previousIndex =
-        existingColumn !== null
-          ? prevBoard[existingColumn].findIndex(
-              (task) => task.id === normalizedTask.id,
-            )
-          : -1;
+    setBoard((prevBoard) => upsertTaskInBoard(prevBoard, normalizedTask));
+  }, []);
 
-      const cleanedBoard = BOARD_COLUMNS.reduce<KanbanBoard>(
-        (acc, columnKey) => {
-          acc[columnKey] = prevBoard[columnKey].filter(
-            (task) => task.id !== normalizedTask.id,
-          );
-          return acc;
-        },
-        { TODO: [], IN_PROGRESS: [], IN_REVIEW: [], DONE: [] },
-      );
+  const handleTaskUpdate = useCallback(
+    (updatedTask: Task) => {
+      upsertTaskIntoBoard(updatedTask);
+    },
+    [upsertTaskIntoBoard],
+  );
 
-      if (
-        existingColumn === normalizedTask.status &&
-        previousIndex >= 0 &&
-        previousIndex <= cleanedBoard[normalizedTask.status].length
-      ) {
-        cleanedBoard[normalizedTask.status].splice(previousIndex, 0, normalizedTask);
-      } else {
-        cleanedBoard[normalizedTask.status] = [
-          normalizedTask,
-          ...cleanedBoard[normalizedTask.status],
-        ];
-      }
-
-      return cleanedBoard;
-    });
-
-    setSelectedTask((currentTask) =>
-      currentTask?.id === normalizedTask.id
-        ? {
-            ...currentTask,
-            ...normalizedTask,
-            submissions: normalizedTask.submissions ?? currentTask.submissions,
-          }
-        : currentTask,
-    );
+  const handleTaskDelete = useCallback((taskId: string) => {
+    setBoard((prevBoard) => removeTaskFromBoard(prevBoard, taskId));
+    setIsTaskDetailOpen(false);
+    setSelectedTaskId(null);
   }, []);
 
   const handleTaskRealtimeEvent = useCallback(
     (event: ProjectTaskRealtimeEvent) => {
-      if (!event?.task?.id) {
+      if (!event) {
         return;
       }
 
-      upsertTaskIntoBoard(event.task);
+      if (event.action === "DELETED") {
+        if (!event.taskId) {
+          return;
+        }
+
+        setBoard((prevBoard) => removeTaskFromBoard(prevBoard, event.taskId!));
+        if (selectedTaskId === event.taskId) {
+          setIsTaskDetailOpen(false);
+          setSelectedTaskId(null);
+        }
+      } else {
+        if (!event.task?.id) {
+          return;
+        }
+
+        upsertTaskIntoBoard(event.task);
+      }
 
       if (
         event.milestoneId &&
@@ -1245,21 +1763,35 @@ export function ProjectWorkspace() {
         typeof event.totalTasks === "number" &&
         typeof event.completedTasks === "number"
       ) {
-        setMilestones((prevMilestones) =>
-          prevMilestones.map((milestone) =>
-            milestone.id === event.milestoneId
-              ? {
-                  ...milestone,
-                  progress: event.milestoneProgress,
-                  totalTasks: event.totalTasks,
-                  completedTasks: event.completedTasks,
-                }
-              : milestone,
-          ),
-        );
+        setMilestones((prevMilestones) => {
+          const milestoneIndex = prevMilestones.findIndex(
+            (milestone) => milestone.id === event.milestoneId,
+          );
+          if (milestoneIndex < 0) {
+            return prevMilestones;
+          }
+
+          const milestone = prevMilestones[milestoneIndex];
+          if (
+            milestone.progress === event.milestoneProgress &&
+            milestone.totalTasks === event.totalTasks &&
+            milestone.completedTasks === event.completedTasks
+          ) {
+            return prevMilestones;
+          }
+
+          const nextMilestones = prevMilestones.slice();
+          nextMilestones[milestoneIndex] = {
+            ...milestone,
+            progress: event.milestoneProgress,
+            totalTasks: event.totalTasks,
+            completedTasks: event.completedTasks,
+          };
+          return nextMilestones;
+        });
       }
     },
-    [upsertTaskIntoBoard],
+    [selectedTaskId, upsertTaskIntoBoard],
   );
 
   useEffect(() => {
@@ -1287,14 +1819,23 @@ export function ProjectWorkspace() {
       }
 
       const event = payload as Partial<ProjectTaskRealtimeEvent>;
-      if (event.projectId !== projectId || !event.task) {
+      if (
+        event.projectId !== projectId ||
+        (event.action === "DELETED" ? !event.taskId : !event.task)
+      ) {
         return;
       }
 
       handleTaskRealtimeEvent({
-        action: event.action === "CREATED" ? "CREATED" : "UPDATED",
+        action:
+          event.action === "CREATED"
+            ? "CREATED"
+            : event.action === "DELETED"
+              ? "DELETED"
+              : "UPDATED",
         projectId: event.projectId,
         task: event.task,
+        taskId: event.taskId,
         milestoneId: event.milestoneId ?? null,
         milestoneProgress:
           typeof event.milestoneProgress === "number"
@@ -1388,10 +1929,7 @@ export function ProjectWorkspace() {
   }, [contractDetail?.id, currentUser?.id, projectId, reloadWorkspaceData]);
 
   // Handle milestone approval (Client/Broker only)
-  const handleApproveMilestone = async (
-    milestoneId: string,
-    feedback?: string,
-  ) => {
+  const handleApproveMilestone = async (milestoneId: string) => {
     if (isProjectInteractionLocked) {
       throw new Error(
         isProjectCanceled
@@ -1401,7 +1939,7 @@ export function ProjectWorkspace() {
     }
     try {
       setError(null);
-      const result = await approveMilestone(milestoneId, feedback);
+      const result = await approveMilestone(milestoneId);
 
       // Update the milestone status in local state
       setMilestones((prev) =>
@@ -1513,7 +2051,7 @@ export function ProjectWorkspace() {
 
     if (
       stripeCheckoutState !== "success" ||
-      !requestedMilestoneId ||
+      !selectedMilestoneId ||
       !stripeSessionId ||
       !stripePaymentMethodId
     ) {
@@ -1527,12 +2065,12 @@ export function ProjectWorkspace() {
     processedStripeSessionIdsRef.current.add(stripeSessionId);
     let active = true;
 
-    const syncStripeCheckout = async () => {
-      try {
-        const result = await completeStripeMilestoneFunding(requestedMilestoneId, {
-          paymentMethodId: stripePaymentMethodId,
-          sessionId: stripeSessionId,
-        });
+      const syncStripeCheckout = async () => {
+        try {
+        const result = await completeStripeMilestoneFunding(selectedMilestoneId, {
+            paymentMethodId: stripePaymentMethodId,
+            sessionId: stripeSessionId,
+          });
         if (!active) return;
         handleFundingSuccess(result);
         toast.success("Card payment completed and escrow funded");
@@ -1556,7 +2094,7 @@ export function ProjectWorkspace() {
     return () => {
       active = false;
     };
-  }, [handleFundingSuccess, requestedMilestoneId, searchParams, setSearchParams]);
+  }, [handleFundingSuccess, searchParams, setSearchParams]);
 
   const handleRequestMilestoneReview = async (milestoneId: string) => {
     if (isProjectInteractionLocked) {
@@ -1587,6 +2125,39 @@ export function ProjectWorkspace() {
         err instanceof Error
           ? err.message
           : "Failed to request milestone review";
+      setError(errorMessage);
+      throw err;
+    }
+  };
+
+  const handleRejectMilestone = async (milestoneId: string, reason: string) => {
+    if (isProjectInteractionLocked) {
+      throw new Error(
+        isProjectCanceled
+          ? "Project is cancelled. Milestone review is locked."
+          : "Project is under dispute. Milestone review is locked.",
+      );
+    }
+
+    const trimmedReason = reason.trim();
+    if (!trimmedReason) {
+      throw new Error("Please provide a reason before rejecting this milestone.");
+    }
+
+    try {
+      setError(null);
+      const updatedMilestone = await rejectMilestone(milestoneId, trimmedReason);
+      setMilestones((prev) =>
+        prev.map((milestone) =>
+          milestone.id === milestoneId
+            ? { ...milestone, ...updatedMilestone }
+            : milestone,
+        ),
+      );
+      toast.success("Milestone sent back for revisions.");
+    } catch (err: unknown) {
+      const errorMessage =
+        err instanceof Error ? err.message : "Failed to reject milestone";
       setError(errorMessage);
       throw err;
     }
@@ -1645,6 +2216,23 @@ export function ProjectWorkspace() {
       toast.error("Milestone not found.");
       return;
     }
+    if (!canCurrentUserRaiseDispute) {
+      toast.error("Only project participants can open a dispute.");
+      return;
+    }
+    if (isProjectDisputed) {
+      toast.error(
+        "This project already has an active dispute. Continue in the dispute workspace instead.",
+      );
+      return;
+    }
+    if (!milestone.disputePolicy?.canRaise) {
+      toast.error(
+        milestone.disputePolicy?.reason ||
+          "Dispute is not available for this milestone.",
+      );
+      return;
+    }
     setDisputeMilestone(milestone);
     setIsDisputeModalOpen(true);
   };
@@ -1654,7 +2242,7 @@ export function ProjectWorkspace() {
     setDisputeMilestone(null);
   };
 
-  const handleDragEnd = async (result: DropResult) => {
+  const handleDragEnd = useCallback(async (result: DropResult) => {
     if (isReadOnly) {
       if (isProjectInteractionLocked) {
         toast.warning(
@@ -1667,7 +2255,9 @@ export function ProjectWorkspace() {
     }
 
     const { destination, source, draggableId } = result;
-    if (!destination) return;
+    if (!destination) {
+      return;
+    }
 
     const fromColumn = source.droppableId as KanbanColumnKey;
     const toColumn = destination.droppableId as KanbanColumnKey;
@@ -1676,83 +2266,72 @@ export function ProjectWorkspace() {
       return;
     }
 
-    // Save previous state for rollback
-    const prevBoard: KanbanBoard = (
-      ["TODO", "IN_PROGRESS", "IN_REVIEW", "DONE"] as KanbanColumnKey[]
-    ).reduce(
-      (acc, key) => ({
-        ...acc,
-        [key]: board[key].map((t) => ({ ...t })),
-      }),
-      { ...initialBoard },
-    );
+    const movedTask = board[fromColumn][source.index];
+    if (!movedTask) {
+      return;
+    }
 
-    // Optimistic UI update - move the card immediately
-    const nextBoard: KanbanBoard = {
-      ...prevBoard,
-      [fromColumn]: [...prevBoard[fromColumn]],
-      [toColumn]: [...prevBoard[toColumn]],
-    };
+    const taskMutationLockReason = getTaskMutationLockReason(movedTask.milestoneId);
+    if (taskMutationLockReason) {
+      toast.warning(taskMutationLockReason);
+      return;
+    }
 
-    const [movedTask] = nextBoard[fromColumn].splice(source.index, 1);
-    if (!movedTask) return;
-
-    if (
-      toColumn === "DONE" &&
-      isFreelancer
-    ) {
+    if (toColumn === "DONE" && isFreelancer) {
       toast.warning(
         "Freelancers cannot drag tasks directly to DONE. Submit work for review instead.",
       );
       return;
     }
 
-    if (
-      toColumn === "DONE" &&
-      !getLatestApprovedSubmission(movedTask)
-    ) {
+    if (toColumn === "DONE" && !getLatestApprovedSubmission(movedTask)) {
       toast.warning("Cannot move to DONE without an approved submission.");
       return;
     }
-    const updatedTask = { ...movedTask, status: toColumn };
-    nextBoard[toColumn].splice(destination.index, 0, updatedTask);
 
-    setBoard(nextBoard);
+    if (
+      fromColumn === "DONE" &&
+      toColumn !== "DONE" &&
+      getLatestApprovedSubmission(movedTask)
+    ) {
+      toast.warning(
+        "Task has been approved and completed, cannot be dragged back from DONE.",
+      );
+      return;
+    }
+
+    const prevBoard = board;
+    const movement = moveTaskInBoard(board, {
+      fromColumn,
+      toColumn,
+      sourceIndex: source.index,
+      destinationIndex: destination.index,
+      transformTask: (task) => ({ ...task, status: toColumn }),
+    });
+
+    if (!movement) {
+      return;
+    }
+
+    setBoard(movement.board);
 
     try {
-      // Call API and get updated milestone progress
-      const response = await updateTaskStatus(draggableId, toColumn);
+      await updateTaskStatus(draggableId, toColumn);
       setError(null);
-
-      // Real-time progress update
-      // If the task moved to/from DONE column, the backend recalculated progress
-      // Update the milestones state to reflect the new progress
-      if (response.milestoneId) {
-        setMilestones((prevMilestones) =>
-          prevMilestones.map((milestone) =>
-            milestone.id === response.milestoneId
-              ? {
-                  ...milestone,
-                  // Store progress info in milestone for display
-                  // (Milestone type doesn't have progress field, but UI uses tasksByMilestone)
-                }
-              : milestone,
-          ),
-        );
-
-        // Log for debugging
-        console.log(
-          `[Milestone] ${response.milestoneId} progress updated: ${response.milestoneProgress}% (${response.completedTasks}/${response.totalTasks})`,
-        );
-      }
     } catch (err: any) {
-      // Rollback on error
       setBoard(prevBoard);
       setError(err?.message || "Failed to update task status");
     }
-  };
+  }, [
+    board,
+    getTaskMutationLockReason,
+    isFreelancer,
+    isProjectCanceled,
+    isProjectInteractionLocked,
+    isReadOnly,
+  ]);
 
-  const handleCreateTask = async () => {
+  const handleCreateTask = useCallback(async () => {
     if (isProjectInteractionLocked) {
       setError(
         isProjectCanceled
@@ -1762,8 +2341,27 @@ export function ProjectWorkspace() {
       return;
     }
     const title = newTitle.trim();
+    const description = newDescription.trim();
     if (!title) {
       setError("Title is required");
+      return;
+    }
+    if (!description) {
+      const message = "Description is required.";
+      setError(message);
+      toast.warning(message);
+      return;
+    }
+    if (!newStartDate) {
+      const message = "Start date is required.";
+      setError(message);
+      toast.warning(message);
+      return;
+    }
+    if (!newDueDate) {
+      const message = "Due date is required.";
+      setError(message);
+      toast.warning(message);
       return;
     }
     if (!projectId) {
@@ -1781,8 +2379,9 @@ export function ProjectWorkspace() {
       return;
     }
     if (!canCreateTasksForSelectedMilestone) {
-      setError(TASK_CREATION_LOCK_MESSAGE);
-      toast.warning(TASK_CREATION_LOCK_MESSAGE);
+      const message = taskCommandUnavailableMessage || TASK_CREATION_LOCK_MESSAGE;
+      setError(message);
+      toast.warning(message);
       return;
     }
     if (!newSpecFeatureId && specFeatureOptions.length > 0) {
@@ -1791,12 +2390,22 @@ export function ProjectWorkspace() {
       );
     }
 
+    const taskDateRangeValidationError = getTaskDateRangeValidationError(
+      newStartDate,
+      newDueDate,
+    );
+    if (taskDateRangeValidationError) {
+      setError(taskDateRangeValidationError);
+      toast.warning(taskDateRangeValidationError);
+      return;
+    }
+
     try {
       setIsSubmitting(true);
       setError(null);
       const created = await createTask({
         title,
-        description: newDescription,
+        description,
         projectId,
         milestoneId: selectedMilestoneId,
         specFeatureId: newSpecFeatureId || undefined,
@@ -1810,10 +2419,7 @@ export function ProjectWorkspace() {
         );
       }
 
-      setBoard((prev) => ({
-        ...prev,
-        TODO: [created, ...prev.TODO],
-      }));
+      upsertTaskIntoBoard(created);
 
       // Reset form fields
       setIsModalOpen(false);
@@ -1829,11 +2435,31 @@ export function ProjectWorkspace() {
     } finally {
       setIsSubmitting(false);
     }
-  };
+  }, [
+    canCreateTasksForSelectedMilestone,
+    isAssignedBroker,
+    isProjectCanceled,
+    isProjectInteractionLocked,
+    newDescription,
+    newDueDate,
+    newSpecFeatureId,
+    newStartDate,
+    newTitle,
+    projectId,
+    selectedMilestoneId,
+    specFeatureOptions.length,
+    taskCommandUnavailableMessage,
+    getTaskDateRangeValidationError,
+    upsertTaskIntoBoard,
+  ]);
 
   return (
-    <div className="space-y-8">
-      <div className="flex items-center justify-between">
+    <div
+      className={`space-y-8 pb-20 transition-[padding] duration-200 ${
+        isChatOpen ? "2xl:pr-80" : ""
+      }`}
+    >
+      <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">
             Project Task Board
@@ -1854,12 +2480,12 @@ export function ProjectWorkspace() {
             </p>
           )}
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex w-full flex-wrap items-center gap-2 xl:w-auto xl:justify-end">
           {/* View Contract Button */}
           {contractHref && (
             <Link
               to={contractHref}
-              className="flex items-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-medium text-blue-700 transition-colors hover:bg-blue-100"
+              className="inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-medium text-blue-700 transition-colors hover:bg-blue-100"
             >
               <FileSignature className="h-4 w-4" />
               Contract
@@ -1868,18 +2494,18 @@ export function ProjectWorkspace() {
           {(billingRole === "CLIENT" || billingRole === "BROKER" || billingRole === "FREELANCER") && (
             <Link
               to={workspaceBillingHref}
-              className="flex items-center gap-2 rounded-md border border-teal-200 bg-teal-50 px-3 py-2 text-sm font-medium text-teal-700 transition-colors hover:bg-teal-100"
+              className="inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-md border border-teal-200 bg-teal-50 px-3 py-2 text-sm font-medium text-teal-700 transition-colors hover:bg-teal-100"
             >
-              <WalletCards className="h-4 w-4" />
-              {resolveBillingLabel(currentRole)}
+              <WalletCards className="h-4 w-4 shrink-0" />
+              <span className="truncate">{resolveBillingLabel(currentRole)}</span>
             </Link>
           )}
 
           {/* View Switcher */}
-          <div className="flex items-center bg-gray-100 rounded-lg p-1">
+          <div className="flex flex-wrap items-center gap-1 rounded-lg bg-gray-100 p-1">
             <button
               onClick={() => setViewMode("summary")}
-              className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+              className={`inline-flex shrink-0 items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
                 viewMode === "summary"
                   ? "bg-white text-teal-700 shadow-sm"
                   : "text-gray-600 hover:text-gray-900"
@@ -1890,7 +2516,7 @@ export function ProjectWorkspace() {
             </button>
             <button
               onClick={() => setViewMode("board")}
-              className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+              className={`inline-flex shrink-0 items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
                 viewMode === "board"
                   ? "bg-white text-teal-700 shadow-sm"
                   : "text-gray-600 hover:text-gray-900"
@@ -1901,7 +2527,7 @@ export function ProjectWorkspace() {
             </button>
             <button
               onClick={() => setViewMode("calendar")}
-              className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+              className={`inline-flex shrink-0 items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
                 viewMode === "calendar"
                   ? "bg-white text-teal-700 shadow-sm"
                   : "text-gray-600 hover:text-gray-900"
@@ -1912,7 +2538,7 @@ export function ProjectWorkspace() {
             </button>
             <button
               onClick={() => setIsChatOpen(true)}
-              className="flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-colors text-gray-600 hover:text-gray-900"
+              className="inline-flex shrink-0 items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors text-gray-600 hover:text-gray-900"
             >
               <MessageSquare className="h-4 w-4" />
               <span>Chat</span>
@@ -1926,7 +2552,7 @@ export function ProjectWorkspace() {
           {canMutateMilestoneStructure && (
             <button
               onClick={openCreateMilestoneModal}
-              className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-700 transition-colors hover:bg-emerald-100"
+              className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-700 transition-colors hover:bg-emerald-100"
             >
               <PlusCircle className="h-4 w-4" />
               Add Milestone
@@ -1936,7 +2562,7 @@ export function ProjectWorkspace() {
           {!isReadOnly && canCreateTasksForSelectedMilestone && (
             <button
               onClick={openCreateModal}
-              className="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors shadow-sm"
+              className="shrink-0 rounded-lg bg-teal-600 px-4 py-2 text-white shadow-sm transition-colors hover:bg-teal-700"
             >
               + New Task
             </button>
@@ -2086,9 +2712,9 @@ export function ProjectWorkspace() {
                 hasIntermediateReviewer={hasBrokerReviewStep}
                 assignedReviewerLabel={assignedBrokerLabel}
                 onApprove={handleApproveMilestone}
+                onReject={handleRejectMilestone}
                 onRequestReview={handleRequestMilestoneReview}
                 onReviewerDecision={handleBrokerReviewMilestone}
-                onRaiseDispute={handleRaiseDispute}
                 canApprove={canApproveMilestone}
                 currency={project?.currency ?? "USD"}
               />
@@ -2102,37 +2728,80 @@ export function ProjectWorkspace() {
               projectStatus={project?.status ?? null}
               currency={project?.currency ?? "USD"}
               billingSetupHref={workspaceBillingHref}
+              currentUserEmail={currentUser?.email ?? null}
               onFunded={handleFundingSuccess}
+              isChatOpen={isChatOpen}
             />
           )}
 
-          {project &&
-          activeMilestone &&
-          ["FUNDED", "RELEASED"].includes(
-            String(activeMilestone.escrow?.status || "").toUpperCase(),
-          ) &&
-          DISPUTE_POST_DELIVERY_MILESTONE_STATUSES.has(
-            String(activeMilestone.status || "").toUpperCase(),
-          ) ? (
+          {project ? (
             <ProjectReviewActionsCard
               project={project}
+              milestones={milestones}
               currentUserId={currentUser?.id}
               currentUserRole={currentRole}
               pathname={location.pathname}
-              milestoneTitle={activeMilestone.title}
-              canRaiseDispute={
-                !isProjectDisputed &&
-                canRaiseDisputeForMilestone(activeMilestone)
-              }
-              onRaiseDispute={() => handleRaiseDispute(activeMilestone.id)}
             />
+          ) : null}
+
+          {activeMilestone ? (
+            <section className="rounded-[1.8rem] border border-red-200 bg-gradient-to-br from-red-50 via-white to-rose-50 p-5 shadow-sm">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                <div className="space-y-2">
+                  <div className="inline-flex items-center rounded-full border border-red-200 bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-red-700">
+                    Milestone Dispute
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-semibold text-slate-950">
+                      Report a serious delivery issue
+                    </h3>
+                    <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">
+                      Use dispute for quality, deadline, communication, or payment
+                      problems tied to milestone <span className="font-medium">{activeMilestone.title.replaceAll("&amp;", "&")}</span>
+                      {project?.title ? (
+                        <>
+                          {" "}in project <span className="font-medium">{project.title}</span>
+                        </>
+                      ) : null}
+                      .
+                    </p>
+                    {activeMilestoneDisputePolicy?.warrantyEndsAt ? (
+                      <p className="mt-2 text-xs text-slate-500">
+                        Warranty window ends on{" "}
+                        {new Date(
+                          activeMilestoneDisputePolicy.warrantyEndsAt,
+                        ).toLocaleDateString("en-GB")}
+                        .
+                      </p>
+                    ) : null}
+                  </div>
+                </div>
+
+                {canOpenActiveMilestoneDispute ? (
+                  <button
+                    type="button"
+                    data-testid={`raise-dispute-${activeMilestone.id}`}
+                    onClick={() => handleRaiseDispute(activeMilestone.id)}
+                    className="inline-flex items-center justify-center rounded-xl border border-red-300 bg-white px-4 py-2 text-sm font-semibold text-red-700 transition-colors hover:bg-red-100"
+                  >
+                    Raise Dispute
+                  </button>
+                ) : (
+                  <div className="rounded-2xl border border-white bg-white/80 px-4 py-3 text-sm text-slate-600 shadow-sm">
+                    {activeMilestoneDisputeMessage ||
+                      "Dispute is not available for this milestone right now."}
+                  </div>
+                )}
+              </div>
+            </section>
           ) : null}
 
           {viewMode !== "summary" && (
             <MilestoneTabs
               milestones={milestones}
               selectedId={selectedMilestoneId || undefined}
-              tasksMap={tasksByMilestone}
+              tasksMap={boardMeta.tasksByMilestone}
+              interactionGates={milestoneInteractionGates}
               onSelect={handleSelectMilestone}
               onAdd={
                 canMutateMilestoneStructure
@@ -2141,6 +2810,12 @@ export function ProjectWorkspace() {
               }
             />
           )}
+          {viewMode !== "summary" && isAllMilestonesMode ? (
+            <div className="rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800">
+              Showing tasks across all milestones. Select a milestone tab to focus a
+              single milestone again.
+            </div>
+          ) : null}
           {activeMilestone && viewMode === "board" && (
             <div className="border border-gray-200 bg-white rounded-xl p-4 shadow-sm">
               <div className="flex items-center justify-between mb-2">
@@ -2149,16 +2824,6 @@ export function ProjectWorkspace() {
                 </div>
                 <div className="flex items-center gap-2 text-sm text-slate-700">
                   <span>{activeProgress}%</span>
-                  {canRaiseDisputeForMilestone(activeMilestone) && (
-                    <button
-                      type="button"
-                      data-testid={`raise-dispute-${activeMilestone.id}`}
-                      onClick={() => handleRaiseDispute(activeMilestone.id)}
-                      className="ml-2 rounded-full border border-red-200 bg-red-50 px-3 py-1 text-xs font-semibold text-red-700 hover:border-red-300 hover:bg-red-100"
-                    >
-                      Raise Dispute
-                    </button>
-                  )}
                 </div>
               </div>
               {activeMilestone.description ? (
@@ -2234,21 +2899,34 @@ export function ProjectWorkspace() {
             </div>
           )}
 
+          {viewMode !== "summary" && activeMilestone && selectedMilestoneTaskMutationReason && (
+            <div
+              className={`rounded-lg border px-4 py-3 text-sm ${
+                activeMilestoneInteractionGate?.state === "LOCKED_NOT_FUNDED"
+                  ? "border-amber-200 bg-amber-50 text-amber-800"
+                  : "border-slate-200 bg-slate-50 text-slate-700"
+              }`}
+            >
+              {selectedMilestoneTaskMutationReason}
+            </div>
+          )}
+
           {/* Conditional View Rendering */}
           {viewMode === "summary" ? (
             <ProjectOverview
               projectId={projectId}
               milestones={milestones}
               tasks={allTasks}
+              onOpenBoardFocus={handleOpenOverviewBoardFocus}
             />
           ) : viewMode === "board" ? (
             <DragDropContext onDragEnd={handleDragEnd}>
               {/* JIRA STYLE TOOLBAR */}
-              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6 bg-white p-2 rounded-lg border border-slate-200 shadow-sm">
+              <div className="mb-6 flex flex-col gap-3 rounded-lg border border-slate-200 bg-white p-2 shadow-sm xl:flex-row xl:items-center xl:justify-between">
                 {/* LEFT: SEARCH & QUICK FILTERS */}
-                <div className="flex items-center gap-4 w-full sm:w-auto">
+                <div className="flex w-full flex-wrap items-center gap-3 xl:flex-1">
                   {/* Search Input (Integrated look) */}
-                  <div className="relative group w-full sm:w-64">
+                  <div className="group relative w-full sm:w-64 xl:max-w-sm">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 group-focus-within:text-teal-600 transition-colors" />
                     <input
                       type="text"
@@ -2278,7 +2956,7 @@ export function ProjectWorkspace() {
                         setIsMyTasksFilter(newState);
                         if (newState) setSelectedAssigneeId(null); // Clear specific assignee if selecting "Mine"
                       }}
-                      className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-all ${
+                      className={`flex shrink-0 items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-all ${
                         isMyTasksFilter
                           ? "bg-teal-50 text-teal-700 ring-1 ring-teal-200"
                           : "text-slate-600 hover:bg-slate-100"
@@ -2298,8 +2976,8 @@ export function ProjectWorkspace() {
                 </div>
 
                 {/* RIGHT: ASSIGNEES & CLEAR */}
-                <div className="flex items-center gap-3 w-full sm:w-auto justify-between sm:justify-end">
-                  <div className="flex items-center -space-x-2 overflow-hidden py-1 pl-1">
+                <div className="flex w-full flex-wrap items-center gap-2 xl:w-auto xl:justify-end">
+                  <div className="flex shrink-0 items-center -space-x-2 overflow-hidden py-1 pl-1">
                     {uniqueAssignees.map((assignee) => {
                       const isSelected = selectedAssigneeId === assignee.id;
                       return (
@@ -2331,15 +3009,86 @@ export function ProjectWorkspace() {
                     })}
                   </div>
 
+                  <select
+                    value={selectedStatusFilter}
+                    onChange={(event) =>
+                      setSelectedStatusFilter(
+                        event.target.value as KanbanColumnKey | "ALL",
+                      )
+                    }
+                    className="min-w-[7.25rem] shrink-0 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-600"
+                    title="Filter by status"
+                  >
+                    {WORKSPACE_TASK_STATUS_FILTER_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+
+                  <select
+                    value={selectedPriorityFilter}
+                    onChange={(event) =>
+                      setSelectedPriorityFilter(
+                        event.target.value as TaskPriority | "ALL",
+                      )
+                    }
+                    className="min-w-[7.25rem] shrink-0 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-600"
+                    title="Filter by priority"
+                  >
+                    {WORKSPACE_TASK_PRIORITY_FILTER_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+
+                  <select
+                    value={selectedActionOwnerFilter}
+                    onChange={(event) =>
+                      setSelectedActionOwnerFilter(
+                        event.target.value as WorkspaceTaskActionFilter,
+                      )
+                    }
+                    className="min-w-[8.25rem] shrink-0 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-600"
+                    title="Filter by action owner"
+                  >
+                    {WORKSPACE_TASK_ACTION_FILTER_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+
+                  <button
+                    onClick={() => setIsOverdueOnlyFilter((current) => !current)}
+                    className={`shrink-0 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                      isOverdueOnlyFilter
+                        ? "bg-red-50 text-red-700 ring-1 ring-red-200"
+                        : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                    }`}
+                  >
+                    Overdue only
+                  </button>
+
+                  <button
+                    onClick={() =>
+                      setShowSubtasksInWorkspaceViews((current) => !current)
+                    }
+                    className={`shrink-0 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                      showSubtasksInWorkspaceViews
+                        ? "bg-teal-50 text-teal-700 ring-1 ring-teal-200"
+                        : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                    }`}
+                  >
+                    {showSubtasksInWorkspaceViews ? "Subtasks on" : "Subtasks off"}
+                  </button>
+
                   {/* Clear All Button (Only show if filters active) */}
-                  {(searchQuery || selectedAssigneeId || isMyTasksFilter) && (
+                  {hasActiveWorkspaceTaskFilters && (
                     <button
-                      onClick={() => {
-                        setSearchQuery("");
-                        setSelectedAssigneeId(null);
-                        setIsMyTasksFilter(false);
-                      }}
-                      className="px-3 py-1.5 text-xs font-medium text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors"
+                      onClick={clearWorkspaceTaskFilters}
+                      className="shrink-0 rounded-md px-3 py-1.5 text-xs font-medium text-slate-500 transition-colors hover:bg-red-50 hover:text-red-600"
                     >
                       Clear filters
                     </button>
@@ -2347,35 +3096,146 @@ export function ProjectWorkspace() {
                 </div>
               </div>
 
-              <div className="flex xl:grid xl:grid-cols-4 gap-4 overflow-x-auto xl:overflow-visible pb-4 h-full items-start">
-                {columns.map((col) => (
-                  <div
-                    key={col.key}
-                    className="min-w-70 xl:min-w-0 xl:w-auto shrink-0"
-                  >
-                    <KanbanColumn
+              <div
+                ref={boardViewportRef}
+                className="min-h-0 overflow-hidden rounded-2xl border border-slate-200/80 bg-slate-50/70 p-2 shadow-sm"
+                style={
+                  boardViewportHeight
+                    ? { height: `${boardViewportHeight}px` }
+                    : { height: "23rem" }
+                }
+              >
+                <div className="flex h-full min-h-0 items-stretch gap-4 overflow-x-auto overflow-y-hidden pb-2 xl:grid xl:grid-cols-4 xl:overflow-x-visible">
+                  {columns.map((col) => (
+                    <div
                       key={col.key}
-                      columnId={col.key}
-                      title={col.title}
-                      description={col.description}
-                      tasks={processedBoard[col.key]}
-                      onAddTask={openCreateModal}
-                      onTaskClick={handleViewTaskDetails}
-                      isReadOnly={isReadOnly}
-                      canAddTask={canCreateTasksForSelectedMilestone}
-                    />
-                  </div>
-                ))}
+                      className="h-full min-h-0 min-w-[18rem] shrink-0 xl:min-w-0 xl:w-auto"
+                    >
+                      <KanbanColumn
+                        key={col.key}
+                        columnId={col.key}
+                        title={col.title}
+                        description={col.description}
+                        tasks={processedBoard[col.key]}
+                        onAddTask={openCreateModal}
+                        onTaskClick={handleViewTaskDetails}
+                        isReadOnly={isReadOnly}
+                        canAddTask={canCreateTasksForSelectedMilestone}
+                      />
+                    </div>
+                  ))}
+                </div>
               </div>
             </DragDropContext>
           ) : (
-            <CalendarView
-              tasks={calendarTasks}
-              selectedMilestoneLabel={activeMilestone?.title ?? null}
-              canRescheduleTasks={!isReadOnly}
-              onViewTaskDetails={handleViewTaskDetails}
-              onTaskUpdated={upsertTaskIntoBoard}
-            />
+            <div className="space-y-3">
+              <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex flex-wrap items-center gap-2">
+                  <select
+                    value={selectedStatusFilter}
+                    onChange={(event) =>
+                      setSelectedStatusFilter(
+                        event.target.value as KanbanColumnKey | "ALL",
+                      )
+                    }
+                    className="min-w-[7.25rem] shrink-0 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-600"
+                    title="Filter by status"
+                  >
+                    {WORKSPACE_TASK_STATUS_FILTER_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+
+                  <select
+                    value={selectedPriorityFilter}
+                    onChange={(event) =>
+                      setSelectedPriorityFilter(
+                        event.target.value as TaskPriority | "ALL",
+                      )
+                    }
+                    className="min-w-[7.25rem] shrink-0 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-600"
+                    title="Filter by priority"
+                  >
+                    {WORKSPACE_TASK_PRIORITY_FILTER_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+
+                  <select
+                    value={selectedActionOwnerFilter}
+                    onChange={(event) =>
+                      setSelectedActionOwnerFilter(
+                        event.target.value as WorkspaceTaskActionFilter,
+                      )
+                    }
+                    className="min-w-[8.25rem] shrink-0 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-600"
+                    title="Filter by action owner"
+                  >
+                    {WORKSPACE_TASK_ACTION_FILTER_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+
+                  <button
+                    onClick={() => setIsOverdueOnlyFilter((current) => !current)}
+                    className={`shrink-0 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                      isOverdueOnlyFilter
+                        ? "bg-red-50 text-red-700 ring-1 ring-red-200"
+                        : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                    }`}
+                  >
+                    Overdue only
+                  </button>
+
+                  <button
+                    onClick={() =>
+                      setShowSubtasksInWorkspaceViews((current) => !current)
+                    }
+                    className={`shrink-0 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                      showSubtasksInWorkspaceViews
+                        ? "bg-teal-50 text-teal-700 ring-1 ring-teal-200"
+                        : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                    }`}
+                  >
+                    {showSubtasksInWorkspaceViews ? "Subtasks on" : "Subtasks off"}
+                  </button>
+                </div>
+
+                {hasActiveWorkspaceTaskFilters ? (
+                  <button
+                    onClick={clearWorkspaceTaskFilters}
+                    className="rounded-md px-3 py-1.5 text-xs font-medium text-slate-500 transition-colors hover:bg-red-50 hover:text-red-600"
+                  >
+                    Clear filters
+                  </button>
+                ) : null}
+              </div>
+
+              <CalendarView
+                {...({
+                  tasks: calendarTasks,
+                  selectedMilestoneLabel:
+                    activeMilestone?.title ??
+                    (isAllMilestonesMode ? "All milestones" : null),
+                  canRescheduleTasks:
+                    !isReadOnly && !selectedMilestoneTaskMutationReason,
+                  canCreateTasks: canCreateTasksForSelectedMilestone,
+                  calendarInteractionMessage: canCreateTasksForSelectedMilestone
+                    ? null
+                    : selectedMilestoneTaskMutationReason ||
+                      taskCommandUnavailableMessage,
+                  onViewTaskDetails: handleViewTaskDetails,
+                  onTaskUpdated: upsertTaskIntoBoard,
+                  onCreateTaskFromDate: handleCreateTaskFromCalendarDate,
+                } as any)}
+              />
+            </div>
           )}
         </>
       )}
@@ -2408,6 +3268,8 @@ export function ProjectWorkspace() {
         title={newTitle}
         description={newDescription}
         milestoneId={selectedMilestoneId || undefined}
+        milestoneStartDate={activeMilestone?.startDate}
+        milestoneDueDate={activeMilestone?.dueDate}
         specFeatures={specFeatureOptions}
         specFeatureId={newSpecFeatureId}
         startDate={newStartDate}
@@ -2426,11 +3288,31 @@ export function ProjectWorkspace() {
       <TaskDetailModal
         isOpen={isTaskDetailOpen}
         task={selectedTask}
+        milestoneStartDate={selectedTaskMilestone?.startDate}
+        milestoneDueDate={selectedTaskMilestone?.dueDate}
+        fallbackAssignee={
+          project?.freelancer
+            ? {
+                id: project.freelancer.id,
+                fullName: project.freelancer.fullName ?? "Project Freelancer",
+                email: project.freelancer.email ?? undefined,
+              }
+            : null
+        }
         specFeatures={specFeatureOptions}
-        canReviewSubmissions={canReviewTaskSubmissions}
-        allowTaskStatusEditing={!isReadOnly}
+        canReviewSubmissions={Boolean(
+          canReviewTaskSubmissions && !selectedTaskInteractionReason
+        )}
+        canActAsBrokerReviewer={canActAsBrokerReviewer}
+        canActAsClientReviewer={canActAsClientReviewer}
+        allowComments={!selectedTaskInteractionReason}
+        commentLockReason={selectedTaskInteractionReason}
+        allowTaskStatusEditing={!isReadOnly && !selectedTaskMutationReason}
+        allowTaskMutations={!isReadOnly && !selectedTaskMutationReason}
+        taskMutationLockReason={selectedTaskMutationReason}
         onClose={handleCloseTaskDetail}
         onUpdate={handleTaskUpdate}
+        onDelete={handleTaskDelete}
       />
 
       {project && disputeMilestone && currentUser?.id && (
@@ -2442,6 +3324,7 @@ export function ProjectWorkspace() {
           milestoneTitle={disputeMilestone.title}
           milestoneStatus={disputeMilestone.status}
           projectTitle={project.title ?? "Project"}
+          disputePolicy={disputeMilestone.disputePolicy ?? null}
           currentUserId={currentUser.id}
           projectMembers={projectMembers}
         />
@@ -2453,7 +3336,11 @@ export function ProjectWorkspace() {
         projectId={projectId}
         currentUserId={currentUser?.id}
         projectMembers={chatMentionMembers}
+        workspaceTasks={allTasks}
+        availableMilestoneIds={availableMilestoneIds}
         canReviewTasks={canReviewTaskSubmissions}
+        canBrokerReviewTasks={canActAsBrokerReviewer}
+        canClientReviewTasks={canActAsClientReviewer}
         canUseTaskCommand={canCreateTasksForSelectedMilestone}
         taskCommandUnavailableMessage={taskCommandUnavailableMessage}
         defaultMilestoneId={selectedMilestoneId}

@@ -45,7 +45,7 @@ coverage
 *.tmp
 *.temp
 .cache
-docs/
+ /docs/
 __pycache__/
 *.pyc
 tmpclaude-*-cwd
@@ -67,3 +67,56 @@ user_manual_section_3.html
 test-results/
 tmp/
 figma/BrokerDashboard-Figma-Spec.md
+
+# Submission cleanup (top-level only)
+/.agent/
+/.agents/
+/.codex/
+/.codex-venv-doc/
+/.codex-worktrees/
+/.cursor/
+/.github/
+/.opencode/
+/.tmp/
+/.venv/
+/.vscode/
+/__pycache__/
+/demo-guides/
+/diagram/
+/docs/
+/erd_pages/
+/figma/
+/output/
+/scripts/
+/tmp-skill-test-dir/
+/tools/
+/Walkthrough
+
+# Root-level loose docs and generated artifacts
+/1
+/Class Specifications Create Request
+/Makefile
+/a136_spec.ts
+/fix_brace.js
+/fix_casing.js
+/init.sql
+/lucid_import.csv
+/refine_db_desc.py
+/resolve_detail.js
+/schema.sql
+/skills-lock.json
+/software_brokerage_backlog.csv
+/UC-Des.html
+/UC-Descriptions.html
+/database_structure.html
+/yarn.lock
+/.~*.xlsx
+/*.csv
+/*.doc
+/*.docx
+/*.md
+!/README.md
+/*.pdf
+/*.txt
+/*.xlsx
+/*.xlsm

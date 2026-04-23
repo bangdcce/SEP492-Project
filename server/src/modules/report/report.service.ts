@@ -101,7 +101,6 @@ export class ReportService {
       const reportRepo = manager.getRepository(ReportEntity);
       const report = await reportRepo
         .createQueryBuilder('report')
-        .leftJoinAndSelect('report.review', 'review')
         .setLock('pessimistic_write')
         .where('report.id = :reportId', { reportId })
         .getOne();

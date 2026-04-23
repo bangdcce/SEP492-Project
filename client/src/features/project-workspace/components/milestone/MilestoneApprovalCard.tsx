@@ -30,13 +30,13 @@ interface MilestoneApprovalCardProps {
   isAssignedReviewer?: boolean;
   hasIntermediateReviewer?: boolean;
   assignedReviewerLabel?: string | null;
-  onApprove: (milestoneId: string, feedback?: string) => Promise<void>;
+  onApprove: (milestoneId: string) => Promise<void>;
+  onReject: (milestoneId: string, reason: string) => Promise<void>;
   onRequestReview: (milestoneId: string) => Promise<void>;
   onReviewerDecision: (
     milestoneId: string,
     payload: { recommendation: "ACCEPT" | "REJECT"; note: string },
   ) => Promise<void>;
-  onRaiseDispute?: (milestoneId: string) => void;
   canApprove?: boolean;
   currency?: string;
 }
@@ -68,6 +68,12 @@ const STATUS_META: Record<
     subtitle: "Milestone has been submitted and is waiting for the next approval step.",
     tone: "border-emerald-200 bg-gradient-to-br from-emerald-50 via-white to-teal-50",
     icon: CheckCircle,
+  },
+  REVISIONS_REQUIRED: {
+    title: "Revisions Requested",
+    subtitle: "Update the work based on feedback, then submit this milestone for review again.",
+    tone: "border-rose-200 bg-gradient-to-br from-rose-50 via-white to-orange-50",
+    icon: XCircle,
   },
 };
 
@@ -106,18 +112,20 @@ export function MilestoneApprovalCard({
   hasIntermediateReviewer = false,
   assignedReviewerLabel,
   onApprove,
+  onReject,
   onRequestReview,
   onReviewerDecision,
-  onRaiseDispute,
   canApprove = false,
   currency,
 }: MilestoneApprovalCardProps) {
   const [isApproving, setIsApproving] = useState(false);
+  const [isRejecting, setIsRejecting] = useState(false);
   const [isRequestingReview, setIsRequestingReview] = useState(false);
   const [isSubmittingStaffReview, setIsSubmittingStaffReview] = useState(false);
   const [showApproveModal, setShowApproveModal] = useState(false);
+  const [showRejectModal, setShowRejectModal] = useState(false);
   const [showStaffReviewPanel, setShowStaffReviewPanel] = useState(false);
-  const [feedback, setFeedback] = useState("");
+  const [rejectReason, setRejectReason] = useState("");
   const [staffNote, setStaffNote] = useState("");
   const [staffReviewChecks, setStaffReviewChecks] = useState<
     Record<StaffReviewChecklistKey, boolean>
@@ -126,9 +134,18 @@ export function MilestoneApprovalCard({
 
   const role = currentRole?.toUpperCase();
   const milestoneStatus = milestone.status?.toUpperCase() || "IN_PROGRESS";
-  const statusMeta = STATUS_META[milestoneStatus] ?? STATUS_META.IN_PROGRESS;
+  const isLegacyBrokerApprovedSubmitted =
+    hasIntermediateReviewer &&
+    milestoneStatus === "SUBMITTED" &&
+    (milestone.staffRecommendation === "ACCEPT" ||
+      (Boolean(milestone.reviewedByStaffId) && Boolean(milestone.submittedAt)));
+  const effectiveMilestoneStatus = isLegacyBrokerApprovedSubmitted
+    ? "PENDING_CLIENT_APPROVAL"
+    : milestoneStatus;
+  const statusMeta = STATUS_META[effectiveMilestoneStatus] ?? STATUS_META.IN_PROGRESS;
   const HeaderIcon = statusMeta.icon;
   const formattedAmount = formatCurrency(milestone.amount, currency ?? "USD");
+  const milestoneTitle = milestone.title.replace(/&amp;/g, "&");
 
   const submittedWork = useMemo(
     () =>
@@ -156,25 +173,28 @@ export function MilestoneApprovalCard({
 
   const canFreelancerRequestReview =
     role === "FREELANCER" &&
-    ["PENDING", "IN_PROGRESS", "REVISIONS_REQUIRED"].includes(milestoneStatus);
+    ["PENDING", "IN_PROGRESS", "REVISIONS_REQUIRED"].includes(effectiveMilestoneStatus);
   const canAssignedReviewerReview =
-    isAssignedReviewer && milestoneStatus === "PENDING_STAFF_REVIEW";
+    isAssignedReviewer && effectiveMilestoneStatus === "PENDING_STAFF_REVIEW";
   const canClientApproveNow =
     canApprove &&
     role === "CLIENT" &&
-    (milestoneStatus === "PENDING_CLIENT_APPROVAL" ||
-      (milestoneStatus === "SUBMITTED" && !hasIntermediateReviewer));
+    (effectiveMilestoneStatus === "PENDING_CLIENT_APPROVAL" ||
+      (effectiveMilestoneStatus === "SUBMITTED" && !hasIntermediateReviewer));
+  const canClientRejectNow = canClientApproveNow;
 
   const waitingMessage = canAssignedReviewerReview
     ? "You are the assigned broker reviewer for this milestone."
-    : milestoneStatus === "PENDING_STAFF_REVIEW"
+    : effectiveMilestoneStatus === "PENDING_STAFF_REVIEW"
       ? `Waiting for ${assignedReviewerLabel || "the assigned broker"} to review this milestone.`
-      : milestoneStatus === "PENDING_CLIENT_APPROVAL"
+      : effectiveMilestoneStatus === "PENDING_CLIENT_APPROVAL"
         ? "Waiting for the client to approve and release funds."
-        : milestoneStatus === "SUBMITTED"
+        : effectiveMilestoneStatus === "SUBMITTED"
           ? hasIntermediateReviewer
             ? `Submitted. ${assignedReviewerLabel || "The broker"} needs to review this milestone before client approval.`
             : "Waiting for the client to approve this milestone."
+            : effectiveMilestoneStatus === "REVISIONS_REQUIRED"
+              ? "Revisions were requested. Update the deliverables and request review again."
           : "Complete the next action to move this milestone forward.";
   const completedStaffReviewChecks = STAFF_REVIEW_ATTESTATIONS.filter(
     (item) => staffReviewChecks[item.key],
@@ -190,7 +210,17 @@ export function MilestoneApprovalCard({
 
   const handleCloseApproveModal = () => {
     setShowApproveModal(false);
-    setFeedback("");
+    setError(null);
+  };
+
+  const handleRejectClick = () => {
+    setShowRejectModal(true);
+    setError(null);
+  };
+
+  const handleCloseRejectModal = () => {
+    setShowRejectModal(false);
+    setRejectReason("");
     setError(null);
   };
 
@@ -199,15 +229,37 @@ export function MilestoneApprovalCard({
     setError(null);
 
     try {
-      await onApprove(milestone.id, feedback || undefined);
+      await onApprove(milestone.id);
       setShowApproveModal(false);
-      setFeedback("");
     } catch (err: unknown) {
       const errorMessage =
         err instanceof Error ? err.message : "Failed to approve milestone";
       setError(errorMessage);
     } finally {
       setIsApproving(false);
+    }
+  };
+
+  const handleConfirmReject = async () => {
+    const reason = rejectReason.trim();
+    if (!reason) {
+      setError("Please provide a reason before rejecting this milestone.");
+      return;
+    }
+
+    setIsRejecting(true);
+    setError(null);
+
+    try {
+      await onReject(milestone.id, reason);
+      setShowRejectModal(false);
+      setRejectReason("");
+    } catch (err: unknown) {
+      const errorMessage =
+        err instanceof Error ? err.message : "Failed to reject milestone";
+      setError(errorMessage);
+    } finally {
+      setIsRejecting(false);
     }
   };
 
@@ -286,7 +338,7 @@ export function MilestoneApprovalCard({
             <div className="flex items-center justify-between gap-4">
               <div>
                 <p className="text-sm text-slate-500">Milestone</p>
-                <p className="text-lg font-semibold text-slate-900">{milestone.title}</p>
+                <p className="text-lg font-semibold text-slate-900">{milestoneTitle}</p>
               </div>
               <div className="text-right">
                 <p className="text-sm text-slate-500">Amount</p>
@@ -301,9 +353,18 @@ export function MilestoneApprovalCard({
               <p className="font-semibold">
                 {milestone.staffRecommendation === "REJECT"
                   ? "Broker requested changes:"
-                  : "Broker review approved:"}
+                  : milestone.staffRecommendation === "ACCEPT"
+                    ? "Broker review approved:"
+                    : "Broker review note:"}
               </p>
               <p className="mt-1">{milestone.staffReviewNote}</p>
+            </div>
+          )}
+
+          {effectiveMilestoneStatus === "REVISIONS_REQUIRED" && milestone.feedback && (
+            <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">
+              <p className="font-semibold">Client requested revisions:</p>
+              <p className="mt-1">{milestone.feedback}</p>
             </div>
           )}
 
@@ -391,13 +452,24 @@ export function MilestoneApprovalCard({
             )}
 
             {canClientApproveNow && (
-              <button
-                onClick={handleApproveClick}
-                className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 px-6 py-3 font-semibold text-white shadow-lg shadow-emerald-500/30 transition-all hover:from-emerald-600 hover:to-teal-600"
-              >
-                <CheckCircle className="h-5 w-5" />
-                Approve & Release Funds
-              </button>
+              <div className="flex w-full flex-col gap-3 sm:flex-row">
+                {canClientRejectNow && (
+                  <button
+                    onClick={handleRejectClick}
+                    className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-rose-200 bg-white px-6 py-3 font-semibold text-rose-700 transition-colors hover:bg-rose-50"
+                  >
+                    <XCircle className="h-5 w-5" />
+                    Request Revisions
+                  </button>
+                )}
+                <button
+                  onClick={handleApproveClick}
+                  className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 px-6 py-3 font-semibold text-white shadow-lg shadow-emerald-500/30 transition-all hover:from-emerald-600 hover:to-teal-600"
+                >
+                  <CheckCircle className="h-5 w-5" />
+                  Approve & Release Funds
+                </button>
+              </div>
             )}
 
             {!canFreelancerRequestReview &&
@@ -407,14 +479,6 @@ export function MilestoneApprovalCard({
                 {waitingMessage}
               </div>
               )}
-
-            <button
-              onClick={() => onRaiseDispute?.(milestone.id)}
-              className="flex items-center gap-2 rounded-xl border-2 border-red-200 bg-red-50 px-5 py-3 font-semibold text-red-700 transition-colors hover:border-red-300 hover:bg-red-100"
-            >
-              <ShieldAlert className="h-5 w-5" />
-              Raise Dispute
-            </button>
           </div>
 
           {canAssignedReviewerReview && showStaffReviewPanel && (
@@ -632,19 +696,6 @@ export function MilestoneApprovalCard({
               ) : null}
             </div>
 
-            <div className="mb-5">
-              <label className="mb-2 block text-sm font-medium text-slate-700">
-                Feedback (optional)
-              </label>
-              <Textarea
-                value={feedback}
-                onChange={(event) => setFeedback(event.target.value)}
-                placeholder="Add a payment note or approval summary for the project record..."
-                rows={4}
-                className="min-h-[120px] rounded-2xl border-slate-300 bg-white px-4 py-3 text-sm leading-6 text-slate-900 placeholder:text-slate-400 focus-visible:border-slate-400 focus-visible:ring-slate-300/40"
-              />
-            </div>
-
             {error && (
               <div className="mb-5 flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
                 <XCircle className="h-4 w-4 flex-shrink-0" />
@@ -685,6 +736,87 @@ export function MilestoneApprovalCard({
             <div className="mt-4 flex items-center justify-center gap-2 text-[11px] font-medium tracking-wide text-slate-500">
               <Lock className="h-3.5 w-3.5" />
               Secured by InterDev Escrow Services
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showRejectModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-lg rounded-3xl border border-slate-200 bg-white p-7 shadow-2xl">
+            <div className="mb-6 flex items-start gap-4">
+              <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-2xl border border-rose-200 bg-rose-50">
+                <XCircle className="h-5 w-5 text-rose-600" />
+              </div>
+              <div>
+                <h3 className="text-xl font-semibold tracking-tight text-slate-950">
+                  Request Milestone Revisions
+                </h3>
+                <p className="mt-1 text-sm leading-6 text-slate-600">
+                  Explain what needs to be updated so the freelancer can revise and
+                  resubmit this milestone for review.
+                </p>
+              </div>
+            </div>
+
+            <div className="mb-5 rounded-2xl border border-slate-200 bg-slate-50 px-5 py-4 text-sm leading-6 text-slate-700">
+              Milestone <span className="font-semibold text-slate-900">{milestone.title}</span> will move
+              back to revisions required and can be submitted again after updates.
+            </div>
+
+            <div className="mb-5">
+              <label className="mb-2 block text-sm font-medium text-slate-700">
+                Revision reason <span className="text-rose-600">*</span>
+              </label>
+              <Textarea
+                value={rejectReason}
+                onChange={(event) => {
+                  setRejectReason(event.target.value);
+                  if (error) {
+                    setError(null);
+                  }
+                }}
+                placeholder="Describe what is missing or what must be corrected before approval..."
+                rows={5}
+                className="min-h-[140px] rounded-2xl border-slate-300 bg-white px-4 py-3 text-sm leading-6 text-slate-900 placeholder:text-slate-400 focus-visible:border-rose-400 focus-visible:ring-rose-200"
+              />
+            </div>
+
+            {error && (
+              <div className="mb-5 flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                <XCircle className="h-4 w-4 flex-shrink-0" />
+                {error}
+              </div>
+            )}
+
+            <div className="flex flex-col gap-3 border-t border-slate-200 pt-5 sm:flex-row sm:items-center sm:justify-between">
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={handleCloseRejectModal}
+                disabled={isRejecting}
+                className="justify-start rounded-xl px-3 text-slate-600 hover:bg-slate-100 hover:text-slate-900 sm:flex-none"
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                onClick={handleConfirmReject}
+                disabled={isRejecting}
+                className="h-11 rounded-xl bg-rose-600 px-5 text-white hover:bg-rose-700 sm:min-w-[260px]"
+              >
+                {isRejecting ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Sending...
+                  </>
+                ) : (
+                  <>
+                    <XCircle className="h-4 w-4" />
+                    Send Back for Revisions
+                  </>
+                )}
+              </Button>
             </div>
           </div>
         </div>

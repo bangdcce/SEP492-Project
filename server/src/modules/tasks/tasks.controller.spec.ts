@@ -1,8 +1,4 @@
-import {
-  BadRequestException,
-  ForbiddenException,
-  NotFoundException,
-} from '@nestjs/common';
+import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 
 import { UserRole } from '../../database/entities/user.entity';
 import { TaskSubmissionStatus } from './entities/task-submission.entity';
@@ -22,6 +18,7 @@ describe('TasksController', () => {
       addComment: jest.fn(),
       updateComment: jest.fn(),
       deleteComment: jest.fn(),
+      deleteTask: jest.fn(),
       submitWork: jest.fn(),
       createTask: jest.fn(),
       reviewSubmission: jest.fn(),
@@ -68,7 +65,9 @@ describe('TasksController', () => {
 
   describe('getTaskHistory', () => {
     it('UC36-HISTORY-UTCID01 forwards the task id and returns the task history list', async () => {
-      const history = [{ id: 'history-1', fieldChanged: 'status', oldValue: 'TODO', newValue: 'DONE' }];
+      const history = [
+        { id: 'history-1', fieldChanged: 'status', oldValue: 'TODO', newValue: 'DONE' },
+      ];
       tasksService.getTaskHistory.mockResolvedValue(history);
 
       await expect(controller.getTaskHistory('task-1')).resolves.toEqual(history);
@@ -150,7 +149,11 @@ describe('TasksController', () => {
         mimetype: 'image/png',
         buffer: Buffer.from('binary'),
       } as Express.Multer.File;
-      const uploaded = { url: 'https://cdn.example.com/evidence.png' };
+      const uploaded = {
+        url: 'https://cdn.example.com/evidence.png',
+        fileName: 'evidence.png',
+        fileType: 'image/png',
+      };
       tasksService.uploadFile.mockResolvedValue(uploaded);
 
       await expect(controller.uploadAttachment(file)).resolves.toEqual(uploaded);
@@ -170,7 +173,11 @@ describe('TasksController', () => {
         mimetype: 'text/plain',
         buffer: Buffer.alloc(0),
       } as Express.Multer.File;
-      const uploaded = { url: 'https://cdn.example.com/empty.txt' };
+      const uploaded = {
+        url: 'https://cdn.example.com/empty.txt',
+        fileName: 'empty.txt',
+        fileType: 'text/plain',
+      };
       tasksService.uploadFile.mockResolvedValue(uploaded);
 
       await expect(controller.uploadAttachment(file)).resolves.toEqual(uploaded);
@@ -189,9 +196,13 @@ describe('TasksController', () => {
       tasksService.addComment.mockResolvedValue(savedComment);
 
       await expect(
-        controller.addComment('task-1', { content: 'Looks good' } as any, {
-          user: { id: 'user-1', role: UserRole.CLIENT },
-        } as any),
+        controller.addComment(
+          'task-1',
+          { content: 'Looks good' } as any,
+          {
+            user: { id: 'user-1', role: UserRole.CLIENT },
+          } as any,
+        ),
       ).resolves.toEqual(savedComment);
       expect(tasksService.addComment).toHaveBeenCalledWith('task-1', 'Looks good', 'user-1');
     });
@@ -221,9 +232,13 @@ describe('TasksController', () => {
       tasksService.addComment.mockResolvedValue(savedComment);
 
       await expect(
-        controller.addComment('task-1', { content: '   ' } as any, {
-          user: { id: 'user-1', role: UserRole.CLIENT },
-        } as any),
+        controller.addComment(
+          'task-1',
+          { content: '   ' } as any,
+          {
+            user: { id: 'user-1', role: UserRole.CLIENT },
+          } as any,
+        ),
       ).resolves.toEqual(savedComment);
       expect(tasksService.addComment).toHaveBeenCalledWith('task-1', '   ', 'user-1');
     });
@@ -240,9 +255,13 @@ describe('TasksController', () => {
       tasksService.updateComment.mockResolvedValue(updatedComment);
 
       await expect(
-        controller.updateComment('comment-1', { content: 'Updated' } as any, {
-          user: { id: 'user-1', role: UserRole.CLIENT },
-        } as any),
+        controller.updateComment(
+          'comment-1',
+          { content: 'Updated' } as any,
+          {
+            user: { id: 'user-1', role: UserRole.CLIENT },
+          } as any,
+        ),
       ).resolves.toEqual(updatedComment);
       expect(tasksService.updateComment).toHaveBeenCalledWith('comment-1', 'user-1', 'Updated');
     });
@@ -294,9 +313,13 @@ describe('TasksController', () => {
       tasksService.submitWork.mockResolvedValue(savedSubmission);
 
       await expect(
-        controller.submitWork('task-1', dto as any, {
-          user: { id: 'freelancer-1', role: UserRole.FREELANCER },
-        } as any),
+        controller.submitWork(
+          'task-1',
+          dto as any,
+          {
+            user: { id: 'freelancer-1', role: UserRole.FREELANCER },
+          } as any,
+        ),
       ).resolves.toEqual(savedSubmission);
       expect(tasksService.submitWork).toHaveBeenCalledWith('task-1', dto, 'freelancer-1');
     });
@@ -304,7 +327,7 @@ describe('TasksController', () => {
     it('UC59-SUBMITWORK-UTCID02 rejects unauthenticated submission attempts before reaching the service', async () => {
       const dto = { content: 'Fallback submission' };
 
-      await expect(controller.submitWork('task-1', dto as any, {} as any)).rejects.toThrow(
+      expect(() => controller.submitWork('task-1', dto as any, {} as any)).toThrow(
         new ForbiddenException('Authentication required'),
       );
       expect(tasksService.submitWork).not.toHaveBeenCalled();
@@ -324,9 +347,13 @@ describe('TasksController', () => {
       tasksService.submitWork.mockResolvedValue(savedSubmission);
 
       await expect(
-        controller.submitWork('task-1', dto as any, {
-          user: { id: 'freelancer-1', role: UserRole.FREELANCER },
-        } as any),
+        controller.submitWork(
+          'task-1',
+          dto as any,
+          {
+            user: { id: 'freelancer-1', role: UserRole.FREELANCER },
+          } as any,
+        ),
       ).resolves.toEqual(savedSubmission);
       expect(tasksService.submitWork).toHaveBeenCalledWith('task-1', dto, 'freelancer-1');
     });
@@ -334,13 +361,15 @@ describe('TasksController', () => {
     it('UC59-SUBMITWORK-UTCID04 rejects non-freelancer roles from submitting work', async () => {
       const dto = { content: 'Attempting restricted submission' };
 
-      await expect(
-        controller.submitWork('task-1', dto as any, {
-          user: { id: 'broker-1', role: UserRole.BROKER },
-        } as any),
-      ).rejects.toThrow(
-        new ForbiddenException('Only freelancers can submit work for tasks.'),
-      );
+      expect(() =>
+        controller.submitWork(
+          'task-1',
+          dto as any,
+          {
+            user: { id: 'broker-1', role: UserRole.BROKER },
+          } as any,
+        ),
+      ).toThrow(new ForbiddenException('Only freelancers can submit work for tasks.'));
       expect(tasksService.submitWork).not.toHaveBeenCalled();
     });
   });
@@ -348,8 +377,11 @@ describe('TasksController', () => {
   describe('createTask', () => {
     const basePayload = {
       title: 'Implement notifications API',
+      description: 'Add broker notification workflow.',
       projectId: 'project-1',
       milestoneId: 'milestone-1',
+      startDate: '2026-04-22T00:00:00.000Z',
+      dueDate: '2026-04-24T00:00:00.000Z',
     };
 
     it('UC59-CREATETASK-UTCID01 allows broker role and forwards requester context to service', async () => {
@@ -360,16 +392,22 @@ describe('TasksController', () => {
       tasksService.createTask.mockResolvedValue(createdTask);
 
       await expect(
-        controller.createTask(basePayload as any, {
-          user: { id: 'broker-1', role: UserRole.BROKER },
-        } as any),
+        controller.createTask(
+          basePayload as any,
+          {
+            user: { id: 'broker-1', role: UserRole.BROKER },
+          } as any,
+        ),
       ).resolves.toEqual(createdTask);
 
       expect(tasksService.createTask).toHaveBeenCalledWith(
         expect.objectContaining({
           title: basePayload.title,
+          description: basePayload.description,
           projectId: basePayload.projectId,
           milestoneId: basePayload.milestoneId,
+          startDate: basePayload.startDate,
+          dueDate: basePayload.dueDate,
           reporterId: 'broker-1',
           requesterId: 'broker-1',
           requesterRole: UserRole.BROKER,
@@ -386,13 +424,73 @@ describe('TasksController', () => {
 
     it('UC59-CREATETASK-UTCID03 rejects freelancer users because only brokers can create tasks', async () => {
       await expect(
-        controller.createTask(basePayload as any, {
-          user: { id: 'freelancer-1', role: UserRole.FREELANCER },
-        } as any),
+        controller.createTask(
+          basePayload as any,
+          {
+            user: { id: 'freelancer-1', role: UserRole.FREELANCER },
+          } as any,
+        ),
       ).rejects.toThrow(
         new ForbiddenException('Only brokers can create tasks in project workspace.'),
       );
       expect(tasksService.createTask).not.toHaveBeenCalled();
+    });
+
+    it('UC59-CREATETASK-UTCID04 rejects requests missing description or schedule fields before reaching the service', async () => {
+      await expect(
+        controller.createTask(
+          {
+            ...basePayload,
+            description: '   ',
+          } as any,
+          {
+            user: { id: 'broker-1', role: UserRole.BROKER },
+          } as any,
+        ),
+      ).rejects.toThrow(
+        new BadRequestException(
+          'title, description, projectId, milestoneId, startDate and dueDate are required',
+        ),
+      );
+      expect(tasksService.createTask).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('deleteTask', () => {
+    it('passes task id and broker context to the service', async () => {
+      tasksService.deleteTask.mockResolvedValue(undefined);
+
+      await expect(
+        controller.deleteTask('task-1', {
+          user: { id: 'broker-1', role: UserRole.BROKER },
+        } as any),
+      ).resolves.toEqual({ success: true });
+
+      expect(tasksService.deleteTask).toHaveBeenCalledWith('task-1', 'broker-1', UserRole.BROKER);
+    });
+  });
+
+  describe('updateTask', () => {
+    it('forwards actor id and role so the service can enforce subtask DONE permissions', async () => {
+      const updatedTask = { id: 'subtask-1', status: 'DONE' };
+      tasksService.updateTask = jest.fn().mockResolvedValue(updatedTask);
+
+      await expect(
+        controller.updateTask(
+          'subtask-1',
+          { status: 'DONE' } as any,
+          {
+            user: { id: 'broker-1', role: UserRole.BROKER },
+          } as any,
+        ),
+      ).resolves.toEqual(updatedTask);
+
+      expect(tasksService.updateTask).toHaveBeenCalledWith(
+        'subtask-1',
+        { status: 'DONE' },
+        'broker-1',
+        UserRole.BROKER,
+      );
     });
   });
 
@@ -410,9 +508,14 @@ describe('TasksController', () => {
       tasksService.reviewSubmission.mockResolvedValue(result);
 
       await expect(
-        controller.reviewSubmission('task-1', 'submission-1', dto as any, {
-          user: { id: 'client-1', role: UserRole.CLIENT },
-        } as any),
+        controller.reviewSubmission(
+          'task-1',
+          'submission-1',
+          dto as any,
+          {
+            user: { id: 'client-1', role: UserRole.CLIENT },
+          } as any,
+        ),
       ).resolves.toEqual(result);
       expect(tasksService.reviewSubmission).toHaveBeenCalledWith(
         'task-1',
@@ -435,9 +538,14 @@ describe('TasksController', () => {
       tasksService.reviewSubmission.mockResolvedValue(result);
 
       await expect(
-        controller.reviewSubmission('task-1', 'submission-1', requestDto as any, {
-          user: { id: 'broker-1', role: 'broker' },
-        } as any),
+        controller.reviewSubmission(
+          'task-1',
+          'submission-1',
+          requestDto as any,
+          {
+            user: { id: 'broker-1', role: 'broker' },
+          } as any,
+        ),
       ).resolves.toEqual(result);
       expect(tasksService.reviewSubmission).toHaveBeenCalledWith(
         'task-1',
@@ -457,9 +565,14 @@ describe('TasksController', () => {
 
     it('UC106-REVIEWSUBMISSION-UTCID04 rejects freelancer reviewers because they cannot review their own work', async () => {
       await expect(
-        controller.reviewSubmission('task-1', 'submission-1', dto as any, {
-          user: { id: 'freelancer-1', role: UserRole.FREELANCER },
-        } as any),
+        controller.reviewSubmission(
+          'task-1',
+          'submission-1',
+          dto as any,
+          {
+            user: { id: 'freelancer-1', role: UserRole.FREELANCER },
+          } as any,
+        ),
       ).rejects.toThrow(
         new ForbiddenException(
           'Only Clients or Brokers can review submissions. Freelancers cannot review their own work.',
@@ -470,9 +583,14 @@ describe('TasksController', () => {
 
     it('UC106-REVIEWSUBMISSION-UTCID05 rejects admin reviewers because the controller only allows client or broker roles', async () => {
       await expect(
-        controller.reviewSubmission('task-1', 'submission-1', dto as any, {
-          user: { id: 'admin-1', role: UserRole.ADMIN },
-        } as any),
+        controller.reviewSubmission(
+          'task-1',
+          'submission-1',
+          dto as any,
+          {
+            user: { id: 'admin-1', role: UserRole.ADMIN },
+          } as any,
+        ),
       ).rejects.toThrow(
         new ForbiddenException(
           'Only Clients or Brokers can review submissions. Freelancers cannot review their own work.',
@@ -482,12 +600,19 @@ describe('TasksController', () => {
     });
 
     it('UC106-REVIEWSUBMISSION-UTCID06 propagates service failures after an allowed reviewer passes controller checks', async () => {
-      tasksService.reviewSubmission.mockRejectedValue(new NotFoundException('Submission not found'));
+      tasksService.reviewSubmission.mockRejectedValue(
+        new NotFoundException('Submission not found'),
+      );
 
       await expect(
-        controller.reviewSubmission('task-1', 'submission-missing', dto as any, {
-          user: { id: 'client-1', role: UserRole.CLIENT },
-        } as any),
+        controller.reviewSubmission(
+          'task-1',
+          'submission-missing',
+          dto as any,
+          {
+            user: { id: 'client-1', role: UserRole.CLIENT },
+          } as any,
+        ),
       ).rejects.toThrow(NotFoundException);
       expect(tasksService.reviewSubmission).toHaveBeenCalledWith(
         'task-1',

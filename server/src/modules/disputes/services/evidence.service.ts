@@ -81,14 +81,6 @@ const MAX_EVIDENCE_PER_USER_PER_DISPUTE = 20;
 const SIGNED_URL_CACHE_TTL_SECONDS = 55 * 60;
 const SIGNED_URL_BATCH_SIZE = 20;
 const BUCKET_NAME = 'disputes';
-const VIRUSTOTAL_BASE_URL = 'https://www.virustotal.com/api/v3';
-const VIRUSTOTAL_BLOCK_THRESHOLD = 1;
-const VIRUSTOTAL_SCAN_CACHE_PREFIX = 'virustotal_scan:';
-const DEFAULT_VIRUSTOTAL_SCAN_CACHE_TTL_SECONDS = 15 * 60;
-const DEFAULT_VIRUSTOTAL_UNKNOWN_HASH_CACHE_TTL_SECONDS = 5 * 60;
-const DEFAULT_VIRUSTOTAL_REQUEST_TIMEOUT_MS = 5000;
-const DEFAULT_VIRUSTOTAL_MAX_RETRIES = 2;
-const DEFAULT_VIRUSTOTAL_RETRY_BASE_DELAY_MS = 250;
 
 // =============================================================================
 // INTERFACES
@@ -443,213 +435,6 @@ export class EvidenceService {
     }
   }
 
-  private parsePositiveIntConfig(
-    key: string,
-    fallback: number,
-    min: number = 0,
-    max: number = Number.MAX_SAFE_INTEGER,
-  ): number {
-    const rawValue = this.configService.get<string>(key);
-    const parsedValue = Number(rawValue);
-
-    if (!Number.isFinite(parsedValue)) {
-      return fallback;
-    }
-
-    const normalized = Math.floor(parsedValue);
-    if (normalized < min) {
-      return min;
-    }
-    if (normalized > max) {
-      return max;
-    }
-
-    return normalized;
-  }
-
-  private getVirusTotalFailOpenPolicy(): boolean {
-    const raw = this.configService.get<string>('VIRUSTOTAL_FAIL_OPEN');
-    if (raw == null) {
-      return true;
-    }
-
-    return !['false', '0', 'no', 'off'].includes(raw.trim().toLowerCase());
-  }
-
-  private getVirusTotalCacheKey(fileHash: string): string {
-    return `${VIRUSTOTAL_SCAN_CACHE_PREFIX}${fileHash}`;
-  }
-
-  private async getVirusTotalCachedResult(
-    fileHash: string,
-  ): Promise<{ blocked: boolean; reason?: string } | null> {
-    const cacheKey = this.getVirusTotalCacheKey(fileHash);
-
-    try {
-      const cached = await this.cacheManager.get<{ blocked: boolean; reason?: string }>(cacheKey);
-      if (cached && typeof cached.blocked === 'boolean') {
-        return {
-          blocked: cached.blocked,
-          reason: cached.reason,
-        };
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      this.logger.warn(`[VirusTotal] cache read failed for hash=${fileHash}: ${message}`);
-    }
-
-    return null;
-  }
-
-  private async setVirusTotalCachedResult(
-    fileHash: string,
-    value: { blocked: boolean; reason?: string },
-    ttlSeconds: number,
-  ): Promise<void> {
-    const cacheKey = this.getVirusTotalCacheKey(fileHash);
-
-    try {
-      await this.cacheManager.set(cacheKey, value, ttlSeconds * 1000);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      this.logger.warn(`[VirusTotal] cache write failed for hash=${fileHash}: ${message}`);
-    }
-  }
-
-  private isVirusTotalRetriableStatus(status?: number): boolean {
-    if (!status) {
-      return true;
-    }
-
-    return status === 408 || status === 429 || status >= 500;
-  }
-
-  private async sleep(milliseconds: number): Promise<void> {
-    if (milliseconds <= 0) {
-      return;
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, milliseconds));
-  }
-
-  private async scanWithVirusTotal(
-    fileHash: string,
-  ): Promise<{ blocked: boolean; reason?: string }> {
-    const apiKey = this.configService.get<string>('VIRUSTOTAL_API_KEY');
-    if (!apiKey) {
-      return { blocked: false };
-    }
-
-    const cachedDecision = await this.getVirusTotalCachedResult(fileHash);
-    if (cachedDecision) {
-      return cachedDecision;
-    }
-
-    const baseUrl =
-      (this.configService.get<string>('VIRUSTOTAL_API_URL') || VIRUSTOTAL_BASE_URL).replace(
-        /\/+$/,
-        '',
-      );
-    const timeoutMs = this.parsePositiveIntConfig(
-      'VIRUSTOTAL_REQUEST_TIMEOUT_MS',
-      DEFAULT_VIRUSTOTAL_REQUEST_TIMEOUT_MS,
-      500,
-      30000,
-    );
-    const maxRetries = this.parsePositiveIntConfig(
-      'VIRUSTOTAL_MAX_RETRIES',
-      DEFAULT_VIRUSTOTAL_MAX_RETRIES,
-      0,
-      5,
-    );
-    const retryBaseDelayMs = this.parsePositiveIntConfig(
-      'VIRUSTOTAL_RETRY_BASE_DELAY_MS',
-      DEFAULT_VIRUSTOTAL_RETRY_BASE_DELAY_MS,
-      0,
-      5000,
-    );
-    const failOpen = this.getVirusTotalFailOpenPolicy();
-    const scanCacheTtlSeconds = this.parsePositiveIntConfig(
-      'VIRUSTOTAL_SCAN_CACHE_TTL_SECONDS',
-      DEFAULT_VIRUSTOTAL_SCAN_CACHE_TTL_SECONDS,
-      30,
-      24 * 60 * 60,
-    );
-    const unknownHashCacheTtlSeconds = this.parsePositiveIntConfig(
-      'VIRUSTOTAL_UNKNOWN_HASH_CACHE_TTL_SECONDS',
-      DEFAULT_VIRUSTOTAL_UNKNOWN_HASH_CACHE_TTL_SECONDS,
-      30,
-      24 * 60 * 60,
-    );
-
-    let lastStatus: number | undefined;
-    let lastErrorMessage = '';
-
-    for (let attempt = 0; attempt <= maxRetries; attempt++) {
-      try {
-        const response = await axios.get(`${baseUrl}/files/${fileHash}`, {
-          headers: {
-            'x-apikey': apiKey,
-          },
-          timeout: timeoutMs,
-        });
-
-        const stats = response?.data?.data?.attributes?.last_analysis_stats;
-        const malicious = Number(stats?.malicious || 0);
-        const suspicious = Number(stats?.suspicious || 0);
-
-        const decision =
-          malicious + suspicious >= VIRUSTOTAL_BLOCK_THRESHOLD
-            ? {
-                blocked: true,
-                reason: `VirusTotal flagged file (malicious: ${malicious}, suspicious: ${suspicious})`,
-              }
-            : { blocked: false };
-
-        await this.setVirusTotalCachedResult(fileHash, decision, scanCacheTtlSeconds);
-        return decision;
-      } catch (error) {
-        const status = axios.isAxiosError(error) ? error.response?.status : undefined;
-        lastStatus = status;
-        lastErrorMessage = error instanceof Error ? error.message : String(error);
-
-        if (status === 404) {
-          const cleanDecision = { blocked: false };
-          await this.setVirusTotalCachedResult(
-            fileHash,
-            cleanDecision,
-            unknownHashCacheTtlSeconds,
-          );
-          return cleanDecision;
-        }
-
-        if (this.isVirusTotalRetriableStatus(status) && attempt < maxRetries) {
-          const delay = retryBaseDelayMs * Math.pow(2, attempt);
-          await this.sleep(delay);
-          continue;
-        }
-
-        break;
-      }
-    }
-
-    const statusLabel = lastStatus ? `status=${lastStatus}` : 'status=network';
-    if (failOpen) {
-      this.logger.warn(
-        `[VirusTotal] scan skipped (${statusLabel}) hash=${fileHash} reason=${lastErrorMessage || 'unknown'}`,
-      );
-      return { blocked: false };
-    }
-
-    this.logger.error(
-      `[VirusTotal] fail-closed (${statusLabel}) hash=${fileHash} reason=${lastErrorMessage || 'unknown'}`,
-    );
-    return {
-      blocked: true,
-      reason: 'VirusTotal scan unavailable (fail-closed policy)',
-    };
-  }
-
   private sanitizeFileName(fileName: string): string | null {
     if (!fileName || typeof fileName !== 'string') {
       return null;
@@ -713,10 +498,10 @@ export class EvidenceService {
   generateStoragePath(disputeId: string, uploaderId: string, fileName: string): StoragePathResult {
     const timestamp = Date.now();
     const randomSuffix = Math.random().toString(36).substring(2, 8);
-    const ext = fileName.split('.').pop()?.toLowerCase() || 'bin';
-    const sanitizedFileName = `${timestamp}_${randomSuffix}.${ext}`;
+    const sanitizedFileName = this.sanitizeFileName(fileName) || 'evidence.bin';
+    const uniqueDirectory = `${timestamp}_${randomSuffix}`;
 
-    const path = `disputes/${disputeId}/${uploaderId}/${sanitizedFileName}`;
+    const path = `disputes/${disputeId}/${uploaderId}/${uniqueDirectory}/${sanitizedFileName}`;
 
     return {
       path,
@@ -865,7 +650,7 @@ export class EvidenceService {
       return {
         success: false,
         error:
-          'Appeal evidence can only be uploaded during the active appeal hearing while evidence intake is open.',
+          'Appeal review is handled as an admin desk review. Submit supporting material with the appeal filing or wait for admin instructions.',
         errorCode: 'DISPUTE_READ_ONLY',
       };
     }
@@ -959,17 +744,6 @@ export class EvidenceService {
         return {
           success: false,
           error: `Failed to upload file to storage: ${uploadError.message}`,
-        };
-      }
-
-      // Virus scanning (best-effort)
-      const scanResult = await this.scanWithVirusTotal(fileHash);
-      if (scanResult.blocked) {
-        await this.supabase.storage.from(this.bucketName).remove([storagePath.path]);
-        await this.evidenceRepo.delete(savedEvidence.id);
-        return {
-          success: false,
-          error: scanResult.reason || 'File failed malware scan',
         };
       }
 
@@ -1256,7 +1030,7 @@ export class EvidenceService {
     // Load all non-flagged evidence
     const evidenceList = await this.evidenceRepo.find({
       where: { disputeId, isFlagged: false },
-      order: { createdAt: 'ASC' },
+      order: { uploadedAt: 'ASC' },
     });
 
     // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -1276,6 +1050,12 @@ export class EvidenceService {
       description: string | null;
       archivePath: string;
     }> = [];
+    const omittedFiles: Array<{
+      evidenceId: string;
+      fileName: string;
+      storagePath: string;
+      reason: string;
+    }> = [];
 
     let index = 0;
     for (const evidence of evidenceList) {
@@ -1288,10 +1068,21 @@ export class EvidenceService {
         .from(this.bucketName)
         .download(evidence.storagePath);
 
-      if (!error && data) {
-        const buffer = Buffer.from(await data.arrayBuffer());
-        archive.append(buffer, { name: archivePath });
+      if (error || !data) {
+        omittedFiles.push({
+          evidenceId: evidence.id,
+          fileName: evidence.fileName,
+          storagePath: evidence.storagePath,
+          reason: error?.message || 'File unavailable in storage',
+        });
+        this.logger.warn(
+          `Skipping evidence ${evidence.id} during export because download failed: ${error?.message || 'File unavailable in storage'}`,
+        );
+        continue;
       }
+
+      const buffer = Buffer.from(await data.arrayBuffer());
+      archive.append(buffer, { name: archivePath });
 
       manifest.push({
         index,
@@ -1302,7 +1093,7 @@ export class EvidenceService {
         sha256: evidence.fileHash || '',
         uploadedBy: evidence.uploaderId,
         uploaderRole: evidence.uploaderRole,
-        uploadedAt: evidence.createdAt?.toISOString() || '',
+        uploadedAt: evidence.uploadedAt?.toISOString() || '',
         description: evidence.description || null,
         archivePath,
       });
@@ -1314,7 +1105,10 @@ export class EvidenceService {
         {
           exportedAt: new Date().toISOString(),
           disputeId,
-          totalFiles: evidenceList.length,
+          expectedFiles: evidenceList.length,
+          totalFiles: manifest.length,
+          isComplete: omittedFiles.length === 0,
+          omittedFiles,
           exportedBy: userId,
           files: manifest,
         },

@@ -200,7 +200,10 @@ export const DISPUTE_RULE_CATALOG: DisputeRuleCatalogItem[] = [
     category: 'FRAUD_MISREPRESENTATION',
     summary:
       'Intentional deception, fabricated delivery claims, or materially false representations are treated as severe violations.',
-    legalBasis: ['InterDev fraud policy', 'Vietnam Law on Electronic Transactions 2023, Articles 8-11'],
+    legalBasis: [
+      'InterDev fraud policy',
+      'Vietnam Law on Electronic Transactions 2023, Articles 8-11',
+    ],
     operationalGuidance: [
       'Fraud findings require evidence provenance review and should cite the strongest corroborating records available.',
       'Escalate sanctions, trust penalties, or bans only when the evidence record is coherent and traceable.',
@@ -285,17 +288,14 @@ export const buildHearingDocket = (
 ): HearingDocketResult => {
   const ordered = [...(hearings ?? [])].sort(compareHearings);
   const latestHearingId = ordered.length > 0 ? ordered[ordered.length - 1].id : null;
+  const appealReviewActive = Boolean(disputeStatus && APPEAL_DISPUTE_STATUSES.has(disputeStatus));
 
   const actionableCandidates = ordered.filter((hearing) => {
     if (!ACTIVE_HEARING_STATUSES.has(hearing.status)) {
       return false;
     }
 
-    if (
-      hearing.tier === HearingTier.TIER_1 &&
-      disputeStatus &&
-      APPEAL_DISPUTE_STATUSES.has(disputeStatus)
-    ) {
+    if (appealReviewActive) {
       return false;
     }
 
@@ -303,7 +303,9 @@ export const buildHearingDocket = (
   });
 
   const activeHearingId =
-    actionableCandidates.length > 0 ? actionableCandidates[actionableCandidates.length - 1].id : null;
+    actionableCandidates.length > 0
+      ? actionableCandidates[actionableCandidates.length - 1].id
+      : null;
 
   const items = ordered.map((hearing): HearingDocketEntry => {
     const minutesRecorded = Boolean(
@@ -313,13 +315,12 @@ export const buildHearingDocket = (
     let isArchived = !ACTIVE_HEARING_STATUSES.has(hearing.status);
     let freezeReason: string | undefined;
 
-    if (
-      hearing.tier === HearingTier.TIER_1 &&
-      disputeStatus &&
-      APPEAL_DISPUTE_STATUSES.has(disputeStatus)
-    ) {
+    if (appealReviewActive && ACTIVE_HEARING_STATUSES.has(hearing.status)) {
       isArchived = true;
-      freezeReason = 'Tier 1 hearing is archived because the dispute is now in appeal review.';
+      freezeReason =
+        hearing.tier === HearingTier.TIER_2
+          ? 'Appeal review is handled through the admin appeal queue. This hearing is archived.'
+          : 'Tier 1 hearing is archived because the dispute is now in appeal review.';
     } else if (
       ACTIVE_HEARING_STATUSES.has(hearing.status) &&
       activeHearingId &&
@@ -328,7 +329,7 @@ export const buildHearingDocket = (
       isArchived = true;
       freezeReason = 'A later hearing on this dispute is now the actionable docket entry.';
     } else if (hearing.status === HearingStatus.RESCHEDULED) {
-      freezeReason = 'This hearing was superseded by a rescheduled follow-up.';
+      freezeReason = 'This hearing was superseded by a rescheduled replacement session.';
     } else if (hearing.status === HearingStatus.CANCELED) {
       freezeReason = 'This hearing was canceled and is now archival record only.';
     } else if (hearing.status === HearingStatus.COMPLETED) {
@@ -373,7 +374,7 @@ export const resolveDisputeCaseStage = (input: {
   }
 
   if (input.status === DisputeStatus.APPEALED || input.appealState === 'FILED') {
-    return input.hasActionableHearing ? 'APPEAL_HEARING' : 'APPEAL_WINDOW';
+    return 'APPEAL_WINDOW';
   }
 
   if (input.status === DisputeStatus.RESOLVED) {
@@ -482,10 +483,7 @@ export const resolveDisputeAllowedActions = (input: {
     actions.add('MANAGE_APPEAL_QUEUE');
   }
 
-  if (
-    (input.status === DisputeStatus.APPEALED || input.status === DisputeStatus.IN_MEDIATION) &&
-    isInternal
-  ) {
+  if (input.status === DisputeStatus.IN_MEDIATION && isInternal) {
     actions.add('MANAGE_HEARING');
   }
 
@@ -539,13 +537,13 @@ export const resolveCaseGuide = (input: {
 }): string => {
   if (input.userRole === UserRole.ADMIN) {
     return input.caseStage === 'APPEAL_HEARING' || input.caseStage === 'APPEAL_WINDOW'
-      ? 'Admin is reviewing the appeal record and may issue the final appeal verdict.'
+      ? 'Admin is reviewing the appeal record in the appeal queue and may issue the final appeal verdict.'
       : 'Admin access is primarily read-only unless appeal review is escalated to this tier.';
   }
 
   if (input.userRole === UserRole.STAFF) {
     return input.caseStage === 'HEARING_IN_PROGRESS'
-      ? 'Conduct the active hearing, capture minutes, then close the session before any follow-up hearing.'
+      ? 'Conduct the active hearing, capture minutes, and close the session for a single-hearing verdict flow.'
       : 'Triage the case, review submissions, and advance the docket without leaving multiple hearings actionable.';
   }
 
@@ -563,9 +561,8 @@ export const resolveCaseGuide = (input: {
       return 'This case record is archived for reference. Regular dispute actions are locked.';
     case 'APPEAL_HEARING':
     case 'APPEAL_WINDOW':
-      return 'The original ruling is frozen while appeal review proceeds. Watch the appeal docket for the next action.';
+      return 'The original ruling is frozen while admin reviews the appeal record. No additional hearing is scheduled.';
     default:
       return 'Follow the dispute docket for the next required action on this case.';
   }
 };
-

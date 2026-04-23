@@ -33,7 +33,9 @@ const resolveAppealStateLabel = (dispute: DisputeSummary) => {
   }
   if (
     dispute.isAppealed ||
-    [DisputeStatus.APPEALED, DisputeStatus.REJECTION_APPEALED].includes(dispute.status)
+    [DisputeStatus.APPEALED, DisputeStatus.REJECTION_APPEALED].includes(
+      dispute.status,
+    )
   ) {
     return "Appealed";
   }
@@ -53,7 +55,7 @@ const stageLabelMap: Record<string, string> = {
   DELIBERATION: "Deliberation",
   VERDICT_ISSUED: "Verdict issued",
   APPEAL_WINDOW: "Appeal window",
-  APPEAL_HEARING: "Appeal hearing",
+  APPEAL_HEARING: "Appeal review",
   FINAL_ARCHIVE: "Final archive",
 };
 
@@ -109,12 +111,16 @@ export const ParticipantDisputesPage = () => {
         ].includes(dispute.status),
     );
     const appeals = disputes.filter((dispute) =>
-      [DisputeStatus.APPEALED, DisputeStatus.REJECTION_APPEALED].includes(dispute.status),
-    );
-    const closed = disputes.filter((dispute) =>
-      [DisputeStatus.RESOLVED, DisputeStatus.REJECTED, DisputeStatus.CANCELED].includes(
+      [DisputeStatus.APPEALED, DisputeStatus.REJECTION_APPEALED].includes(
         dispute.status,
       ),
+    );
+    const closed = disputes.filter((dispute) =>
+      [
+        DisputeStatus.RESOLVED,
+        DisputeStatus.REJECTED,
+        DisputeStatus.CANCELED,
+      ].includes(dispute.status),
     );
 
     return { active, appeals, closed };
@@ -142,11 +148,13 @@ export const ParticipantDisputesPage = () => {
 
       <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
         <div className="flex flex-wrap gap-2 border-b border-gray-100 bg-slate-50 px-5 py-4">
-          {([
-            ["active", "Active"],
-            ["appeals", "Appeals"],
-            ["closed", "Closed"],
-          ] as const).map(([key, label]) => (
+          {(
+            [
+              ["active", "Active"],
+              ["appeals", "Appeals"],
+              ["closed", "Closed"],
+            ] as const
+          ).map(([key, label]) => (
             <button
               key={key}
               type="button"
@@ -175,18 +183,23 @@ export const ParticipantDisputesPage = () => {
                 key={dispute.id}
                 type="button"
                 data-testid={`dispute-card-${dispute.id}`}
-                onClick={() => navigate(`${roleBasePath}/disputes/${dispute.id}`)}
+                onClick={() =>
+                  navigate(`${roleBasePath}/disputes/${dispute.id}`)
+                }
                 className="group flex h-full w-full flex-col rounded-2xl border border-slate-200 bg-white p-5 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-teal-200 hover:shadow-md"
               >
                 <div className="flex min-w-0 flex-1 flex-col">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
-                        {dispute.displayCode || `DSP-${dispute.id.slice(0, 8).toUpperCase()}`}
+                        {dispute.displayCode ||
+                          `DSP-${dispute.id.slice(0, 8).toUpperCase()}`}
                       </div>
                       <div className="mt-1 flex items-center gap-2">
                         <span className="truncate text-lg font-semibold text-slate-900">
-                          {dispute.displayTitle || dispute.project?.title || dispute.id}
+                          {dispute.displayTitle ||
+                            dispute.project?.title ||
+                            dispute.id}
                         </span>
                         {dispute.latestHearing?.hearingNumber ? (
                           <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold text-slate-600">
@@ -208,7 +221,8 @@ export const ParticipantDisputesPage = () => {
                     </span>
                     {dispute.caseStage ? (
                       <span className="rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-xs font-medium text-sky-700">
-                        {stageLabelMap[dispute.caseStage] || dispute.caseStage.replaceAll("_", " ")}
+                        {stageLabelMap[dispute.caseStage] ||
+                          dispute.caseStage.replaceAll("_", " ")}
                       </span>
                     ) : null}
                     {dispute.isAppealed ? (
@@ -263,7 +277,15 @@ export const ParticipantDisputesPage = () => {
                       </div>
                       {dispute.appealDeadline ? (
                         <div className="mt-1 text-xs text-slate-500">
-                          Window: {new Date(dispute.appealDeadline).toLocaleDateString()}
+                          {[
+                            DisputeStatus.APPEALED,
+                            DisputeStatus.REJECTION_APPEALED,
+                          ].includes(dispute.status)
+                            ? "Review by: "
+                            : "Window: "}
+                          {new Date(
+                            dispute.appealDeadline,
+                          ).toLocaleDateString()}
                         </div>
                       ) : null}
                     </div>

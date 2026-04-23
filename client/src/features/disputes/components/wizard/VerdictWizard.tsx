@@ -1,5 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, FlaskConical, Loader2, Scale, Search } from "lucide-react";
+import {
+  AlertTriangle,
+  FlaskConical,
+  Loader2,
+  Scale,
+  Search,
+} from "lucide-react";
 import { MoneySplitSlider } from "../shared/MoneySplitSlider";
 import { DisputeResult } from "../../../staff/types/staff.types";
 import {
@@ -8,6 +14,7 @@ import {
   type DisputeRuleCatalogItem,
 } from "../../api";
 import { toast } from "sonner";
+import { INTERNAL_DEV_TOOLS_ENABLED } from "@/shared/utils/internalTools";
 
 const FAULT_TYPES = [
   { value: "NON_DELIVERY", label: "Non-delivery" },
@@ -23,10 +30,10 @@ const FAULT_TYPES = [
 ];
 
 const FAULTY_PARTIES = [
-  { value: "raiser", label: "Raiser" },
-  { value: "defendant", label: "Defendant" },
-  { value: "both", label: "Both parties" },
-  { value: "none", label: "No fault" },
+  { value: "raiser", label: "Dispute raiser" },
+  { value: "defendant", label: "Dispute defendant" },
+  { value: "both", label: "Both dispute parties" },
+  { value: "none", label: "No party at fault" },
 ];
 
 const SAMPLE_APPEAL_VERDICT_COPY = {
@@ -104,7 +111,9 @@ export const VerdictWizard = ({
   const [verdict, setVerdict] = useState<DisputeResult | null>(null);
   const [faultType, setFaultType] = useState<string>("");
   const [faultyParty, setFaultyParty] = useState<string>("");
-  const [policyCatalog, setPolicyCatalog] = useState<DisputeRuleCatalogItem[]>([]);
+  const [policyCatalog, setPolicyCatalog] = useState<DisputeRuleCatalogItem[]>(
+    [],
+  );
   const [policySearch, setPolicySearch] = useState("");
   const [selectedPolicies, setSelectedPolicies] = useState<string[]>([]);
   const [evidenceBasis, setEvidenceBasis] = useState("");
@@ -152,7 +161,9 @@ export const VerdictWizard = ({
           const normalizedRules = normalizePolicyCatalog(rules);
           setPolicyCatalog(normalizedRules);
           if (sampleFillPendingRef.current) {
-            setSelectedPolicies(normalizedRules.slice(0, 2).map((rule) => rule.code));
+            setSelectedPolicies(
+              normalizedRules.slice(0, 2).map((rule) => rule.code),
+            );
             sampleFillPendingRef.current = false;
             setSampleFillPending(false);
           } else {
@@ -253,7 +264,11 @@ export const VerdictWizard = ({
       toast.error("Evidence basis is required.");
       return;
     }
-    if (!factualFindings.trim() || !legalAnalysis.trim() || !conclusion.trim()) {
+    if (
+      !factualFindings.trim() ||
+      !legalAnalysis.trim() ||
+      !conclusion.trim()
+    ) {
       toast.error("Complete the reasoning section.");
       return;
     }
@@ -328,7 +343,9 @@ export const VerdictWizard = ({
         );
       } else {
         toast.error(
-          isAppealMode ? "Could not submit appeal verdict." : "Could not submit verdict.",
+          isAppealMode
+            ? "Could not submit appeal verdict."
+            : "Could not submit verdict.",
         );
       }
     } finally {
@@ -345,23 +362,23 @@ export const VerdictWizard = ({
           </h3>
           <p className="mt-1 text-sm text-gray-500">
             {isAppealMode
-              ? "Issue the Tier 2 decision that upholds or overrides the original verdict."
+              ? "Issue the final appeal decision that upholds or overrides the original verdict."
               : "Initial verdict issuance has moved to Hearing Room so the hearing can close with minutes and findings in one step."}
           </p>
         </div>
         {isAppealMode ? (
           <span className="inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-medium text-amber-800">
             <Scale className="h-3.5 w-3.5" />
-            Tier 2 Appeal Review
+            Appeal Review
           </span>
         ) : null}
       </div>
 
       {!isAppealMode ? (
         <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-          Use the Hearing Room verdict panel for initial verdicts. This wizard remains available
-          only for appeal review so the platform does not bypass hearing minutes and closure
-          requirements.
+          Use the Hearing Room verdict panel for initial verdicts. This wizard
+          remains available only for appeal review so the platform does not
+          bypass hearing minutes and closure requirements.
         </div>
       ) : null}
 
@@ -376,27 +393,29 @@ export const VerdictWizard = ({
                 {existingVerdictId ?? "Missing original verdict reference"}
               </p>
             </div>
-            <button
-              type="button"
-              data-testid="appeal-verdict-fill-sample"
-              onClick={fillAppealSample}
-              disabled={submitting || sampleFillPending}
-              className="inline-flex items-center gap-1.5 rounded-md border border-amber-300 bg-white px-3 py-1.5 text-xs font-medium text-amber-800 transition-colors hover:bg-amber-100"
-            >
-              {sampleFillPending ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <FlaskConical className="h-3.5 w-3.5" />
-              )}
-              {sampleFillPending ? "Loading sample..." : "Fill Sample"}
-            </button>
+            {INTERNAL_DEV_TOOLS_ENABLED ? (
+              <button
+                type="button"
+                data-testid="appeal-verdict-fill-sample"
+                onClick={fillAppealSample}
+                disabled={submitting || sampleFillPending}
+                className="inline-flex items-center gap-1.5 rounded-md border border-amber-300 bg-white px-3 py-1.5 text-xs font-medium text-amber-800 transition-colors hover:bg-amber-100"
+              >
+                {sampleFillPending ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <FlaskConical className="h-3.5 w-3.5" />
+                )}
+                {sampleFillPending ? "Loading sample..." : "Fill Sample"}
+              </button>
+            ) : null}
           </div>
           {appealContextText ? (
             <div>
               <p className="text-xs font-semibold uppercase tracking-wider text-amber-700">
                 Appeal Context
               </p>
-              <div className="mt-2 max-h-40 overflow-y-auto rounded-lg border border-amber-200 bg-white/80 p-3 text-sm leading-6 text-amber-950 whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
+              <div className="mt-2 max-h-40 overflow-y-auto rounded-lg border border-amber-200 bg-white/80 p-3 text-sm leading-6 text-amber-950 whitespace-pre-wrap wrap-anywhere">
                 {appealContextText}
               </div>
             </div>
@@ -413,7 +432,7 @@ export const VerdictWizard = ({
               : "border-gray-200 text-gray-600 hover:border-slate-300"
           }`}
         >
-          <div className="font-bold">Refund Client</div>
+          <div className="font-bold">Award to Raiser</div>
           <div className="mt-1 text-xs opacity-80">Derived from escrow</div>
         </button>
 
@@ -425,7 +444,7 @@ export const VerdictWizard = ({
               : "border-gray-200 text-gray-600 hover:border-teal-300"
           }`}
         >
-          <div className="font-bold">Pay Freelancer</div>
+          <div className="font-bold">Award to Defendant</div>
           <div className="mt-1 text-xs opacity-80">Derived from escrow</div>
         </button>
 
@@ -507,7 +526,9 @@ export const VerdictWizard = ({
           />
           <div className="mt-3 grid gap-2">
             {catalogLoading ? (
-              <div className="text-sm text-slate-500">Loading policy catalog...</div>
+              <div className="text-sm text-slate-500">
+                Loading policy catalog...
+              </div>
             ) : (
               filteredPolicies.map((policy) => {
                 const selected = selectedPolicies.includes(policy.code);
@@ -528,7 +549,9 @@ export const VerdictWizard = ({
                     <div className="mt-1 text-sm font-semibold text-slate-900">
                       {policy.title}
                     </div>
-                    <p className="mt-1 text-sm text-slate-600">{policy.summary}</p>
+                    <p className="mt-1 text-sm text-slate-600">
+                      {policy.summary}
+                    </p>
                   </button>
                 );
               })

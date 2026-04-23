@@ -22,6 +22,20 @@ declare global {
 
 const sdkLoads = new Map<string, Promise<void>>();
 
+const PAYPAL_DESTROYED_COMPONENTS_PATTERN = /zoid destroyed all components/i;
+
+const getErrorMessage = (error: unknown, fallback: string) => {
+  if (error instanceof Error && error.message) {
+    if (PAYPAL_DESTROYED_COMPONENTS_PATTERN.test(error.message)) {
+      return "PayPal checkout was reloaded unexpectedly. Please wait a second and try funding again.";
+    }
+
+    return error.message;
+  }
+
+  return fallback;
+};
+
 const loadPayPalSdk = (
   clientId: string,
   currency: string,
@@ -40,13 +54,6 @@ const loadPayPalSdk = (
       resolve();
       return;
     }
-
-    const staleScripts = document.querySelectorAll<HTMLScriptElement>("script[data-paypal-sdk-key]");
-    staleScripts.forEach((script) => {
-      if (script.dataset.paypalSdkKey !== key) {
-        script.remove();
-      }
-    });
 
     const script = document.createElement("script");
     script.src = `https://www.paypal.com/sdk/js?client-id=${encodeURIComponent(clientId)}&currency=${encodeURIComponent(currency)}&intent=capture&components=buttons`;
@@ -84,6 +91,20 @@ export function PayPalMilestoneCheckout({
   onError,
 }: PayPalMilestoneCheckoutProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const buttonsRef = useRef<{
+    close?: () => void;
+  } | null>(null);
+  const onErrorRef = useRef(onError);
+  const onFundedRef = useRef(onFunded);
+
+  useEffect(() => {
+    onErrorRef.current = onError;
+  }, [onError]);
+
+  useEffect(() => {
+    onFundedRef.current = onFunded;
+  }, [onFunded]);
+
   const [loading, setLoading] = useState(true);
   const [renderError, setRenderError] = useState<string | null>(null);
   const [isCapturing, setIsCapturing] = useState(false);
@@ -94,12 +115,22 @@ export function PayPalMilestoneCheckout({
     let active = true;
     const container = containerRef.current;
 
+    const destroyButtons = () => {
+      try {
+        buttonsRef.current?.close?.();
+      } catch {
+        // Ignore cleanup errors from stale Zoid instances.
+      } finally {
+        buttonsRef.current = null;
+      }
+    };
+
     const boot = async () => {
       try {
         setLoading(true);
         setRenderError(null);
         setHasRenderedButtons(false);
-        onError?.(null);
+        onErrorRef.current?.(null);
 
         const fallbackClientId = import.meta.env.VITE_PAYPAL_CLIENT_ID || "sb";
         const config = await getPayPalCheckoutConfig(paymentMethodId).catch(() => ({
@@ -119,6 +150,7 @@ export function PayPalMilestoneCheckout({
           return;
         }
 
+        destroyButtons();
         container.innerHTML = "";
 
         const buttons = window.paypal.Buttons({
@@ -170,7 +202,7 @@ export function PayPalMilestoneCheckout({
           ) => {
             try {
               setIsCapturing(true);
-              onError?.(null);
+              onErrorRef.current?.(null);
               const result = await (async () => {
                 if (config.vaultEnabled) {
                   const orderId =
@@ -192,14 +224,14 @@ export function PayPalMilestoneCheckout({
                 });
               })();
               toast.success("PayPal payment captured and escrow funded");
-              onFunded?.(result);
+              onFundedRef.current?.(result);
             } catch (error: unknown) {
-              const message =
-                error instanceof Error
-                  ? error.message
-                  : "PayPal payment was captured, but the app could not sync the escrow state.";
+              const message = getErrorMessage(
+                error,
+                "PayPal payment was captured, but the app could not sync the escrow state.",
+              );
               setRenderError(message);
-              onError?.(message);
+              onErrorRef.current?.(message);
               toast.error(message);
             } finally {
               setIsCapturing(false);
@@ -208,14 +240,16 @@ export function PayPalMilestoneCheckout({
           onCancel: () => {
             const message = "PayPal checkout was cancelled before capture.";
             setRenderError(message);
-            onError?.(message);
+            onErrorRef.current?.(message);
           },
           onError: () => {
             const message = "PayPal checkout failed. Try again.";
             setRenderError(message);
-            onError?.(message);
+            onErrorRef.current?.(message);
           },
         });
+
+        buttonsRef.current = buttons;
 
         if (buttons.isEligible && buttons.isEligible() === false) {
           throw new Error("PayPal is not eligible in this browser session.");
@@ -226,11 +260,13 @@ export function PayPalMilestoneCheckout({
           setHasRenderedButtons(true);
         }
       } catch (error: unknown) {
-        const message =
-          error instanceof Error ? error.message : "Failed to start PayPal checkout.";
+        const message = getErrorMessage(
+          error,
+          "Failed to start PayPal checkout.",
+        );
         if (active) {
           setRenderError(message);
-          onError?.(message);
+          onErrorRef.current?.(message);
         }
       } finally {
         if (active) {
@@ -243,11 +279,12 @@ export function PayPalMilestoneCheckout({
 
     return () => {
       active = false;
+      destroyButtons();
       if (container) {
         container.innerHTML = "";
       }
     };
-  }, [amountValue, currency, milestoneId, milestoneTitle, onError, onFunded, paymentMethodId]);
+  }, [amountValue, currency, milestoneId, milestoneTitle, paymentMethodId]);
 
   return (
     <div className="space-y-3">
@@ -265,7 +302,7 @@ export function PayPalMilestoneCheckout({
       <div className={loading ? "pointer-events-none opacity-60" : ""}>
         <div
           ref={containerRef}
-          className="min-h-[56px] rounded-2xl border border-white/10 bg-white px-3 py-2"
+          className="min-h-14 rounded-2xl border border-white/10 bg-white px-3 py-2"
         />
       </div>
 
@@ -284,7 +321,7 @@ export function PayPalMilestoneCheckout({
 
       {renderError ? (
         <div className="flex items-start gap-2 rounded-2xl border border-rose-300/20 bg-rose-400/10 px-4 py-3 text-sm text-rose-100">
-          <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
           <span>{renderError}</span>
         </div>
       ) : null}

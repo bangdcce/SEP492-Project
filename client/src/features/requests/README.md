@@ -2,49 +2,57 @@
 
 ## Overview
 
-Client-facing request management — viewing, editing, and managing project requests and their lifecycle.
+Client-facing request management for viewing, editing, and progressing project requests through the broker and freelancer workflow.
 
-Implements UC-13 (View List Current Request), UC-14 (View Request Detail), UC-19 (Edit Request), UC-20 (View Applications), UC-21 (Approve/Reject Application), UC-58 (View Public Request), UC-59 (View Public Request Detail), UC-60 (Apply To Public Request).
+This feature covers current-request listing, request-detail viewing, broker application review, freelancer marketplace preview, and invitation-based freelancer access.
 
 ## Structure
 
-```
+```text
 requests/
-├── components/
-│   ├── CandidateProfileModal.tsx    # Candidate detail modal
-│   ├── ProjectPhaseStepper.tsx      # Visual phase progress indicator
-│   └── ScoreExplanationModal.tsx    # AI matching score explanation
-├── MyRequestsPage.tsx               # Client's request list (UC-13)
-├── RequestDetailPage.tsx            # Full request detail view (UC-14)
-├── FreelancerRequestsPage.tsx       # Freelancer's request list (UC-58)
-├── FreelancerRequestDetailPage.tsx  # Freelancer request detail (UC-59)
-├── types.ts                         # TypeScript interfaces
-└── README.md                        # This file
+|-- components/
+|   |-- CandidateProfileModal.tsx    # Candidate detail modal
+|   |-- ProjectPhaseStepper.tsx      # Visual phase progress indicator
+|   `-- ScoreExplanationModal.tsx    # AI matching score explanation
+|-- MyRequestsPage.tsx               # Client request list
+|-- RequestDetailPage.tsx            # Client request detail and workflow management
+|-- FreelancerRequestsPage.tsx       # Freelancer invited-request list
+|-- FreelancerRequestDetailPage.tsx  # Freelancer request detail / marketplace preview
+|-- types.ts                         # TypeScript interfaces
+`-- README.md                        # This file
 ```
 
 ## Key Pages
 
 ### MyRequestsPage (Client)
+
 - Lists all current requests for the authenticated client
-- Filter by status (Draft, Public, Broker Assigned, etc.)
-- Create new request button → Wizard flow
-- Quick actions: Edit, Delete, Make Private/Public
+- Filters by status such as draft, public, broker assigned, and later workflow states
+- Starts the create-request flow through the wizard
+- Supports quick actions such as edit, delete, and make private/public
 
 ### RequestDetailPage (Client)
-- Full request information display
-- Application management (view, approve, reject)
-- Invitation management
-- AI matching results  
-- Phase progress stepper
-- Real-time status updates
 
-### FreelancerRequestsPage (Freelancer/Broker)
-- Browse public requests in the marketplace
-- Apply to requests with cover letter
-- View application status
+- Shows full request information
+- Manages broker applications, including view, approve, and reject
+- Manages invitations and matching results
+- Shows phase progress and real-time workflow status
+
+### Broker Marketplace Flow
+
+- Brokers browse public requests from the broker marketplace
+- Brokers can open request detail and apply with a cover letter
+- Broker applications are reviewed by the client inside the client request flow
+
+### Freelancer Marketplace Flow
+
+- Freelancers browse phase-3 marketplace previews only
+- Freelancers can open request previews and invited requests
+- Freelancers do not self-apply directly in the current implementation
+- Freelancer participation becomes active through broker recommendation, client approval, and invitation response
 
 ## Request Status Flow
 
-```
-DRAFT → PUBLIC_DRAFT → BROKER_ASSIGNED → SPEC_APPROVED → CONTRACT_PENDING → IN_PROGRESS → COMPLETED
+```text
+DRAFT -> PUBLIC_DRAFT -> BROKER_ASSIGNED -> SPEC_APPROVED -> CONTRACT_PENDING -> IN_PROGRESS -> COMPLETED
 ```

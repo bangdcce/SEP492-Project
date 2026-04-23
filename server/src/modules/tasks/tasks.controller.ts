@@ -105,13 +105,21 @@ export class TasksController {
   }
 
   @Post(':id/subtasks')
-  createSubtask(@Param('id') id: string, @Body() body: CreateSubtaskDto) {
-    return this.tasksService.createSubtask(id, body);
+  createSubtask(
+    @Param('id') id: string,
+    @Body() body: CreateSubtaskDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.tasksService.createSubtask(id, body, req.user?.role);
   }
 
   @Post(':id/subtasks/link')
-  linkSubtask(@Param('id') id: string, @Body() body: LinkSubtaskDto) {
-    return this.tasksService.linkExistingSubtask(id, body.subtaskId);
+  linkSubtask(
+    @Param('id') id: string,
+    @Body() body: LinkSubtaskDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.tasksService.linkExistingSubtask(id, body.subtaskId, req.user?.role);
   }
 
   @Post('upload-attachment')
@@ -163,6 +171,12 @@ export class TasksController {
     return { success: true };
   }
 
+  @Delete(':id')
+  async deleteTask(@Param('id') id: string, @Req() req: AuthenticatedRequest) {
+    await this.tasksService.deleteTask(id, req.user?.id, req.user?.role);
+    return { success: true };
+  }
+
   @Patch(':id/status')
   async updateStatus(
     @Param('id') id: string,
@@ -181,7 +195,12 @@ export class TasksController {
       throw new BadRequestException('Invalid status');
     }
 
-    return this.tasksService.updateStatus(id, status as KanbanStatus, req.user?.id);
+    return this.tasksService.updateStatus(
+      id,
+      status as KanbanStatus,
+      req.user?.id,
+      req.user?.role,
+    );
   }
 
   @Post(':id/submissions')
@@ -265,7 +284,7 @@ export class TasksController {
     @Req() req: AuthenticatedRequest,
   ) {
     this.logger.log(`Update Task ${id} requested by user: ${req.user?.id || 'ANONYMOUS'}`);
-    return this.tasksService.updateTask(id, body, req.user?.id);
+    return this.tasksService.updateTask(id, body, req.user?.id, req.user?.role);
   }
 
   @Post()
@@ -285,9 +304,20 @@ export class TasksController {
       reporterId?: string;
     },
     @Req() req: AuthenticatedRequest,
-  ) {
-    if (!body?.title || !body?.projectId || !body?.milestoneId) {
-      throw new BadRequestException('title, projectId and milestoneId are required');
+    ) {
+    const title = body?.title?.trim();
+    const description = body?.description?.trim();
+    if (
+      !title ||
+      !description ||
+      !body?.projectId ||
+      !body?.milestoneId ||
+      !body?.startDate ||
+      !body?.dueDate
+    ) {
+      throw new BadRequestException(
+        'title, description, projectId, milestoneId, startDate and dueDate are required',
+      );
     }
 
     const currentUser = req.user;
@@ -306,8 +336,8 @@ export class TasksController {
     this.logger.log(`Creating task: ${body.title} for project ${body.projectId}`);
 
     return this.tasksService.createTask({
-      title: body.title,
-      description: body.description,
+      title,
+      description,
       projectId: body.projectId,
       milestoneId: body.milestoneId,
       specFeatureId: body.specFeatureId,

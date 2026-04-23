@@ -19,6 +19,7 @@ import {
   getBillingCycleLabel,
   PERK_LABELS,
   QUOTA_ACTION_LABELS,
+  SubscriptionStatus,
   type MySubscriptionResponse,
   type QuotaUsage,
 } from "./types";
@@ -42,6 +43,17 @@ const getErrorMessage = (error: unknown, fallback: string) => {
   return axiosErr?.response?.data?.message || fallback;
 };
 
+const QUOTA_LIMIT_PERK_KEYS: Record<string, string> = {
+  CREATE_REQUEST: "maxActiveRequests",
+  CONVERT_TO_PROJECT: "maxActiveProjects",
+  AI_MATCH_SEARCH: "aiMatchesPerDay",
+  INVITE_BROKER: "invitesPerRequest",
+  APPLY_TO_REQUEST: "appliesPerWeek",
+  CREATE_PROPOSAL: "maxActiveProposals",
+  APPLY_TO_PROJECT: "appliesPerWeek",
+  ADD_PORTFOLIO: "portfolioSlots",
+};
+
 export function SubscriptionPage() {
   const navigate = useNavigate();
   const currentUser = useCurrentUser<{ role?: string; email?: string }>();
@@ -58,48 +70,52 @@ export function SubscriptionPage() {
   const [cancelReason, setCancelReason] = useState("");
   const [cancelling, setCancelling] = useState(false);
 
+  const loadPaymentMethods = useCallback(
+    async (surfaceError = false): Promise<PaymentMethodView[] | null> => {
+      try {
+        const methods = await getPaymentMethods();
+        setPaymentMethods(methods);
+        setPaymentMethodsLoaded(true);
+        return methods;
+      } catch (err: unknown) {
+        setPaymentMethods([]);
+        setPaymentMethodsLoaded(false);
+
+        if (surfaceError) {
+          setError(
+            `Saved payment methods are temporarily unavailable. ${getErrorMessage(
+              err,
+              "Failed to load payment methods.",
+            )}`,
+          );
+        }
+
+        return null;
+      }
+    },
+    [],
+  );
+
   const fetchData = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
-      const [subscriptionResult, paymentMethodsResult] = await Promise.allSettled([
-        getMySubscription(),
-        getPaymentMethods(),
-      ]);
+      const subscriptionResult = await getMySubscription();
+      setSubscription(subscriptionResult);
 
-      if (subscriptionResult.status === "fulfilled") {
-        setSubscription(subscriptionResult.value);
-      } else {
-        setSubscription(null);
-      }
-
-      if (paymentMethodsResult.status === "fulfilled") {
-        setPaymentMethods(paymentMethodsResult.value);
-        setPaymentMethodsLoaded(true);
-      } else {
+      if (subscriptionResult.isPremium) {
         setPaymentMethods([]);
         setPaymentMethodsLoaded(false);
-      }
-
-      const loadErrors: string[] = [];
-      if (subscriptionResult.status === "rejected") {
-        loadErrors.push(getErrorMessage(subscriptionResult.reason, "Failed to load subscription data."));
-      }
-      if (paymentMethodsResult.status === "rejected") {
-        loadErrors.push(
-          `Saved payment methods are temporarily unavailable. ${getErrorMessage(paymentMethodsResult.reason, "Failed to load payment methods.")}`,
-        );
-      }
-
-      if (loadErrors.length > 0) {
-        setError(loadErrors.join(" "));
+      } else {
+        await loadPaymentMethods(false);
       }
     } catch (err: unknown) {
+      setSubscription(null);
       setError(getErrorMessage(err, "Failed to load subscription data."));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [loadPaymentMethods]);
 
   useEffect(() => {
     void fetchData();
@@ -115,8 +131,26 @@ export function SubscriptionPage() {
   );
   const isPremium = subscription?.isPremium || false;
   const currentSub = subscription?.subscription;
+  const isCancellationScheduled = Boolean(currentSub?.cancelAtPeriodEnd);
+  const canCancelSubscription =
+    isPremium &&
+    Boolean(currentSub) &&
+    !isCancellationScheduled &&
+    currentSub?.status === SubscriptionStatus.ACTIVE;
   const usage = subscription?.usage || {};
   const perks = subscription?.perks || {};
+  const resolveQuotaLimit = useCallback(
+    (action: string, data: QuotaUsage) => {
+      if (data.limit !== undefined && data.limit !== null && data.limit !== "") {
+        return data.limit;
+      }
+
+      const fallbackKey = QUOTA_LIMIT_PERK_KEYS[action];
+      const fallbackValue = fallbackKey ? perks[fallbackKey] : undefined;
+      return typeof fallbackValue === "number" ? fallbackValue : undefined;
+    },
+    [perks],
+  );
   const needsPayPalSetup = !isPremium && paymentMethodsLoaded && !activePayPalMethod;
   const currentSubscriptionDisplayAmount =
     currentSub?.payment?.capturedAmount && currentSub.payment?.currency
@@ -168,6 +202,25 @@ export function SubscriptionPage() {
       setError(null);
       const response = await cancelSubscription({ reason: cancelReason || undefined });
       setSuccessMessage(response.message);
+      setSubscription((prev) => {
+        if (!prev?.subscription) {
+          return prev;
+        }
+
+        return {
+          ...prev,
+          subscription: {
+            ...prev.subscription,
+            status: response.data?.status
+              ? (response.data.status as SubscriptionStatus)
+              : prev.subscription.status,
+            cancelAtPeriodEnd:
+              response.data?.cancelAtPeriodEnd ?? prev.subscription.cancelAtPeriodEnd,
+            currentPeriodEnd:
+              response.data?.currentPeriodEnd ?? prev.subscription.currentPeriodEnd,
+          },
+        };
+      });
       setShowCancelModal(false);
       setCancelReason("");
       await fetchData();
@@ -245,12 +298,18 @@ export function SubscriptionPage() {
                   </CardTitle>
                   <CardDescription className="mt-1">
                     {isPremium
-                      ? "Your premium subscription is active."
+                      ? isCancellationScheduled
+                        ? "Your subscription is set to cancel at period end."
+                        : "Your premium subscription is active."
                       : "Upgrade to unlock higher limits and premium perks through PayPal checkout."}
                   </CardDescription>
                 </div>
                 <Badge variant={isPremium ? "default" : "secondary"}>
-                  {isPremium ? "Active Premium" : "Free Tier"}
+                  {isPremium
+                    ? isCancellationScheduled
+                      ? "Cancellation Scheduled"
+                      : "Active Premium"
+                    : "Free Tier"}
                 </Badge>
               </div>
             </CardHeader>
@@ -289,9 +348,19 @@ export function SubscriptionPage() {
             ) : null}
             <CardFooter>
               {isPremium ? (
-                <Button variant="destructive" onClick={() => setShowCancelModal(true)}>
-                  Cancel Subscription
-                </Button>
+                canCancelSubscription ? (
+                  <Button variant="destructive" onClick={() => setShowCancelModal(true)}>
+                    Cancel Subscription
+                  </Button>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    Premium access remains active until{" "}
+                    {currentSub?.currentPeriodEnd
+                      ? new Date(currentSub.currentPeriodEnd).toLocaleDateString("vi-VN")
+                      : "the end of your current billing period"}
+                    .
+                  </p>
+                )
               ) : (
                 <Button onClick={() => void handleUpgradeClick()} disabled={savingPayPalMethod}>
                   {savingPayPalMethod ? (
@@ -317,18 +386,35 @@ export function SubscriptionPage() {
               </CardHeader>
               <CardContent className="grid gap-6 sm:grid-cols-2">
                 {Object.entries(usage).map(([action, data]: [string, QuotaUsage]) => {
-                  const isUnlimited = data.limit === "Unlimited" || data.limit === -1;
-                  const progress = isUnlimited ? 0 : Math.min(100, (data.used / Number(data.limit)) * 100);
+                  const resolvedLimit = resolveQuotaLimit(action, data);
+                  const isUnlimited = resolvedLimit === "Unlimited" || resolvedLimit === -1;
+                  const hasFiniteLimit =
+                    typeof resolvedLimit === "number" && Number.isFinite(resolvedLimit) && resolvedLimit >= 0;
+                  const progress =
+                    hasFiniteLimit && resolvedLimit > 0
+                      ? Math.min(100, (data.used / resolvedLimit) * 100)
+                      : 0;
 
                   return (
                     <div key={action} className="space-y-2">
                       <div className="flex justify-between text-sm">
                         <span className="font-medium">{QUOTA_ACTION_LABELS[action] || action}</span>
                         <span className="font-mono text-muted-foreground">
-                          {data.used} / {isUnlimited ? <InfinityIcon className="inline h-3 w-3" /> : data.limit}
+                          {data.used} / {" "}
+                          {isUnlimited ? (
+                            <InfinityIcon className="inline h-3 w-3" />
+                          ) : hasFiniteLimit ? (
+                            resolvedLimit
+                          ) : (
+                            "—"
+                          )}
                         </span>
                       </div>
-                      {!isUnlimited ? <Progress value={progress} className="h-2" /> : <div className="h-2 rounded-full bg-primary/10" />}
+                      {hasFiniteLimit ? (
+                        <Progress value={progress} className="h-2" />
+                      ) : (
+                        <div className="h-2 rounded-full bg-primary/10" />
+                      )}
                     </div>
                   );
                 })}

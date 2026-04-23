@@ -10,6 +10,7 @@ describe('WorkspaceChatController', () => {
       togglePin: jest.fn(),
       editMessage: jest.fn(),
       softDeleteMessage: jest.fn(),
+      emailChatExport: jest.fn(),
     };
 
     controller = new WorkspaceChatController(workspaceChatService as any);
@@ -275,6 +276,43 @@ describe('WorkspaceChatController', () => {
         'project-1',
         'message-missing',
         'user-1',
+      );
+    });
+  });
+
+  describe('emailChatExport', () => {
+    it('returns a success payload instead of a direct download response', async () => {
+      workspaceChatService.emailChatExport.mockResolvedValue({
+        message: 'Your chat log export has been emailed to you.',
+        recipientEmail: 'member@example.com',
+        fileName: 'WorkspaceChat_demo.xlsx',
+      });
+
+      await expect(
+        controller.emailChatExport(
+          'project-1',
+          { id: 'user-1', email: 'member@example.com' } as any,
+          {
+            originalname: 'WorkspaceChat_demo.xlsx',
+            mimetype: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            buffer: Buffer.from('xlsx'),
+          } as any,
+        ),
+      ).resolves.toEqual({
+        success: true,
+        message: 'Your chat log export has been emailed to you.',
+        data: {
+          recipientEmail: 'member@example.com',
+          fileName: 'WorkspaceChat_demo.xlsx',
+        },
+      });
+
+      expect(workspaceChatService.emailChatExport).toHaveBeenCalledWith(
+        'project-1',
+        { id: 'user-1', email: 'member@example.com' },
+        expect.objectContaining({
+          originalname: 'WorkspaceChat_demo.xlsx',
+        }),
       );
     });
   });

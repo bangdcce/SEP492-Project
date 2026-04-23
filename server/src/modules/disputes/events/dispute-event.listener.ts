@@ -102,7 +102,11 @@ export class DisputeEventListener {
       serverTimestamp: this.toIsoString(),
     };
 
-    this.gateway.emitHearingEvent(payload.previousHearingId, 'HEARING_FOLLOW_UP_SCHEDULED', eventPayload);
+    this.gateway.emitHearingEvent(
+      payload.previousHearingId,
+      'HEARING_FOLLOW_UP_SCHEDULED',
+      eventPayload,
+    );
     this.gateway.emitDisputeEvent(payload.disputeId, 'HEARING_FOLLOW_UP_SCHEDULED', eventPayload);
     this.gateway.emitStaffDashboardEvent('HEARING_FOLLOW_UP_SCHEDULED', eventPayload);
 
@@ -137,6 +141,62 @@ export class DisputeEventListener {
     });
   }
 
+  private async collectDisputeRecipientUserIds(
+    disputeId: string,
+    extraUserIds: Array<string | null | undefined> = [],
+  ): Promise<string[]> {
+    const dispute = await this.disputeRepo.findOne({
+      where: { id: disputeId },
+      select: ['raisedById', 'defendantId', 'assignedStaffId', 'escalatedToAdminId'],
+    });
+
+    const recipientUserIds = new Set<string>();
+
+    [
+      dispute?.raisedById,
+      dispute?.defendantId,
+      dispute?.assignedStaffId,
+      dispute?.escalatedToAdminId,
+      ...extraUserIds,
+    ]
+      .filter((value): value is string => Boolean(value))
+      .forEach((userId) => recipientUserIds.add(userId));
+
+    return Array.from(recipientUserIds);
+  }
+
+  private async emitDisputeRealtimeEvent(input: {
+    disputeId: string;
+    eventName: string;
+    payload: Record<string, any>;
+    extraUserIds?: Array<string | null | undefined>;
+    includeStaffDashboard?: boolean;
+  }): Promise<void> {
+    this.gateway.emitDisputeEvent(input.disputeId, input.eventName, input.payload);
+
+    if (input.includeStaffDashboard !== false) {
+      this.gateway.emitStaffDashboardEvent(input.eventName, input.payload);
+    }
+
+    const recipientUserIds = await this.collectDisputeRecipientUserIds(
+      input.disputeId,
+      input.extraUserIds || [],
+    );
+
+    recipientUserIds.forEach((userId) => {
+      this.gateway.emitUserEvent(userId, input.eventName, input.payload);
+    });
+  }
+
+  private async resolveDisputeIdFromHearing(hearingId: string): Promise<string | null> {
+    const hearing = await this.hearingRepo.findOne({
+      where: { id: hearingId },
+      select: ['id', 'disputeId'],
+    });
+
+    return hearing?.disputeId ?? null;
+  }
+
   private async scheduleFollowUpIfNeeded(payload: {
     hearingId: string;
     disputeId: string;
@@ -144,103 +204,7 @@ export class DisputeEventListener {
     endedById?: string | null;
     closureReason?: string | null;
   }): Promise<void> {
-    const dispute = await this.disputeRepo.findOne({
-      where: { id: payload.disputeId },
-      select: ['id', 'status', 'assignedStaffId', 'escalatedToAdminId', 'raisedById'],
-    });
-
-    if (!dispute) {
-      return;
-    }
-
-    if (
-      [DisputeStatus.RESOLVED, DisputeStatus.REJECTED, DisputeStatus.CANCELED].includes(
-        dispute.status,
-      )
-    ) {
-      return;
-    }
-
-    const verdict = await this.verdictService.getVerdictByDisputeId(dispute.id);
-    if (verdict) {
-      return;
-    }
-
-    const existingActive = await this.hearingRepo.findOne({
-      where: {
-        disputeId: dispute.id,
-        status: In([HearingStatus.SCHEDULED, HearingStatus.IN_PROGRESS, HearingStatus.PAUSED]),
-      },
-      select: ['id', 'scheduledAt', 'createdAt'],
-      order: { createdAt: 'DESC' },
-    });
-
-    if (existingActive) {
-      await this.emitFollowUpScheduled({
-        disputeId: dispute.id,
-        previousHearingId: payload.hearingId,
-        nextHearingId: existingActive.id,
-        scheduledAt: existingActive.scheduledAt,
-        manualRequired: false,
-        closureReason: payload.closureReason || null,
-      });
-      return;
-    }
-
-    const triggerActorId =
-      payload.endedById || dispute.assignedStaffId || dispute.escalatedToAdminId || dispute.raisedById;
-
-    if (!triggerActorId) {
-      return;
-    }
-
-    try {
-      const followUp = await this.disputesService.escalateToHearing(dispute.id, triggerActorId);
-      const reason = followUp.reason || followUp.fallbackReason || null;
-
-      await this.emitFollowUpScheduled({
-        disputeId: dispute.id,
-        previousHearingId: payload.hearingId,
-        nextHearingId: followUp.hearingId || null,
-        scheduledAt: followUp.scheduledAt || null,
-        manualRequired: followUp.manualRequired,
-        reason,
-        closureReason: payload.closureReason || null,
-      });
-
-      if (followUp.manualRequired) {
-        const recipients = [
-          dispute.assignedStaffId,
-          dispute.escalatedToAdminId,
-          payload.moderatorId,
-        ].filter((value): value is string => Boolean(value));
-        await this.createNotifications(
-          recipients,
-          'Follow-up hearing needs manual scheduling',
-          `Dispute ${dispute.id.slice(0, 8)} still has no verdict. Manual follow-up hearing scheduling is required.`,
-          'Dispute',
-          dispute.id,
-        );
-      }
-    } catch (error) {
-      const recipients = [
-        dispute.assignedStaffId,
-        dispute.escalatedToAdminId,
-        payload.moderatorId,
-      ].filter((value): value is string => Boolean(value));
-      await this.createNotifications(
-        recipients,
-        'Follow-up hearing scheduling failed',
-        `Dispute ${dispute.id.slice(0, 8)} still needs another hearing, but the automatic scheduler failed. Please review and schedule manually.`,
-        'Dispute',
-        dispute.id,
-      );
-      this.logger.warn(
-        `Follow-up hearing scheduling failed for dispute ${dispute.id}: ${
-          error instanceof Error ? error.message : 'unknown'
-        }`,
-      );
-    }
+    void payload;
   }
 
   private canonicalize(value: unknown): string {
@@ -296,12 +260,13 @@ export class DisputeEventListener {
     });
 
     const recordedAt = new Date().toISOString();
+    const ledgerMetadata = (payload.metadata || {}) as Record<string, any>;
     const canonicalPayload = this.buildLedgerCanonicalPayload({
       disputeId,
       eventType,
       actorId: payload.actorId || null,
       reason: payload.reason || null,
-      payload: payload.metadata || {},
+      payload: ledgerMetadata,
       previousHash: latest?.hash || null,
       recordedAt,
     });
@@ -312,7 +277,7 @@ export class DisputeEventListener {
       eventType,
       actorId: payload.actorId || undefined,
       reason: payload.reason || undefined,
-      payload: payload.metadata || {},
+      payload: ledgerMetadata,
       previousHash: latest?.hash || undefined,
       canonicalPayload,
       hash,
@@ -522,7 +487,7 @@ export class DisputeEventListener {
     participantId?: string;
     participantUserId?: string;
     responderId?: string;
-    response?: 'accept' | 'decline' | 'tentative' | string;
+    response?: string;
     eventStatus?: string | null;
     manualRequired?: boolean;
     reason?: string | null;
@@ -532,7 +497,7 @@ export class DisputeEventListener {
       return;
     }
 
-    let hearingId = payload.hearingId || null;
+    const hearingId = payload.hearingId || null;
     let disputeId = payload.disputeId || null;
 
     if (hearingId && !disputeId) {
@@ -577,7 +542,9 @@ export class DisputeEventListener {
           response: payload.response || null,
           eventStatus: payload.eventStatus || null,
           manualRequired: Boolean(payload.manualRequired),
-          respondedAt: payload.respondedAt ? this.toIsoString(payload.respondedAt) : this.toIsoString(),
+          respondedAt: payload.respondedAt
+            ? this.toIsoString(payload.respondedAt)
+            : this.toIsoString(),
         },
       });
     }
@@ -708,35 +675,64 @@ export class DisputeEventListener {
     verdictId?: string;
     appealDeadline?: Date;
     issuedBy?: string;
+    adjudicatorId?: string;
+    hearingId?: string;
   }): Promise<void> {
     if (!payload?.disputeId) {
       return;
+    }
+
+    let targetHearingId = String(payload.hearingId || '').trim() || null;
+
+    if (targetHearingId) {
+      const explicitHearing = await this.hearingRepo.findOne({
+        where: { id: targetHearingId, disputeId: payload.disputeId },
+        select: ['id'],
+      });
+      targetHearingId = explicitHearing?.id || null;
+    }
+
+    if (!targetHearingId) {
+      const activeHearing = await this.hearingRepo.findOne({
+        where: {
+          disputeId: payload.disputeId,
+          status: In([HearingStatus.IN_PROGRESS, HearingStatus.PAUSED, HearingStatus.SCHEDULED]),
+        },
+        order: { createdAt: 'DESC' },
+        select: ['id'],
+      });
+      targetHearingId = activeHearing?.id || null;
+    }
+
+    if (!targetHearingId) {
+      const latestHearing = await this.hearingRepo.findOne({
+        where: { disputeId: payload.disputeId },
+        order: { createdAt: 'DESC' },
+        select: ['id'],
+      });
+      targetHearingId = latestHearing?.id || null;
     }
 
     const verdictPayload = {
       disputeId: payload.disputeId,
       verdictId: payload.verdictId,
       appealDeadline: payload.appealDeadline,
+      hearingId: targetHearingId,
       serverTimestamp: this.toIsoString(),
     };
 
-    // Emit to hearing room so participants in the hearing see it in real-time
-    const activeHearing = await this.hearingRepo.findOne({
-      where: { disputeId: payload.disputeId },
-      order: { createdAt: 'DESC' },
-      select: ['id'],
-    });
-    if (activeHearing) {
-      this.gateway.emitHearingEvent(activeHearing.id, 'VERDICT_ISSUED', verdictPayload);
+    if (targetHearingId) {
+      this.gateway.emitHearingEvent(targetHearingId, 'VERDICT_ISSUED', verdictPayload);
     }
 
     this.gateway.emitDisputeEvent(payload.disputeId, 'VERDICT_ISSUED', verdictPayload);
     this.gateway.emitStaffDashboardEvent('VERDICT_ISSUED', verdictPayload);
 
     await this.appendLedger(payload.disputeId, 'VERDICT_ISSUED', {
-      actorId: payload.issuedBy || null,
+      actorId: payload.issuedBy || payload.adjudicatorId || null,
       metadata: {
         verdictId: payload.verdictId || null,
+        hearingId: targetHearingId,
         appealDeadline: payload.appealDeadline ? this.toIsoString(payload.appealDeadline) : null,
       },
     });
@@ -750,6 +746,7 @@ export class DisputeEventListener {
     newStatus?: string;
     appealReason?: string;
     additionalEvidenceCount?: number;
+    appealDeadline?: Date | string | null;
     escalatedToAdminId?: string | null;
   }): Promise<void> {
     if (!payload?.disputeId) {
@@ -763,6 +760,7 @@ export class DisputeEventListener {
       newStatus: payload.newStatus || null,
       appealReason: payload.appealReason || null,
       additionalEvidenceCount: payload.additionalEvidenceCount ?? 0,
+      appealDeadline: payload.appealDeadline ? this.toIsoString(payload.appealDeadline) : null,
       escalatedToAdminId: payload.escalatedToAdminId || null,
       serverTimestamp: this.toIsoString(),
     };
@@ -777,6 +775,7 @@ export class DisputeEventListener {
         previousStatus: payload.previousStatus || null,
         newStatus: payload.newStatus || null,
         additionalEvidenceCount: payload.additionalEvidenceCount ?? 0,
+        appealDeadline: payload.appealDeadline ? this.toIsoString(payload.appealDeadline) : null,
         escalatedToAdminId: payload.escalatedToAdminId || null,
       },
     });
@@ -849,6 +848,215 @@ export class DisputeEventListener {
         }`,
       );
     }
+  }
+
+  @OnEvent(DISPUTE_EVENTS.STATUS_CHANGED)
+  async handleDisputeStatusChanged(payload: {
+    disputeId?: string;
+    previousStatus?: string;
+    newStatus?: string;
+    changedById?: string;
+    requestedById?: string;
+    userId?: string;
+  }): Promise<void> {
+    if (!payload?.disputeId) {
+      return;
+    }
+
+    const eventPayload = {
+      ...payload,
+      serverTimestamp: this.toIsoString(),
+    };
+
+    await this.emitDisputeRealtimeEvent({
+      disputeId: payload.disputeId,
+      eventName: 'DISPUTE_STATUS_CHANGED',
+      payload: eventPayload,
+      extraUserIds: [payload.changedById, payload.requestedById, payload.userId],
+    });
+  }
+
+  @OnEvent(DISPUTE_EVENTS.CLOSED)
+  async handleDisputeClosed(payload: {
+    disputeId?: string;
+    closedStatus?: string;
+    canceledById?: string;
+    reason?: string | null;
+  }): Promise<void> {
+    if (!payload?.disputeId) {
+      return;
+    }
+
+    const eventPayload = {
+      ...payload,
+      serverTimestamp: this.toIsoString(),
+    };
+
+    await this.emitDisputeRealtimeEvent({
+      disputeId: payload.disputeId,
+      eventName: 'DISPUTE_CLOSED',
+      payload: eventPayload,
+      extraUserIds: [payload.canceledById],
+    });
+  }
+
+  @OnEvent(DISPUTE_EVENTS.RESOLVED)
+  async handleDisputeResolved(payload: {
+    disputeId?: string;
+    projectId?: string;
+    clientId?: string;
+    freelancerId?: string;
+    brokerId?: string;
+    winnerId?: string;
+    loserId?: string;
+    adminId?: string;
+    resolvedAt?: Date;
+  }): Promise<void> {
+    if (!payload?.disputeId) {
+      return;
+    }
+
+    const eventPayload = {
+      ...payload,
+      serverTimestamp: this.toIsoString(payload.resolvedAt),
+    };
+
+    await this.emitDisputeRealtimeEvent({
+      disputeId: payload.disputeId,
+      eventName: 'DISPUTE_RESOLVED',
+      payload: eventPayload,
+      extraUserIds: [
+        payload.clientId,
+        payload.freelancerId,
+        payload.brokerId,
+        payload.winnerId,
+        payload.loserId,
+        payload.adminId,
+      ],
+    });
+  }
+
+  @OnEvent(DISPUTE_EVENTS.ASSIGNED)
+  async handleDisputeAssignedRealtime(payload: {
+    disputeId?: string;
+    staffId?: string;
+    assignedAt?: Date;
+  }): Promise<void> {
+    if (!payload?.disputeId || !payload.staffId) {
+      return;
+    }
+
+    const eventPayload = {
+      ...payload,
+      serverTimestamp: this.toIsoString(payload.assignedAt),
+    };
+
+    await this.emitDisputeRealtimeEvent({
+      disputeId: payload.disputeId,
+      eventName: 'DISPUTE_ASSIGNED',
+      payload: eventPayload,
+      extraUserIds: [payload.staffId],
+    });
+  }
+
+  @OnEvent(DISPUTE_EVENTS.REASSIGNED)
+  async handleDisputeReassignedRealtime(payload: {
+    disputeId?: string;
+    assignmentType?: string;
+    oldStaffId?: string | null;
+    newStaffId?: string | null;
+    previousOwnerId?: string | null;
+    nextOwnerId?: string | null;
+  }): Promise<void> {
+    if (!payload?.disputeId) {
+      return;
+    }
+
+    const eventPayload = {
+      ...payload,
+      serverTimestamp: this.toIsoString(),
+    };
+
+    await this.emitDisputeRealtimeEvent({
+      disputeId: payload.disputeId,
+      eventName: 'DISPUTE_REASSIGNED',
+      payload: eventPayload,
+      extraUserIds: [
+        payload.oldStaffId,
+        payload.newStaffId,
+        payload.previousOwnerId,
+        payload.nextOwnerId,
+      ],
+    });
+  }
+
+  @OnEvent(DISPUTE_EVENTS.INFO_REQUESTED)
+  async handleInfoRequestedRealtime(payload: {
+    disputeId?: string;
+    reason?: string;
+    requestedById?: string;
+    deadlineAt?: string | null;
+  }): Promise<void> {
+    if (!payload?.disputeId) {
+      return;
+    }
+
+    const eventPayload = {
+      ...payload,
+      serverTimestamp: this.toIsoString(),
+    };
+
+    await this.emitDisputeRealtimeEvent({
+      disputeId: payload.disputeId,
+      eventName: 'DISPUTE_INFO_REQUESTED',
+      payload: eventPayload,
+      extraUserIds: [payload.requestedById],
+    });
+  }
+
+  @OnEvent(DISPUTE_EVENTS.INFO_PROVIDED)
+  async handleInfoProvidedRealtime(payload: {
+    disputeId?: string;
+    userId?: string;
+    providedAt?: Date;
+  }): Promise<void> {
+    if (!payload?.disputeId) {
+      return;
+    }
+
+    const eventPayload = {
+      ...payload,
+      serverTimestamp: this.toIsoString(payload.providedAt),
+    };
+
+    await this.emitDisputeRealtimeEvent({
+      disputeId: payload.disputeId,
+      eventName: 'DISPUTE_INFO_PROVIDED',
+      payload: eventPayload,
+      extraUserIds: [payload.userId],
+    });
+  }
+
+  @OnEvent(DISPUTE_EVENTS.DEFENDANT_RESPONDED)
+  async handleDefendantRespondedRealtime(payload: {
+    disputeId?: string;
+    defendantId?: string;
+  }): Promise<void> {
+    if (!payload?.disputeId) {
+      return;
+    }
+
+    const eventPayload = {
+      ...payload,
+      serverTimestamp: this.toIsoString(),
+    };
+
+    await this.emitDisputeRealtimeEvent({
+      disputeId: payload.disputeId,
+      eventName: 'DISPUTE_DEFENDANT_RESPONDED',
+      payload: eventPayload,
+      extraUserIds: [payload.defendantId],
+    });
   }
 
   @OnEvent('staff.shortage')
@@ -1405,6 +1613,21 @@ export class DisputeEventListener {
       serverTimestamp: this.toIsoString(),
     });
 
+    this.gateway.emitDisputeEvent(payload.disputeId, 'HEARING_SUPPORT_INVITED', {
+      ...payload,
+      serverTimestamp: this.toIsoString(),
+    });
+
+    this.gateway.emitStaffDashboardEvent('HEARING_SUPPORT_INVITED', {
+      ...payload,
+      serverTimestamp: this.toIsoString(),
+    });
+
+    this.gateway.emitUserEvent(payload.invitedUserId, 'HEARING_SUPPORT_INVITED', {
+      ...payload,
+      serverTimestamp: this.toIsoString(),
+    });
+
     await this.appendLedger(payload.disputeId, 'HEARING_SUPPORT_INVITED', {
       actorId: payload.invitedBy || null,
       reason: payload.reason || null,
@@ -1440,6 +1663,11 @@ export class DisputeEventListener {
       serverTimestamp: this.toIsoString(),
     });
 
+    this.gateway.emitStaffDashboardEvent('HEARING_REMINDER_SENT', {
+      ...payload,
+      serverTimestamp: this.toIsoString(),
+    });
+
     await this.appendLedger(payload.disputeId, 'HEARING_REMINDER_SENT', {
       actorId: payload.userId || null,
       metadata: {
@@ -1468,6 +1696,221 @@ export class DisputeEventListener {
       ...payload,
       serverTimestamp: this.toIsoString(),
     });
+  }
+
+  @OnEvent('settlement.accepted')
+  async handleSettlementAccepted(payload: {
+    settlementId?: string;
+    disputeId?: string;
+    proposerId?: string;
+    responderId?: string;
+    amounts?: {
+      freelancer?: number;
+      client?: number;
+      platformFee?: number;
+    };
+    result?: string;
+    projectStatus?: string;
+    milestoneStatus?: string;
+  }): Promise<void> {
+    if (!payload?.disputeId || !payload?.settlementId) {
+      return;
+    }
+
+    const eventPayload = {
+      ...payload,
+      serverTimestamp: this.toIsoString(),
+    };
+
+    await this.emitDisputeRealtimeEvent({
+      disputeId: payload.disputeId,
+      eventName: 'SETTLEMENT_ACCEPTED',
+      payload: eventPayload,
+      extraUserIds: [payload.proposerId, payload.responderId],
+    });
+  }
+
+  @OnEvent('settlement.rejected')
+  async handleSettlementRejected(payload: {
+    settlementId?: string;
+    disputeId?: string;
+    proposerId?: string;
+    responderId?: string;
+    reason?: string;
+    remainingAttempts?: {
+      raiser?: number;
+      defendant?: number;
+    };
+    counterOfferPrompt?: {
+      enabled?: boolean;
+      message?: string;
+      rejectionFeedback?: string;
+    };
+  }): Promise<void> {
+    if (!payload?.disputeId || !payload?.settlementId) {
+      return;
+    }
+
+    const eventPayload = {
+      ...payload,
+      serverTimestamp: this.toIsoString(),
+    };
+
+    await this.emitDisputeRealtimeEvent({
+      disputeId: payload.disputeId,
+      eventName: 'SETTLEMENT_REJECTED',
+      payload: eventPayload,
+      extraUserIds: [payload.proposerId, payload.responderId],
+    });
+  }
+
+  @OnEvent('settlement.chatUnlocked')
+  async handleSettlementChatUnlocked(payload: {
+    disputeId?: string;
+    userId?: string;
+    reason?: string;
+  }): Promise<void> {
+    if (!payload?.disputeId) {
+      return;
+    }
+
+    const eventPayload = {
+      ...payload,
+      serverTimestamp: this.toIsoString(),
+    };
+
+    await this.emitDisputeRealtimeEvent({
+      disputeId: payload.disputeId,
+      eventName: 'SETTLEMENT_CHAT_UNLOCKED',
+      payload: eventPayload,
+      extraUserIds: [payload.userId],
+    });
+  }
+
+  @OnEvent('hearing.phaseDeadlinesSet')
+  async handleHearingPhaseDeadlinesSet(payload: {
+    hearingId?: string;
+    disputeId?: string;
+    phase?: string;
+    deadlines?: Record<string, Date>;
+    setBy?: string;
+  }): Promise<void> {
+    if (!payload?.hearingId) {
+      return;
+    }
+
+    const disputeId =
+      payload.disputeId || (await this.resolveDisputeIdFromHearing(payload.hearingId));
+    const eventPayload = {
+      ...payload,
+      disputeId,
+      serverTimestamp: this.toIsoString(),
+    };
+
+    this.gateway.emitHearingEvent(payload.hearingId, 'HEARING_PHASE_DEADLINES_SET', eventPayload);
+
+    if (disputeId) {
+      await this.emitDisputeRealtimeEvent({
+        disputeId,
+        eventName: 'HEARING_PHASE_DEADLINES_SET',
+        payload: eventPayload,
+        extraUserIds: [payload.setBy],
+      });
+    }
+  }
+
+  @OnEvent('hearing.statementDraftSaved')
+  async handleHearingStatementDraftSaved(payload: {
+    hearingId?: string;
+    statementId?: string;
+    participantId?: string;
+  }): Promise<void> {
+    if (!payload?.hearingId || !payload?.statementId) {
+      return;
+    }
+
+    const disputeId = await this.resolveDisputeIdFromHearing(payload.hearingId);
+    const eventPayload = {
+      ...payload,
+      disputeId,
+      serverTimestamp: this.toIsoString(),
+    };
+
+    this.gateway.emitHearingEvent(payload.hearingId, 'HEARING_STATEMENT_DRAFT_SAVED', eventPayload);
+
+    if (disputeId) {
+      await this.emitDisputeRealtimeEvent({
+        disputeId,
+        eventName: 'HEARING_STATEMENT_DRAFT_SAVED',
+        payload: eventPayload,
+        includeStaffDashboard: false,
+      });
+    }
+  }
+
+  @OnEvent('hearing.moderatorDisconnect')
+  async handleHearingModeratorDisconnect(payload: {
+    hearingId?: string;
+    moderatorId?: string;
+    previousSpeakerRole?: string;
+    newSpeakerRole?: string;
+    message?: string;
+  }): Promise<void> {
+    if (!payload?.hearingId) {
+      return;
+    }
+
+    const disputeId = await this.resolveDisputeIdFromHearing(payload.hearingId);
+    const eventPayload = {
+      ...payload,
+      disputeId,
+      serverTimestamp: this.toIsoString(),
+    };
+
+    this.gateway.emitHearingEvent(
+      payload.hearingId,
+      'HEARING_MODERATOR_DISCONNECTED',
+      eventPayload,
+    );
+
+    if (disputeId) {
+      await this.emitDisputeRealtimeEvent({
+        disputeId,
+        eventName: 'HEARING_MODERATOR_DISCONNECTED',
+        payload: eventPayload,
+        extraUserIds: [payload.moderatorId],
+      });
+    }
+  }
+
+  @OnEvent('hearing.moderatorReconnect')
+  async handleHearingModeratorReconnect(payload: {
+    hearingId?: string;
+    moderatorId?: string;
+    newSpeakerRole?: string;
+    message?: string;
+  }): Promise<void> {
+    if (!payload?.hearingId) {
+      return;
+    }
+
+    const disputeId = await this.resolveDisputeIdFromHearing(payload.hearingId);
+    const eventPayload = {
+      ...payload,
+      disputeId,
+      serverTimestamp: this.toIsoString(),
+    };
+
+    this.gateway.emitHearingEvent(payload.hearingId, 'HEARING_MODERATOR_RECONNECTED', eventPayload);
+
+    if (disputeId) {
+      await this.emitDisputeRealtimeEvent({
+        disputeId,
+        eventName: 'HEARING_MODERATOR_RECONNECTED',
+        payload: eventPayload,
+        extraUserIds: [payload.moderatorId],
+      });
+    }
   }
 
   @OnEvent(DISPUTE_EVENTS.EVIDENCE_ADDED)

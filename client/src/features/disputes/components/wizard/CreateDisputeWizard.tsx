@@ -19,19 +19,21 @@ import {
   DisputeStatus,
 } from "../../../staff/types/staff.types";
 import type { CreateDisputeDto } from "../../types/dispute.dto";
+import type { MilestoneDisputePolicy } from "@/features/project-workspace/types";
 import { STORAGE_KEYS } from "@/constants";
 import { getStoredJson } from "@/shared/utils/storage";
 import { resolveRoleBasePath } from "@/features/hearings/utils/hearingRouting";
 import {
-  DISPUTE_DISCLAIMER_COPY,
   DISPUTE_DISCLAIMER_VERSION,
 } from "../../constants/disputeLegal";
+import { DisputeDisclaimerCheckbox } from "../shared/DisputeDisclaimerCheckbox";
 
 interface CreateDisputeWizardProps {
   onClose: () => void;
   milestoneId: string;
   projectId: string;
   milestoneStatus: string;
+  disputePolicy?: MilestoneDisputePolicy | null;
   currentUserId: string;
   projectMembers: Array<{ id: string; name: string; role: string }>;
 }
@@ -57,18 +59,17 @@ const REPORT_REASONS = [
     title: "Payment Issue",
     desc: "Disagreement about payment amounts or release status.",
   },
-  {
-    id: DisputeCategory.OTHER,
-    title: "Other Issue",
-    desc: "Something else not listed here.",
-  },
 ];
+
+const PROJECT_PARTICIPANT_ROLES = new Set(["CLIENT", "BROKER", "FREELANCER"]);
+const MIN_DISPUTE_REASON_LENGTH = 20;
 
 export const CreateDisputeWizard = ({
   onClose,
   milestoneId,
   projectId,
   milestoneStatus,
+  disputePolicy,
   currentUserId,
   projectMembers,
 }: CreateDisputeWizardProps) => {
@@ -93,39 +94,10 @@ export const CreateDisputeWizard = ({
     [milestoneStatus],
   );
 
-  const allowedCategories = useMemo(() => {
-    switch (normalizedStatus) {
-      case "SUBMITTED":
-      case "PENDING_STAFF_REVIEW":
-      case "PENDING_CLIENT_APPROVAL":
-      case "COMPLETED":
-      case "PAID":
-        return [
-          DisputeCategory.QUALITY,
-          DisputeCategory.DEADLINE,
-          DisputeCategory.COMMUNICATION,
-          DisputeCategory.PAYMENT,
-          DisputeCategory.OTHER,
-        ];
-      case "REVISIONS_REQUIRED":
-        return [
-          DisputeCategory.QUALITY,
-          DisputeCategory.DEADLINE,
-          DisputeCategory.COMMUNICATION,
-          DisputeCategory.PAYMENT,
-          DisputeCategory.OTHER,
-        ];
-      case "IN_PROGRESS":
-        return [
-          DisputeCategory.DEADLINE,
-          DisputeCategory.COMMUNICATION,
-          DisputeCategory.PAYMENT,
-          DisputeCategory.OTHER,
-        ];
-      default:
-        return [];
-    }
-  }, [normalizedStatus]);
+  const allowedCategories = useMemo(
+    () => disputePolicy?.allowedCategories ?? [],
+    [disputePolicy],
+  );
 
   const statusLabel = useMemo(() => {
     switch (normalizedStatus) {
@@ -146,12 +118,13 @@ export const CreateDisputeWizard = ({
     }
   }, [normalizedStatus, milestoneStatus]);
 
-  const isDisputeAllowed = allowedCategories.length > 0;
-
+  const policyReason = disputePolicy?.reason ?? null;
+  const warrantyEndsAt = disputePolicy?.warrantyEndsAt ?? null;
   const blockedCategories = useMemo(
-    () => new Set<DisputeCategory>([DisputeCategory.SCOPE_CHANGE]),
-    [],
+    () => disputePolicy?.blockedCategories ?? {},
+    [disputePolicy],
   );
+  const isDisputeAllowed = Boolean(disputePolicy?.canRaise);
 
   const roleBasePath = useMemo(() => {
     const user = getStoredJson<{ role?: string }>(STORAGE_KEYS.USER);
@@ -159,27 +132,39 @@ export const CreateDisputeWizard = ({
   }, []);
 
   const isCategoryAllowed = useCallback(
-    (category: DisputeCategory) =>
-      allowedCategories.includes(category) && !blockedCategories.has(category),
-    [allowedCategories, blockedCategories],
+    (category: DisputeCategory) => allowedCategories.includes(category),
+    [allowedCategories],
   );
 
-  const getCategoryHint = useCallback((category: DisputeCategory) => {
-    if (blockedCategories.has(category)) {
-      return "Use a Change Request for scope changes. Dispute is for serious issues only.";
-    }
-    if (category === DisputeCategory.QUALITY) {
-      return "Use this when delivered work does not match the agreed milestone outputs.";
-    }
-    if (normalizedStatus === "COMPLETED" || normalizedStatus === "PAID") {
-      return "Available during the post-delivery warranty window while evidence is still available.";
-    }
-    return "Available while the milestone is in progress or awaiting approval.";
-  }, [blockedCategories, normalizedStatus]);
+  const getCategoryHint = useCallback(
+    (category: DisputeCategory) => {
+      const blockedReason = blockedCategories[category];
+      if (blockedReason) {
+        return blockedReason;
+      }
+
+      if (category === DisputeCategory.QUALITY) {
+        return "Use this when delivered work does not match the agreed milestone outputs.";
+      }
+      if (category === DisputeCategory.DEADLINE) {
+        return "Use this when the milestone due date has already passed.";
+      }
+      if (normalizedStatus === "COMPLETED" || normalizedStatus === "PAID") {
+        return "Available during the post-delivery warranty window while evidence is still available.";
+      }
+      return "Available while the milestone is in progress or awaiting approval.";
+    },
+    [blockedCategories, normalizedStatus],
+  );
 
   // Filter out current user from defendant list
   const availableDefendants = useMemo(
-    () => projectMembers.filter((m) => m.id !== currentUserId),
+    () =>
+      projectMembers.filter(
+        (member) =>
+          member.id !== currentUserId &&
+          PROJECT_PARTICIPANT_ROLES.has(String(member.role || "").toUpperCase()),
+      ),
     [projectMembers, currentUserId],
   );
 
@@ -229,7 +214,7 @@ export const CreateDisputeWizard = ({
           setAddToExistingCase(false);
           setSelectedParentDisputeId("");
         }
-      } catch (error) {
+      } catch {
         if (!cancelled) {
           setExistingParentDisputes([]);
         }
@@ -283,9 +268,44 @@ export const CreateDisputeWizard = ({
     return "Failed to submit dispute.";
   };
 
+  const uploadEvidenceInBackground = useCallback(
+    (disputeId: string, filesToUpload: File[]) => {
+      if (filesToUpload.length === 0) {
+        toast.success("Dispute submitted successfully.");
+        return;
+      }
+
+      toast.info(
+        `Dispute created. Uploading ${filesToUpload.length} evidence file${
+          filesToUpload.length > 1 ? "s" : ""
+        } in the background...`,
+      );
+
+      void Promise.allSettled(
+        filesToUpload.map((file) => uploadDisputeEvidence(disputeId, file)),
+      ).then((results) => {
+        const failedCount = results.filter(
+          (result) => result.status === "rejected",
+        ).length;
+
+        if (failedCount === 0) {
+          toast.success("Dispute submitted and evidence uploaded.");
+          return;
+        }
+
+        toast.warning(
+          `Dispute submitted, but ${failedCount}/${filesToUpload.length} evidence file${
+            failedCount > 1 ? "s" : ""
+          } failed to upload. You can retry from the dispute detail page.`,
+        );
+      });
+    },
+    [],
+  );
+
   const handleSubmit = async () => {
     if (!isDisputeAllowed) {
-      toast.error("Dispute is not available for this milestone status.");
+      toast.error(policyReason || "Dispute is not available for this milestone.");
       return;
     }
     if (!selectedCategory || !selectedDefendant) {
@@ -297,13 +317,15 @@ export const CreateDisputeWizard = ({
       return;
     }
     if (!isCategoryAllowed(selectedCategory)) {
-      toast.error("Selected dispute category is not allowed for this milestone status.");
+      toast.error(getCategoryHint(selectedCategory));
       return;
     }
 
     const reasonText = customReason.trim();
-    if (reasonText.length < 20) {
-      toast.error("Please provide more detail (at least 20 characters).");
+    if (reasonText.length < MIN_DISPUTE_REASON_LENGTH) {
+      toast.error(
+        `Please provide more detail (at least ${MIN_DISPUTE_REASON_LENGTH} characters).`,
+      );
       return;
     }
     if (!projectId || !milestoneId) {
@@ -343,18 +365,13 @@ export const CreateDisputeWizard = ({
         throw new Error("Dispute created but missing ID.");
       }
 
-      if (files.length > 0) {
-        await Promise.all(
-          files.map((file) => uploadDisputeEvidence(disputeId, file)),
-        );
-      }
-
-      toast.success("Dispute submitted successfully.");
+      const filesToUpload = [...files];
       resetForm();
       onClose();
       navigate(
         `${roleBasePath}/hearings?createdDisputeId=${encodeURIComponent(disputeId)}&projectId=${encodeURIComponent(projectId)}`,
       );
+      uploadEvidenceInBackground(disputeId, filesToUpload);
     } catch (error: unknown) {
       const message = getErrorMessage(error);
       toast.error(message);
@@ -395,7 +412,13 @@ export const CreateDisputeWizard = ({
             {statusLabel}
             {!isDisputeAllowed && (
               <div className="mt-2 text-xs text-slate-500">
-                Disputes are not available for the current milestone status.
+                {policyReason || "Disputes are not available for the current milestone status."}
+              </div>
+            )}
+            {warrantyEndsAt && (
+              <div className="mt-2 text-xs text-slate-500">
+                Warranty window ends on{" "}
+                {new Date(warrantyEndsAt).toLocaleDateString("en-GB")}.
               </div>
             )}
           </div>
@@ -540,8 +563,7 @@ export const CreateDisputeWizard = ({
         <div className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-slate-900">
-              Describe the issue in detail{" "}
-              {selectedCategory === DisputeCategory.OTHER && "(Required)"}
+              Describe the issue in detail
             </label>
             <div className="mt-1">
               <textarea
@@ -552,6 +574,17 @@ export const CreateDisputeWizard = ({
                 value={customReason}
                 onChange={(e) => setCustomReason(e.target.value)}
               />
+            </div>
+            <div className="mt-2 flex items-center justify-between text-xs text-slate-400">
+              <span>
+                {customReason.length} characters
+                {customReason.length > 0 &&
+                customReason.length < MIN_DISPUTE_REASON_LENGTH ? (
+                  <span className="ml-1 text-amber-500">
+                    (min {MIN_DISPUTE_REASON_LENGTH})
+                  </span>
+                ) : null}
+              </span>
             </div>
             <p className="mt-2 text-sm text-gray-500">
               Be specific. Vague descriptions may lead to your dispute being
@@ -620,7 +653,7 @@ export const CreateDisputeWizard = ({
             <button
               disabled={
                 !isDisputeAllowed ||
-                customReason.trim().length < 20 ||
+                customReason.trim().length < MIN_DISPUTE_REASON_LENGTH ||
                 !selectedCategory ||
                 !isCategoryAllowed(selectedCategory)
               }
@@ -671,18 +704,14 @@ export const CreateDisputeWizard = ({
             </div>
           </div>
 
-          <label className="flex items-start gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700">
-            <input
-              type="checkbox"
-              data-testid="dispute-disclaimer-checkbox"
-              checked={disclaimerAccepted}
-              onChange={(event) => setDisclaimerAccepted(event.target.checked)}
-              className="mt-0.5"
-            />
-            <span>
-              I understand that {DISPUTE_DISCLAIMER_COPY}
-            </span>
-          </label>
+          <DisputeDisclaimerCheckbox
+            id="dispute-disclaimer-checkbox"
+            testId="dispute-disclaimer-checkbox"
+            checked={disclaimerAccepted}
+            onCheckedChange={setDisclaimerAccepted}
+            disabled={isSubmitting}
+            leadInText="I understand that"
+          />
 
           <div className="flex justify-between pt-2">
             <button

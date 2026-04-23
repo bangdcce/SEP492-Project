@@ -45,6 +45,7 @@ import {
   getApiErrorDetails,
   isSchemaNotReadyErrorCode,
 } from "@/shared/utils/apiError";
+import { INTERNAL_DEV_TOOLS_ENABLED } from "@/shared/utils/internalTools";
 import { splitHearingsByLifecycle } from "@/features/hearings/utils/hearingLifecycle";
 import {
   getSchedulingErrorMessage,
@@ -91,7 +92,6 @@ export const DisputeHearingPanel = ({
     useState<DisputeHearingSummary | null>(null);
   const [endSummary, setEndSummary] = useState("");
   const [endFindings, setEndFindings] = useState("");
-  const [endPendingActions, setEndPendingActions] = useState("");
   const [testActionLoading, setTestActionLoading] = useState<string | null>(null);
   const [testScheduleHint, setTestScheduleHint] = useState<string>("");
   const [testScheduleOpen, setTestScheduleOpen] = useState(false);
@@ -152,11 +152,7 @@ export const DisputeHearingPanel = ({
     (currentUserRole === UserRole.ADMIN || currentUserRole === UserRole.STAFF);
   const canModerate =
     !readOnly && (currentUserRole === UserRole.ADMIN || currentUserRole === UserRole.STAFF);
-  const isDisputeTestToolsEnabled = useMemo(() => {
-    const raw = (import.meta.env.VITE_DISPUTE_TEST_TOOLS || "").toLowerCase();
-    return import.meta.env.DEV || raw === "true" || raw === "1";
-  }, []);
-  const canUseTestTools = isDisputeTestToolsEnabled && canModerate;
+  const canUseTestTools = INTERNAL_DEV_TOOLS_ENABLED && canModerate;
 
   const toIsoString = (value: string) => {
     const date = new Date(value);
@@ -517,7 +513,6 @@ export const DisputeHearingPanel = ({
     setEndHearingTarget(hearing);
     setEndSummary("");
     setEndFindings("");
-    setEndPendingActions("");
     setEndOpen(true);
   };
 
@@ -536,9 +531,6 @@ export const DisputeHearingPanel = ({
         hearingId: endHearingTarget.id,
         summary,
         findings,
-        pendingActions: endPendingActions
-          ? endPendingActions.split(",").map((item) => item.trim()).filter(Boolean)
-          : undefined,
       });
       toast.success("Hearing ended.");
       setEndOpen(false);
@@ -1202,13 +1194,6 @@ export const DisputeHearingPanel = ({
               onChange={(event) => setEndFindings(event.target.value)}
               className="w-full border border-gray-200 rounded-lg p-2 text-sm"
               placeholder="Findings"
-            />
-            <input
-              data-testid="end-hearing-pending-actions"
-              value={endPendingActions}
-              onChange={(event) => setEndPendingActions(event.target.value)}
-              className="w-full border border-gray-200 rounded-lg p-2 text-sm"
-              placeholder="Pending actions (comma-separated)"
             />
           </div>
           <DialogFooter>

@@ -7,6 +7,7 @@ interface HearingRealtimeHandlers {
   onMessageSent?: (payload: any) => void;
   onMessageHidden?: (payload: any) => void;
   onMessageUnhidden?: (payload: any) => void;
+  onHearingInviteResponded?: (payload: any) => void;
   onSpeakerControlChanged?: (payload: any) => void;
   onPhaseTransitioned?: (payload: any) => void;
   onEvidenceIntakeChanged?: (payload: any) => void;
@@ -17,6 +18,12 @@ interface HearingRealtimeHandlers {
   onHearingExtended?: (payload: any) => void;
   onHearingTimeWarning?: (payload: any) => void;
   onHearingFollowUpScheduled?: (payload: any) => void;
+  onHearingSupportInvited?: (payload: any) => void;
+  onHearingReminderSent?: (payload: any) => void;
+  onHearingPhaseDeadlinesSet?: (payload: any) => void;
+  onHearingStatementDraftSaved?: (payload: any) => void;
+  onHearingModeratorDisconnected?: (payload: any) => void;
+  onHearingModeratorReconnected?: (payload: any) => void;
   onStatementSubmitted?: (payload: any) => void;
   onQuestionAsked?: (payload: any) => void;
   onQuestionAnswered?: (payload: any) => void;
@@ -169,6 +176,10 @@ export const useHearingRealtime = (
     const onMessageUnhidden = withDedup("MESSAGE_UNHIDDEN", (p: any) =>
       handlersRef.current?.onMessageUnhidden?.(p),
     );
+    const onHearingInviteResponded = withDedup(
+      "HEARING_INVITE_RESPONDED",
+      (p: any) => handlersRef.current?.onHearingInviteResponded?.(p),
+    );
     const onSpeakerControlChanged = withDedup("SPEAKER_CONTROL_CHANGED", (p: any) =>
       handlersRef.current?.onSpeakerControlChanged?.(p),
     );
@@ -198,6 +209,27 @@ export const useHearingRealtime = (
     );
     const onHearingFollowUpScheduled = withDedup("HEARING_FOLLOW_UP_SCHEDULED", (p: any) =>
       handlersRef.current?.onHearingFollowUpScheduled?.(p),
+    );
+    const onHearingSupportInvited = withDedup("HEARING_SUPPORT_INVITED", (p: any) =>
+      handlersRef.current?.onHearingSupportInvited?.(p),
+    );
+    const onHearingReminderSent = withDedup("HEARING_REMINDER_SENT", (p: any) =>
+      handlersRef.current?.onHearingReminderSent?.(p),
+    );
+    const onHearingPhaseDeadlinesSet = withDedup("HEARING_PHASE_DEADLINES_SET", (p: any) =>
+      handlersRef.current?.onHearingPhaseDeadlinesSet?.(p),
+    );
+    const onHearingStatementDraftSaved = withDedup(
+      "HEARING_STATEMENT_DRAFT_SAVED",
+      (p: any) => handlersRef.current?.onHearingStatementDraftSaved?.(p),
+    );
+    const onHearingModeratorDisconnected = withDedup(
+      "HEARING_MODERATOR_DISCONNECTED",
+      (p: any) => handlersRef.current?.onHearingModeratorDisconnected?.(p),
+    );
+    const onHearingModeratorReconnected = withDedup(
+      "HEARING_MODERATOR_RECONNECTED",
+      (p: any) => handlersRef.current?.onHearingModeratorReconnected?.(p),
     );
     const onStatementSubmitted = withDedup("HEARING_STATEMENT_SUBMITTED", (p: any) =>
       handlersRef.current?.onStatementSubmitted?.(p),
@@ -238,6 +270,7 @@ export const useHearingRealtime = (
     socket.on("MESSAGE_SENT", onMessageSent);
     socket.on("MESSAGE_HIDDEN", onMessageHidden);
     socket.on("MESSAGE_UNHIDDEN", onMessageUnhidden);
+    socket.on("HEARING_INVITE_RESPONDED", onHearingInviteResponded);
     socket.on("SPEAKER_CONTROL_CHANGED", onSpeakerControlChanged);
     socket.on("PHASE_TRANSITIONED", onPhaseTransitioned);
     socket.on("EVIDENCE_INTAKE_CHANGED", onEvidenceIntakeChanged);
@@ -248,6 +281,12 @@ export const useHearingRealtime = (
     socket.on("HEARING_EXTENDED", onHearingExtended);
     socket.on("HEARING_TIME_WARNING", onHearingTimeWarning);
     socket.on("HEARING_FOLLOW_UP_SCHEDULED", onHearingFollowUpScheduled);
+    socket.on("HEARING_SUPPORT_INVITED", onHearingSupportInvited);
+    socket.on("HEARING_REMINDER_SENT", onHearingReminderSent);
+    socket.on("HEARING_PHASE_DEADLINES_SET", onHearingPhaseDeadlinesSet);
+    socket.on("HEARING_STATEMENT_DRAFT_SAVED", onHearingStatementDraftSaved);
+    socket.on("HEARING_MODERATOR_DISCONNECTED", onHearingModeratorDisconnected);
+    socket.on("HEARING_MODERATOR_RECONNECTED", onHearingModeratorReconnected);
     socket.on("HEARING_STATEMENT_SUBMITTED", onStatementSubmitted);
     socket.on("HEARING_QUESTION_ASKED", onQuestionAsked);
     socket.on("HEARING_QUESTION_ANSWERED", onQuestionAnswered);
@@ -270,6 +309,7 @@ export const useHearingRealtime = (
       socket.off("MESSAGE_SENT", onMessageSent);
       socket.off("MESSAGE_HIDDEN", onMessageHidden);
       socket.off("MESSAGE_UNHIDDEN", onMessageUnhidden);
+      socket.off("HEARING_INVITE_RESPONDED", onHearingInviteResponded);
       socket.off("SPEAKER_CONTROL_CHANGED", onSpeakerControlChanged);
       socket.off("PHASE_TRANSITIONED", onPhaseTransitioned);
       socket.off("EVIDENCE_INTAKE_CHANGED", onEvidenceIntakeChanged);
@@ -280,6 +320,12 @@ export const useHearingRealtime = (
       socket.off("HEARING_EXTENDED", onHearingExtended);
       socket.off("HEARING_TIME_WARNING", onHearingTimeWarning);
       socket.off("HEARING_FOLLOW_UP_SCHEDULED", onHearingFollowUpScheduled);
+      socket.off("HEARING_SUPPORT_INVITED", onHearingSupportInvited);
+      socket.off("HEARING_REMINDER_SENT", onHearingReminderSent);
+      socket.off("HEARING_PHASE_DEADLINES_SET", onHearingPhaseDeadlinesSet);
+      socket.off("HEARING_STATEMENT_DRAFT_SAVED", onHearingStatementDraftSaved);
+      socket.off("HEARING_MODERATOR_DISCONNECTED", onHearingModeratorDisconnected);
+      socket.off("HEARING_MODERATOR_RECONNECTED", onHearingModeratorReconnected);
       socket.off("HEARING_STATEMENT_SUBMITTED", onStatementSubmitted);
       socket.off("HEARING_QUESTION_ASKED", onQuestionAsked);
       socket.off("HEARING_QUESTION_ANSWERED", onQuestionAnswered);

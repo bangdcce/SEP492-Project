@@ -86,6 +86,66 @@ const renderStatementBlocks = (
   );
 };
 
+const getEvidenceReferenceLabel = (
+  evidenceId: string,
+  evidenceById: Map<string, { id: string; fileName: string }>,
+) => {
+  const fileName = evidenceById.get(evidenceId)?.fileName?.trim();
+  return fileName && fileName.length > 0
+    ? fileName
+    : `Evidence #${evidenceId.slice(0, 8)}`;
+};
+
+interface EvidenceReferenceListProps {
+  evidenceIds?: string[] | null;
+  evidenceById: Map<string, { id: string; fileName: string }>;
+  onPreviewEvidence: (id: string) => void;
+}
+
+const EvidenceReferenceList = memo(function EvidenceReferenceList({
+  evidenceIds,
+  evidenceById,
+  onPreviewEvidence,
+}: EvidenceReferenceListProps) {
+  if (!evidenceIds?.length) {
+    return null;
+  }
+
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {evidenceIds.map((evidenceId) => {
+        const evidence = evidenceById.get(evidenceId);
+        const label = getEvidenceReferenceLabel(evidenceId, evidenceById);
+
+        if (!evidence) {
+          return (
+            <Badge
+              key={evidenceId}
+              className="border-slate-200 bg-slate-100 text-[11px] text-slate-600"
+              title={evidenceId}
+            >
+              {label}
+            </Badge>
+          );
+        }
+
+        return (
+          <button
+            key={evidenceId}
+            type="button"
+            onClick={() => onPreviewEvidence(evidenceId)}
+            className="inline-flex items-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-800 transition-colors hover:bg-amber-100"
+            title={evidenceId}
+          >
+            <Paperclip className="h-3 w-3" />
+            {label}
+          </button>
+        );
+      })}
+    </div>
+  );
+});
+
 export const UnifiedTimeline = memo(function UnifiedTimeline({
   items,
   currentUserId,
@@ -162,7 +222,14 @@ export const UnifiedTimeline = memo(function UnifiedTimeline({
               />
             );
           if (item.kind === "statement")
-            return <StatementItem key={item.id} item={item} />;
+            return (
+              <StatementItem
+                key={item.id}
+                item={item}
+                evidenceById={evidenceById}
+                onPreviewEvidence={onPreviewEvidence}
+              />
+            );
           if (item.kind === "verdict")
             return <VerdictTimelineItem key={item.id} item={item} />;
           return (
@@ -442,6 +509,8 @@ const MessageItem = memo(function MessageItem({
 
 interface StatementItemProps {
   item: Extract<UnifiedTimelineItem, { kind: "statement" }>;
+  evidenceById: Map<string, { id: string; fileName: string }>;
+  onPreviewEvidence: (id: string) => void;
 }
 
 const STATEMENT_TYPE_STYLES: Record<
@@ -498,6 +567,8 @@ interface StatementVersionDetailDialogProps {
   onOpenChange: (open: boolean) => void;
   statement: Extract<UnifiedTimelineItem, { kind: "statement" }>["statement"];
   participantName: string;
+  evidenceById: Map<string, { id: string; fileName: string }>;
+  onPreviewEvidence: (id: string) => void;
 }
 
 const StatementVersionDetailDialog = memo(function StatementVersionDetailDialog({
@@ -505,6 +576,8 @@ const StatementVersionDetailDialog = memo(function StatementVersionDetailDialog(
   onOpenChange,
   statement,
   participantName,
+  evidenceById,
+  onPreviewEvidence,
 }: StatementVersionDetailDialogProps) {
   const revisions = statement.versionHistory ?? [];
 
@@ -559,16 +632,11 @@ const StatementVersionDetailDialog = memo(function StatementVersionDetailDialog(
               )}
 
               {statement.citedEvidenceIds?.length ? (
-                <div className="flex flex-wrap gap-1.5">
-                  {statement.citedEvidenceIds.map((evidenceId) => (
-                    <Badge
-                      key={evidenceId}
-                      className="border-slate-200 bg-slate-100 text-[11px] text-slate-600"
-                    >
-                      Evidence {evidenceId}
-                    </Badge>
-                  ))}
-                </div>
+                <EvidenceReferenceList
+                  evidenceIds={statement.citedEvidenceIds}
+                  evidenceById={evidenceById}
+                  onPreviewEvidence={onPreviewEvidence}
+                />
               ) : null}
 
               <div className="grid gap-3 text-xs text-slate-500 sm:grid-cols-2">
@@ -640,16 +708,11 @@ const StatementVersionDetailDialog = memo(function StatementVersionDetailDialog(
                         )}
 
                         {revision.citedEvidenceIds?.length ? (
-                          <div className="flex flex-wrap gap-1.5">
-                            {revision.citedEvidenceIds.map((evidenceId) => (
-                              <Badge
-                                key={evidenceId}
-                                className="border-slate-200 bg-slate-100 text-[11px] text-slate-600"
-                              >
-                                Evidence {evidenceId}
-                              </Badge>
-                            ))}
-                          </div>
+                          <EvidenceReferenceList
+                            evidenceIds={revision.citedEvidenceIds}
+                            evidenceById={evidenceById}
+                            onPreviewEvidence={onPreviewEvidence}
+                          />
                         ) : null}
                       </div>
                     </article>
@@ -665,6 +728,8 @@ const StatementVersionDetailDialog = memo(function StatementVersionDetailDialog(
 
 const StatementItem = memo(function StatementItem({
   item,
+  evidenceById,
+  onPreviewEvidence,
 }: StatementItemProps) {
   const s = item.statement;
   const [detailOpen, setDetailOpen] = useState(false);
@@ -743,15 +808,12 @@ const StatementItem = memo(function StatementItem({
           </p>
         )}
         {s.citedEvidenceIds?.length ? (
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            {s.citedEvidenceIds.map((evidenceId) => (
-              <Badge
-                key={evidenceId}
-                className="border-slate-200 bg-slate-100 text-[11px] text-slate-600"
-              >
-                Evidence {evidenceId}
-              </Badge>
-            ))}
+          <div className="mt-2">
+            <EvidenceReferenceList
+              evidenceIds={s.citedEvidenceIds}
+              evidenceById={evidenceById}
+              onPreviewEvidence={onPreviewEvidence}
+            />
           </div>
         ) : null}
         {s.versionHistory?.length ? (
@@ -784,6 +846,8 @@ const StatementItem = memo(function StatementItem({
         onOpenChange={setDetailOpen}
         statement={s}
         participantName={name}
+        evidenceById={evidenceById}
+        onPreviewEvidence={onPreviewEvidence}
       />
     </div>
   );
@@ -938,8 +1002,8 @@ const QuestionItem = memo(function QuestionItem({
 /* ─── Verdict timeline event ─── */
 
 const RESULT_LABELS: Record<string, string> = {
-  WIN_CLIENT: "In Favor of Client",
-  WIN_FREELANCER: "In Favor of Freelancer",
+  WIN_CLIENT: "In Favor of Raiser",
+  WIN_FREELANCER: "In Favor of Defendant",
   SPLIT: "Split Resolution",
 };
 
@@ -951,7 +1015,7 @@ const VerdictTimelineItem = memo(function VerdictTimelineItem({
   const label = RESULT_LABELS[item.verdictResult] ?? item.verdictResult;
   return (
     <div className="my-4 flex items-center gap-3">
-      <div className="flex-1 h-px bg-gradient-to-r from-transparent via-amber-300 to-transparent" />
+      <div className="flex-1 h-px bg-linear-to-r from-transparent via-amber-300 to-transparent" />
       <div className="inline-flex items-center gap-2 rounded-full border border-amber-300 bg-amber-50 px-4 py-1.5 shadow-sm">
         <Scale className="h-4 w-4 text-amber-700" />
         <span className="text-xs font-semibold text-amber-900">
@@ -963,7 +1027,7 @@ const VerdictTimelineItem = memo(function VerdictTimelineItem({
           </span>
         )}
       </div>
-      <div className="flex-1 h-px bg-gradient-to-r from-transparent via-amber-300 to-transparent" />
+      <div className="flex-1 h-px bg-linear-to-r from-transparent via-amber-300 to-transparent" />
     </div>
   );
 });

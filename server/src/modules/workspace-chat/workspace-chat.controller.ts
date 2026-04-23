@@ -3,18 +3,24 @@ import {
   Controller,
   Delete,
   Get,
+  Post,
   Param,
   Patch,
   ParseUUIDPipe,
   Query,
   UseGuards,
+  UseInterceptors,
   UsePipes,
+  UploadedFile,
   ValidationPipe,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { IsBoolean, IsOptional, IsString } from 'class-validator';
 import { GetUser, JwtAuthGuard } from '../auth';
 import { UserEntity } from 'src/database/entities';
 import { WorkspaceChatService } from './workspace-chat.service';
+import { MulterFile } from 'src/common/types/multer.type';
+import { memoryStorage } from 'multer';
 
 class UpdatePinMessageDto {
   @IsBoolean()
@@ -119,6 +125,32 @@ export class WorkspaceChatController {
     return {
       success: true,
       data: message,
+    };
+  }
+
+  @Post('projects/:projectId/export/email')
+  @UseInterceptors(
+    FileInterceptor('exportFile', {
+      storage: memoryStorage(),
+      limits: {
+        fileSize: 15 * 1024 * 1024,
+      },
+    }),
+  )
+  async emailChatExport(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @GetUser() user: UserEntity,
+    @UploadedFile() exportFile?: MulterFile,
+  ) {
+    const result = await this.workspaceChatService.emailChatExport(projectId, user, exportFile);
+
+    return {
+      success: true,
+      message: result.message,
+      data: {
+        recipientEmail: result.recipientEmail,
+        fileName: result.fileName,
+      },
     };
   }
 }

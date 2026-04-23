@@ -13,12 +13,15 @@ import { ProjectEntity } from '../../database/entities/project.entity';
 import { ProjectRequestEntity } from '../../database/entities/project-request.entity';
 import { ProjectRequestProposalEntity } from '../../database/entities/project-request-proposal.entity';
 import { BrokerProposalEntity } from '../../database/entities/broker-proposal.entity';
+import { AuthSessionEntity } from '../../database/entities/auth-session.entity';
 import { TrustProfilesController } from './trust-profiles.controller';
 import { TrustProfilesService } from './trust-profiles.service';
 import { FreelancerDashboardController } from './freelancer-dashboard.controller';
+import { AuthModule } from '../auth/auth.module';
 
 @Module({
   imports: [
+    AuthModule,
     TypeOrmModule.forFeature([
       UserEntity,
       ProfileEntity,
@@ -29,6 +32,7 @@ import { FreelancerDashboardController } from './freelancer-dashboard.controller
       ProjectRequestEntity,
       ProjectRequestProposalEntity,
       BrokerProposalEntity,
+      AuthSessionEntity,
     ]),
   ],
   controllers: [

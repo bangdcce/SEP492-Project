@@ -1,17 +1,142 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { ArrowLeft, CheckCircle, Clock, Globe } from "lucide-react";
 import { Button, Card, CardContent, CardHeader, CardTitle, Avatar, AvatarImage, AvatarFallback, Badge, Separator, Skeleton } from "@/shared/components/ui";
-import { discoveryApi } from "./api";
+import { discoveryApi, type UserProfilePublic } from "./api";
 import { InviteModal } from "./InviteModal";
 import { useState, useEffect } from "react";
 import { UserRole } from "../../shared/types/user.types";
+
+type PublicSkill = NonNullable<UserProfilePublic["userSkills"]>[number];
+
+const getSkillName = (skill: PublicSkill): string => {
+    const name = skill.skill?.name?.trim();
+    return name || "Unnamed Skill";
+};
+
+const getSkillExperienceLabel = (skill: PublicSkill): string | null => {
+    if (!skill.yearsOfExperience || skill.yearsOfExperience <= 0) {
+        return null;
+    }
+
+    return `${skill.yearsOfExperience}y`;
+};
+
+const getSkillProjectLabel = (skill: PublicSkill): string | null => {
+    const count = skill.completedProjectsCount ?? 0;
+    if (count <= 0) {
+        return null;
+    }
+
+    return `${count} project${count === 1 ? "" : "s"}`;
+};
+
+const getSkillTone = (skill: PublicSkill) => {
+    if (skill.priority === "PRIMARY") {
+        return "bg-slate-100 text-slate-800 ring-1 ring-slate-200";
+    }
+
+    return "bg-slate-50 text-slate-700 ring-1 ring-slate-100";
+};
+
+function SkillsSection({ user }: { user: UserProfilePublic }) {
+    const declaredSkills = Array.isArray(user.userSkills) ? user.userSkills : [];
+    const primarySkills = declaredSkills.filter((skill) => skill.priority === "PRIMARY");
+    const secondarySkills = declaredSkills.filter((skill) => skill.priority !== "PRIMARY");
+    const fallbackSkills = (user.profile?.skills || []).filter(Boolean);
+
+    return (
+        <Card>
+            <CardHeader>
+                <CardTitle>Skills & Expertise</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-5">
+                {primarySkills.length > 0 ? (
+                    <div className="space-y-3">
+                        <p className="text-sm font-medium text-slate-600">Primary specialties</p>
+                        <div className="flex flex-wrap gap-3">
+                            {primarySkills.map((skill) => {
+                                const meta = [
+                                    getSkillExperienceLabel(skill),
+                                    getSkillProjectLabel(skill),
+                                    "Primary",
+                                ].filter(Boolean);
+
+                                return (
+                                    <div
+                                        key={skill.id}
+                                        className={`inline-flex items-center rounded-full px-4 py-2 text-sm font-medium ${getSkillTone(skill)}`}
+                                    >
+                                        <span>{getSkillName(skill)}</span>
+                                        {meta.length > 0 ? (
+                                            <span className="ml-2 text-slate-500">
+                                                {meta.join(" · ")}
+                                            </span>
+                                        ) : null}
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                ) : null}
+
+                {secondarySkills.length > 0 ? (
+                    <div className="space-y-3">
+                        <p className="text-sm font-medium text-slate-600">Supporting skills</p>
+                        <div className="flex flex-wrap gap-3">
+                            {secondarySkills.map((skill) => {
+                                const meta = [
+                                    getSkillExperienceLabel(skill),
+                                    getSkillProjectLabel(skill),
+                                ].filter(Boolean);
+
+                                return (
+                                    <div
+                                        key={skill.id}
+                                        className={`inline-flex items-center rounded-full px-4 py-2 text-sm font-medium ${getSkillTone(skill)}`}
+                                    >
+                                        <span>{getSkillName(skill)}</span>
+                                        {meta.length > 0 ? (
+                                            <span className="ml-2 text-slate-500">
+                                                {meta.join(" · ")}
+                                            </span>
+                                        ) : null}
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                ) : null}
+
+                {primarySkills.length === 0 && secondarySkills.length === 0 && fallbackSkills.length > 0 ? (
+                    <div className="space-y-3">
+                        <p className="text-sm font-medium text-slate-600">Skills</p>
+                        <div className="flex flex-wrap gap-3">
+                            {fallbackSkills.map((skill) => (
+                                <div
+                                    key={skill}
+                                    className="inline-flex items-center rounded-full bg-slate-100 px-4 py-2 text-sm font-medium text-slate-800 ring-1 ring-slate-200"
+                                >
+                                    {skill}
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                ) : null}
+
+                {primarySkills.length === 0 && secondarySkills.length === 0 && fallbackSkills.length === 0 ? (
+                    <span className="text-muted-foreground italic">No skills listed.</span>
+                ) : null}
+            </CardContent>
+        </Card>
+    );
+}
 
 export const PartnerProfilePage = () => {
     const { id } = useParams<{ id: string }>();
     const navigate = useNavigate();
     const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
 
-    const [user, setUser] = useState<any>(null);
+    const [user, setUser] = useState<UserProfilePublic | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState(false);
 
@@ -104,24 +229,7 @@ export const PartnerProfilePage = () => {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                  {/* Main Content */}
                  <div className="md:col-span-2 space-y-6">
-                      <Card>
-                        <CardHeader>
-                            <CardTitle>Skills & Expertise</CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                            <div className="flex flex-wrap gap-2">
-                                {user.userSkills?.length ? (
-                                    user.userSkills.map((us: any) => (
-                                        <Badge key={us.id} variant="secondary" className="px-3 py-1 text-sm">
-                                            {us.skill?.name}
-                                        </Badge>
-                                    ))
-                                ) : (
-                                    <span className="text-muted-foreground italic">No skills listed.</span>
-                                )}
-                            </div>
-                        </CardContent>
-                      </Card>
+                      <SkillsSection user={user} />
 
                       <Card>
                         <CardHeader>

@@ -9,6 +9,7 @@ interface ImportMetaEnv {
   readonly VITE_ENV: string;
   readonly VITE_RECAPTCHA_SITE_KEY?: string;
   readonly VITE_DISPUTE_TEST_TOOLS?: string;
+  readonly VITE_ENABLE_INTERNAL_DEV_TOOLS?: string;
 }
 
 interface ImportMeta {

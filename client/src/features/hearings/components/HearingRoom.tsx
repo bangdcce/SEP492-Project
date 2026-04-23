@@ -28,7 +28,12 @@ import {
   acceptDisputeVerdict,
 } from "@/features/hearings/api";
 import type {
+  HearingParticipantConfirmationItem,
+  HearingParticipantConfirmationSummary,
   HearingParticipantRole,
+  HearingParticipantResponseStatus,
+  HearingParticipantSummary,
+  HearingPhaseGateStatus,
   HearingStatementContentBlock,
   HearingStatementSummary,
   HearingStatementType,
@@ -98,6 +103,45 @@ interface HearingRoomProps {
 }
 
 const REALTIME_WORKSPACE_REFRESH_DEBOUNCE_MS = 220;
+const SPEAKER_BLOCKED_REASON = "You are not allowed to speak at this time";
+const PHASE_SPEAKER_ROLE: Partial<Record<string, SpeakerRole>> = {
+  PRESENTATION: "RAISER_ONLY",
+  EVIDENCE_SUBMISSION: "ALL",
+  CROSS_EXAMINATION: "DEFENDANT_ONLY",
+  INTERROGATION: "MODERATOR_ONLY",
+  DELIBERATION: "MUTED_ALL",
+};
+
+const isSpeakerRoleAllowedForParticipant = (
+  speakerRole?: SpeakerRole | string | null,
+  participantRole?: HearingParticipantRole | string | null,
+): boolean => {
+  if (!speakerRole || !participantRole) {
+    return false;
+  }
+
+  if (participantRole === "MODERATOR" && speakerRole !== "MUTED_ALL") {
+    return true;
+  }
+
+  switch (speakerRole) {
+    case "ALL":
+      return true;
+    case "MODERATOR_ONLY":
+      return participantRole === "MODERATOR";
+    case "RAISER_ONLY":
+      return participantRole === "RAISER";
+    case "DEFENDANT_ONLY":
+      return participantRole === "DEFENDANT";
+    case "WITNESS_ONLY":
+      return participantRole === "WITNESS";
+    case "OBSERVER_ONLY":
+      return participantRole === "OBSERVER";
+    case "MUTED_ALL":
+    default:
+      return false;
+  }
+};
 
 const mergeWorkspaceMessages = (
   previousMessages: LocalMessage[],
@@ -137,6 +181,248 @@ const mergeWorkspaceMessages = (
   return Array.from(mergedById.values()).sort(
     (left, right) => toMs(left.createdAt) - toMs(right.createdAt),
   );
+};
+
+const normalizeConfirmationStatus = (
+  value: unknown,
+): HearingParticipantResponseStatus => {
+  const normalized = typeof value === "string" ? value.toUpperCase() : "";
+  switch (normalized) {
+    case "PENDING":
+    case "NO_RESPONSE":
+    case "ACCEPTED":
+    case "DECLINED":
+    case "TENTATIVE":
+      return normalized;
+    default:
+      return "NO_RESPONSE";
+  }
+};
+
+const buildConfirmationParticipants = (
+  participants: HearingParticipantSummary[] | undefined,
+  summary?: HearingParticipantConfirmationSummary | null,
+): HearingParticipantConfirmationItem[] => {
+  const itemsByUserId = new Map<string, HearingParticipantConfirmationItem>();
+
+  (summary?.participants ?? []).forEach((participant) => {
+    itemsByUserId.set(participant.userId, participant);
+  });
+
+  (participants ?? []).forEach((participant) => {
+    const existing = itemsByUserId.get(participant.userId);
+    itemsByUserId.set(participant.userId, {
+      userId: participant.userId,
+      role:
+        existing?.role ??
+        (participant.role === "MODERATOR"
+          ? "MODERATOR"
+          : participant.isRequired
+            ? "REQUIRED"
+            : "OPTIONAL"),
+      status: normalizeConfirmationStatus(
+        existing?.status ?? (participant.confirmedAt ? "ACCEPTED" : "NO_RESPONSE"),
+      ),
+      isRequired: existing?.isRequired ?? Boolean(participant.isRequired),
+      caseRole: existing?.caseRole ?? participant.role ?? null,
+      respondedAt: existing?.respondedAt ?? participant.confirmedAt ?? null,
+      responseDeadline: existing?.responseDeadline ?? participant.responseDeadline ?? null,
+    });
+  });
+
+  return Array.from(itemsByUserId.values());
+};
+
+const summarizeConfirmationParticipants = (
+  participants: HearingParticipantConfirmationItem[],
+): HearingParticipantConfirmationSummary => {
+  const summary: HearingParticipantConfirmationSummary = {
+    totalParticipants: participants.length,
+    requiredParticipants: 0,
+    accepted: 0,
+    declined: 0,
+    tentative: 0,
+    pending: 0,
+    requiredAccepted: 0,
+    requiredDeclined: 0,
+    requiredTentative: 0,
+    requiredPending: 0,
+    allRequiredAccepted: false,
+    hasModeratorAccepted: false,
+    primaryPartyAcceptedCount: 0,
+    primaryPartyPendingCount: 0,
+    primaryPartyDeclinedCount: 0,
+    confirmedPrimaryRoles: [],
+    confirmationSatisfied: false,
+    participants,
+  };
+
+  participants.forEach((participant) => {
+    const status = normalizeConfirmationStatus(participant.status);
+    const isRequired = Boolean(participant.isRequired);
+    const isModerator =
+      participant.role === "MODERATOR" || participant.caseRole === "MODERATOR";
+    const isPrimaryParty =
+      participant.caseRole === "RAISER" || participant.caseRole === "DEFENDANT";
+
+    if (isRequired) {
+      summary.requiredParticipants += 1;
+    }
+
+    switch (status) {
+      case "ACCEPTED":
+        summary.accepted += 1;
+        if (isRequired) {
+          summary.requiredAccepted += 1;
+        }
+        if (isModerator) {
+          summary.hasModeratorAccepted = true;
+        }
+        if (
+          isPrimaryParty &&
+          participant.caseRole &&
+          !summary.confirmedPrimaryRoles.includes(participant.caseRole)
+        ) {
+          summary.primaryPartyAcceptedCount += 1;
+          summary.confirmedPrimaryRoles.push(participant.caseRole);
+        } else if (isPrimaryParty) {
+          summary.primaryPartyAcceptedCount += 1;
+        }
+        break;
+      case "DECLINED":
+        summary.declined += 1;
+        if (isRequired) {
+          summary.requiredDeclined += 1;
+        }
+        if (isPrimaryParty) {
+          summary.primaryPartyDeclinedCount += 1;
+        }
+        break;
+      case "TENTATIVE":
+        summary.tentative += 1;
+        if (isRequired) {
+          summary.requiredTentative += 1;
+        }
+        break;
+      case "PENDING":
+      case "NO_RESPONSE":
+      default:
+        summary.pending += 1;
+        if (isRequired) {
+          summary.requiredPending += 1;
+        }
+        if (isPrimaryParty) {
+          summary.primaryPartyPendingCount += 1;
+        }
+        break;
+    }
+  });
+
+  summary.allRequiredAccepted =
+    summary.requiredParticipants > 0 &&
+    summary.requiredAccepted === summary.requiredParticipants &&
+    summary.requiredDeclined === 0 &&
+    summary.requiredTentative === 0 &&
+    summary.requiredPending === 0;
+  summary.confirmationSatisfied = summary.allRequiredAccepted;
+
+  return summary;
+};
+
+const applyInviteResponseToParticipants = (
+  participants: HearingParticipantSummary[] | undefined,
+  payload: {
+    participantId?: string;
+    participantUserId?: string;
+    response?: string;
+    respondedAt?: string;
+    serverTimestamp?: string;
+    reason?: string | null;
+  },
+): HearingParticipantSummary[] | undefined => {
+  if (!participants?.length) {
+    return participants;
+  }
+
+  const status = normalizeConfirmationStatus(payload.response);
+  const respondedAt =
+    payload.respondedAt || payload.serverTimestamp || new Date().toISOString();
+
+  return participants.map((participant) => {
+    const matchesParticipant =
+      participant.id === payload.participantId ||
+      participant.userId === payload.participantUserId;
+    if (!matchesParticipant) {
+      return participant;
+    }
+
+    if (status === "ACCEPTED") {
+      return {
+        ...participant,
+        confirmedAt: respondedAt,
+        declineReason: null,
+      };
+    }
+
+    if (status === "DECLINED") {
+      return {
+        ...participant,
+        confirmedAt: null,
+        declineReason: payload.reason || participant.declineReason || null,
+      };
+    }
+
+    return {
+      ...participant,
+      confirmedAt: null,
+      declineReason: null,
+    };
+  });
+};
+
+const resolvePhaseStep = (
+  phaseSequence: string[] | undefined,
+  phaseName?: string | null,
+): number | null => {
+  if (!phaseName || !phaseSequence?.length) {
+    return null;
+  }
+
+  const index = phaseSequence.findIndex((phase) => phase === phaseName);
+  return index >= 0 ? index + 1 : null;
+};
+
+const resolvePhaseProgressPercent = (
+  phaseSequence: string[] | undefined,
+  currentStep: number | null,
+  fallback: number,
+): number => {
+  if (!phaseSequence?.length || !currentStep) {
+    return fallback;
+  }
+
+  return Math.round((currentStep / phaseSequence.length) * 100);
+};
+
+const resolvePhaseGate = (
+  currentGate: HearingPhaseGateStatus,
+  nextGate: HearingPhaseGateStatus | undefined,
+  phaseChanged: boolean,
+): HearingPhaseGateStatus => {
+  if (nextGate) {
+    return nextGate;
+  }
+
+  if (!phaseChanged) {
+    return currentGate;
+  }
+
+  return {
+    ...currentGate,
+    canTransition: true,
+    reason: undefined,
+    missingParticipants: [],
+  };
 };
 
 /* ─── Component ─── */
@@ -342,7 +628,31 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
 
   /* ─── Permissions ─── */
 
-  const canSendMessage = Boolean(hearing?.permissions?.canSendMessage);
+  const participantRole = currentParticipant?.role;
+  const speakerAllowsCurrentParticipant = participantRole
+    ? isSpeakerRoleAllowedForParticipant(
+        hearing?.currentSpeakerRole,
+        participantRole,
+      )
+    : false;
+  const backendCanSendMessage = Boolean(hearing?.permissions?.canSendMessage);
+  const backendBlockedReason = hearing?.permissions?.sendMessageBlockedReason;
+  const backendBlockedBySpeaker = (backendBlockedReason ?? "")
+    .toLowerCase()
+    .includes("not allowed to speak");
+  const isLiveChatActive =
+    hearing?.status === "IN_PROGRESS" && hearing?.isChatRoomActive !== false;
+
+  const canSendMessage =
+    !hearing || !participantRole
+      ? backendCanSendMessage
+      : !isLiveChatActive
+        ? false
+        : backendBlockedBySpeaker
+        ? speakerAllowsCurrentParticipant
+        : backendCanSendMessage &&
+          speakerAllowsCurrentParticipant;
+
   const isLiveEvidenceIntakeClosed =
     hearing?.status === "IN_PROGRESS" && hearing?.isEvidenceIntakeOpen === false;
   const uploadEvidenceBlockedReason = isLiveEvidenceIntakeClosed
@@ -364,9 +674,20 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
   const canAskQuestions =
     currentUserRole === UserRole.ADMIN || currentUserRole === UserRole.STAFF;
 
-  const chatReason =
-    hearing?.permissions?.sendMessageBlockedReason ||
-    "You cannot speak right now.";
+  const chatReason = canSendMessage
+    ? ""
+    : !isLiveChatActive
+      ? backendBlockedReason ||
+        (hearing?.status === "COMPLETED" || hearing?.status === "CANCELED"
+          ? "This hearing has ended and is read-only."
+          : hearing?.status === "PAUSED"
+            ? "Hearing is paused."
+            : hearing?.status === "SCHEDULED"
+              ? "Hearing has not started yet."
+              : "Chat room is not active.")
+    : hearing?.status === "IN_PROGRESS" && !speakerAllowsCurrentParticipant
+      ? SPEAKER_BLOCKED_REASON
+      : backendBlockedReason || "You cannot speak right now.";
 
   const statusLabel =
     hearing?.status === "IN_PROGRESS"
@@ -673,6 +994,64 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
         ),
       );
     },
+    onHearingInviteResponded: (payload) => {
+      if (payload?.hearingId && payload.hearingId !== hearingId) {
+        return;
+      }
+
+      const responseStatus = normalizeConfirmationStatus(payload?.response);
+      const responseLabel = responseStatus.replace(/_/g, " ").toLowerCase();
+
+      setWorkspace((prev) => {
+        if (!prev) {
+          return prev;
+        }
+
+        const nextParticipants = applyInviteResponseToParticipants(
+          prev.hearing.participants,
+          payload ?? {},
+        );
+        const summaryParticipants = buildConfirmationParticipants(
+          nextParticipants,
+          prev.hearing.participantConfirmationSummary,
+        ).map((participant) => {
+          const matchesParticipant =
+            participant.userId === payload?.participantUserId ||
+            participant.userId === payload?.responderId;
+          if (!matchesParticipant) {
+            return participant;
+          }
+
+          return {
+            ...participant,
+            status: responseStatus,
+            respondedAt:
+              payload?.respondedAt ||
+              payload?.serverTimestamp ||
+              participant.respondedAt ||
+              new Date().toISOString(),
+          };
+        });
+
+        return {
+          ...prev,
+          hearing: {
+            ...prev.hearing,
+            participants: nextParticipants,
+            participantConfirmationSummary:
+              summarizeConfirmationParticipants(summaryParticipants),
+          },
+        };
+      });
+
+      notify({
+        type: "phase",
+        title: "Participant Updated",
+        body: `Invite response recorded: ${responseLabel}.`,
+        browser: true,
+      });
+      scheduleWorkspaceRefresh({ delayMs: 120 });
+    },
     onSpeakerControlChanged: (payload) => {
       if (!payload?.newRole) return;
       setWorkspace((prev) =>
@@ -686,6 +1065,7 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
             }
           : prev,
       );
+      scheduleWorkspaceRefresh({ delayMs: 120 });
     },
     onEvidenceIntakeChanged: (payload) => {
       if (typeof payload?.isOpen !== "boolean") return;
@@ -715,9 +1095,15 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
               hearing: {
                 ...prev.hearing,
                 status: "PAUSED",
+                isChatRoomActive: false,
                 pausedAt:
                   payload?.pausedAt || prev.hearing.pausedAt || new Date().toISOString(),
                 pauseReason: payload?.reason || prev.hearing.pauseReason,
+                permissions: {
+                  ...prev.hearing.permissions,
+                  canSendMessage: false,
+                  sendMessageBlockedReason: "Hearing is paused",
+                },
               },
             }
           : prev,
@@ -733,10 +1119,16 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
               hearing: {
                 ...prev.hearing,
                 status: "IN_PROGRESS",
+                isChatRoomActive: true,
                 pausedAt: null,
                 pauseReason: null,
                 currentSpeakerRole:
                   payload?.restoredSpeakerRole || prev.hearing.currentSpeakerRole,
+                permissions: {
+                  ...prev.hearing.permissions,
+                  canSendMessage: true,
+                  sendMessageBlockedReason: undefined,
+                },
               },
             }
           : prev,
@@ -752,8 +1144,14 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
               hearing: {
                 ...prev.hearing,
                 status: "IN_PROGRESS",
+                isChatRoomActive: true,
                 startedAt:
                   payload?.startedAt || prev.hearing.startedAt || new Date().toISOString(),
+                permissions: {
+                  ...prev.hearing.permissions,
+                  canSendMessage: true,
+                  sendMessageBlockedReason: undefined,
+                },
               },
             }
           : prev,
@@ -766,7 +1164,10 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
       });
       scheduleWorkspaceRefresh();
     },
-    onHearingEnded: () => {
+    onHearingEnded: (payload) => {
+      if (payload?.hearingId && payload.hearingId !== hearingId) {
+        return;
+      }
       setWorkspace((prev) =>
         prev
           ? {
@@ -774,8 +1175,19 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
               hearing: {
                 ...prev.hearing,
                 status: "COMPLETED",
-                endedAt: new Date().toISOString(),
+                endedAt:
+                  payload?.serverTimestamp ||
+                  payload?.endedAt ||
+                  prev.hearing.endedAt ||
+                  new Date().toISOString(),
                 currentSpeakerRole: "MUTED_ALL",
+                isChatRoomActive: false,
+                permissions: {
+                  ...prev.hearing.permissions,
+                  canSendMessage: false,
+                  sendMessageBlockedReason:
+                    "This hearing has ended and is now read-only.",
+                },
               },
             }
           : prev,
@@ -814,6 +1226,80 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
       });
       scheduleWorkspaceRefresh();
     },
+    onHearingSupportInvited: (payload) => {
+      const supportRole = payload?.participantRole
+        ? String(payload.participantRole).replace(/_/g, " ").toLowerCase()
+        : "support participant";
+      notify({
+        type: "phase",
+        title: "Support Participant Invited",
+        body: `A ${supportRole} was invited to this hearing.`,
+        browser: true,
+      });
+      scheduleWorkspaceRefresh();
+    },
+    onHearingReminderSent: (payload) => {
+      if (payload?.userId && payload.userId !== currentUserId) {
+        return;
+      }
+      notify({
+        type: "warning",
+        title: "Hearing Reminder",
+        body: "A hearing reminder was just sent.",
+        browser: true,
+      });
+      scheduleWorkspaceRefresh();
+    },
+    onHearingPhaseDeadlinesSet: () => {
+      scheduleWorkspaceRefresh();
+    },
+    onHearingStatementDraftSaved: () => {
+      scheduleWorkspaceRefresh();
+    },
+    onHearingModeratorDisconnected: (payload) => {
+      setWorkspace((prev) =>
+        prev
+          ? {
+              ...prev,
+              hearing: {
+                ...prev.hearing,
+                currentSpeakerRole:
+                  payload?.newSpeakerRole || prev.hearing.currentSpeakerRole,
+              },
+            }
+          : prev,
+      );
+      notify({
+        type: "warning",
+        title: "Moderator Disconnected",
+        body:
+          payload?.message ||
+          "Moderator connection was lost. Speaking permissions are restricted.",
+        browser: true,
+      });
+      scheduleWorkspaceRefresh();
+    },
+    onHearingModeratorReconnected: (payload) => {
+      setWorkspace((prev) =>
+        prev
+          ? {
+              ...prev,
+              hearing: {
+                ...prev.hearing,
+                currentSpeakerRole:
+                  payload?.newSpeakerRole || prev.hearing.currentSpeakerRole,
+              },
+            }
+          : prev,
+      );
+      notify({
+        type: "start",
+        title: "Moderator Reconnected",
+        body: payload?.message || "Moderator is back. Session controls were restored.",
+        browser: true,
+      });
+      scheduleWorkspaceRefresh();
+    },
     onHearingExtended: (payload) => {
       if (payload?.newDurationMinutes) {
         setWorkspace((prev) =>
@@ -840,6 +1326,7 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
       });
     },
     onStatementSubmitted: (payload) => {
+      const hasRealtimeStatement = Boolean(payload?.statement?.id);
       if (payload?.statement?.id) {
         upsertRealtimeStatement(payload.statement as HearingStatementSummary);
         notify({
@@ -851,7 +1338,11 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
           browser: true,
         });
       }
-      scheduleWorkspaceRefresh();
+      if (hasRealtimeStatement) {
+        scheduleWorkspaceRefresh({ delayMs: 400 });
+      } else {
+        scheduleWorkspaceRefresh({ immediate: true });
+      }
     },
     onQuestionAsked: () => {
       notify({
@@ -884,33 +1375,105 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
               phase: {
                 ...prev.phase,
                 current: phaseName,
-                currentStep: payload.currentStep ?? prev.phase.currentStep + 1,
+                currentStep:
+                  payload.currentStep ??
+                  resolvePhaseStep(prev.phase.sequence, phaseName) ??
+                  prev.phase.currentStep,
                 progressPercent:
-                  payload.progressPercent ?? prev.phase.progressPercent,
-                gate: payload.gate ?? prev.phase.gate,
+                  payload.progressPercent ??
+                  resolvePhaseProgressPercent(
+                    prev.phase.sequence,
+                    resolvePhaseStep(prev.phase.sequence, phaseName),
+                    prev.phase.progressPercent,
+                  ),
+                gate: resolvePhaseGate(
+                  prev.phase.gate,
+                  payload.gate,
+                  prev.phase.current !== phaseName,
+                ),
               },
+              dossier: prev.dossier.dispute
+                ? {
+                    ...prev.dossier,
+                    dispute: {
+                      ...prev.dossier.dispute,
+                      phase: phaseName,
+                    },
+                  }
+                : prev.dossier,
               hearing: {
                 ...prev.hearing,
                 currentSpeakerRole:
                   payload.newSpeakerRole ??
                   payload.speakerRole ??
+                  PHASE_SPEAKER_ROLE[phaseName] ??
                   prev.hearing.currentSpeakerRole,
+                isEvidenceIntakeOpen:
+                  typeof payload?.isEvidenceIntakeOpen === "boolean"
+                    ? payload.isEvidenceIntakeOpen
+                    : phaseName === "EVIDENCE_SUBMISSION"
+                      ? true
+                      : phaseName === "DELIBERATION"
+                        ? false
+                        : prev.hearing.isEvidenceIntakeOpen,
+              },
+              evidenceIntake: {
+                ...prev.evidenceIntake,
+                isOpen:
+                  typeof payload?.isEvidenceIntakeOpen === "boolean"
+                    ? payload.isEvidenceIntakeOpen
+                    : phaseName === "EVIDENCE_SUBMISSION"
+                      ? true
+                      : phaseName === "DELIBERATION"
+                        ? false
+                        : prev.evidenceIntake.isOpen,
               },
             }
           : prev,
       );
-      scheduleWorkspaceRefresh();
+      scheduleWorkspaceRefresh({ delayMs: 120 });
     },
     onQuestionCancelled: () => scheduleWorkspaceRefresh(),
-    onVerdictIssued: () => {
+    onVerdictIssued: (payload) => {
+      if (payload?.hearingId && payload.hearingId !== hearingId) {
+        return;
+      }
+
+      // Verdict issuance should immediately lock live controls while backend
+      // finalizes hearing closure and emits the definitive HEARING_ENDED event.
+      setWorkspace((prev) =>
+        prev
+          ? {
+              ...prev,
+              hearing: {
+                ...prev.hearing,
+                status: "COMPLETED",
+                endedAt:
+                  prev.hearing.endedAt ||
+                  payload?.serverTimestamp ||
+                  new Date().toISOString(),
+                currentSpeakerRole: "MUTED_ALL",
+                isChatRoomActive: false,
+                permissions: {
+                  ...prev.hearing.permissions,
+                  canSendMessage: false,
+                  sendMessageBlockedReason:
+                    "This hearing has ended and is now read-only.",
+                },
+              },
+            }
+          : prev,
+      );
+
       notify({
         type: "warning",
         title: "Verdict Issued",
         body: "The adjudicator has issued a verdict",
         browser: true,
       });
-      void fetchVerdict();
-      scheduleWorkspaceRefresh();
+      void fetchVerdict(payload?.disputeId);
+      scheduleWorkspaceRefresh({ immediate: true });
+      scheduleWorkspaceRefresh({ delayMs: 1200 });
     },
     onEvidenceUploaded: (payload) => {
       // Refresh evidence list for all participants in real-time
@@ -1302,7 +1865,6 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
     async (data: {
       summary: string;
       findings: string;
-      pendingActions?: string[];
       noShowNote?: string;
       forceEnd?: boolean;
     }) => {
@@ -1337,7 +1899,6 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
           hearingId: hearing.id,
           summary,
           findings,
-          pendingActions: data.pendingActions,
           forceEnd: shouldForceEnd,
           noShowNote: data.noShowNote,
         });
@@ -1526,13 +2087,23 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
       isDraft?: boolean;
     }) => {
       if (!hearing) return;
-      await submitHearingStatement(hearing.id, input);
-      scheduleWorkspaceRefresh({ immediate: true });
+      const response = await submitHearingStatement(hearing.id, input);
+      const submittedStatement = (
+        response && typeof response === "object" && "data" in response
+          ? (response as { data?: HearingStatementSummary }).data
+          : response
+      ) as HearingStatementSummary | undefined;
+
+      if (submittedStatement?.id) {
+        upsertRealtimeStatement(submittedStatement);
+      }
+
+      scheduleWorkspaceRefresh({ delayMs: input.isDraft ? 250 : 400 });
       toast.success(
         input.isDraft ? "Draft saved" : "Statement submitted to the record",
       );
     },
-    [hearing, scheduleWorkspaceRefresh],
+    [hearing, scheduleWorkspaceRefresh, upsertRealtimeStatement],
   );
 
   /* ─── Loading state ─── */
@@ -1855,6 +2426,14 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
         currentPhase={workspace?.phase?.current}
         participantRole={currentParticipant?.role}
         draftStatements={ownStatementDrafts}
+        evidenceGallery={evidence}
+        currentUserId={currentUserId}
+        raiserUserId={
+          workspace?.dossier?.dispute?.raiser?.id ||
+          workspace?.dossier?.dispute?.raisedBy?.id ||
+          null
+        }
+        defendantUserId={workspace?.dossier?.dispute?.defendant?.id || null}
       />
       {hearing && (
         <InviteSupportStaffDialog

@@ -5,6 +5,7 @@ import {
   Param,
   Patch,
   Query,
+  Req,
   UseGuards,
   ValidationPipe,
 } from '@nestjs/common';
@@ -22,6 +23,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { ListStaffApplicationsDto, RejectStaffApplicationDto } from './dto';
 import { StaffApplicationsService } from './staff-applications.service';
+import type { Request } from 'express';
 
 @ApiTags('Staff Applications')
 @Controller('staff-applications')
@@ -47,6 +49,27 @@ export class StaffApplicationsController {
   @ApiQuery({ name: 'limit', required: false, type: Number })
   async getApplications(@Query(new ValidationPipe({ transform: true })) query: ListStaffApplicationsDto) {
     return this.staffApplicationsService.getAllApplications(query);
+  }
+
+  @Get(':id/review-assets')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '[Admin] Get review assets for one staff application' })
+  async getApplicationReviewAssets(
+    @Param('id') id: string,
+    @GetUser() reviewer: { id: string; email: string; role: UserRole },
+    @Req() req: Request,
+  ) {
+    return this.staffApplicationsService.getApplicationReviewAssets(id, {
+      reviewerId: reviewer.id,
+      reviewerEmail: reviewer.email,
+      reviewerRole: reviewer.role === UserRole.STAFF ? 'STAFF' : 'ADMIN',
+      ipAddress: req.ip || req.socket?.remoteAddress,
+      userAgent: req.headers['user-agent'],
+      sessionId:
+        typeof req.headers['x-request-id'] === 'string' ? req.headers['x-request-id'] : undefined,
+    });
   }
 
   @Get(':id')

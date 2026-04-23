@@ -7,6 +7,7 @@ import React, { useState } from "react";
 import { FreelancerSidebar } from "./FreelancerSidebar";
 import { ClientHeader } from "../client/ClientHeader";
 import { ClientFooter } from "../client/ClientFooter";
+import { useCaptureMode } from "@/shared/hooks";
 import { useMyInvitationsRealtime } from "@/shared/hooks/useMyInvitationsRealtime";
 
 interface FreelancerDashboardLayoutProps {
@@ -20,6 +21,7 @@ export const FreelancerDashboardLayout: React.FC<
 > = ({ children, showFooter = true, contentMode = "default" }) => {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const isCaptureMode = useCaptureMode();
   const { pendingCount: pendingInvitationCount } = useMyInvitationsRealtime({
     pollIntervalMs: 45_000,
   });
@@ -71,10 +73,11 @@ export const FreelancerDashboardLayout: React.FC<
         <ClientHeader
           onMenuToggle={handleMobileMenuToggle}
           isMobileMenuOpen={isMobileMenuOpen}
+          forcedRoleBasePath="/freelancer"
         />
         <main className={mainClass}>
           <div className={contentContainerClass}>{children}</div>
-          {showFooter && <ClientFooter />}
+          {showFooter && !isCaptureMode && <ClientFooter />}
         </main>
       </div>
     </div>
