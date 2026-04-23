@@ -26,6 +26,26 @@ export interface User {
   role?: string;
   bio?: string;
   skills?: string[];
+  userDomains?: Array<{
+    id: string;
+    name: string;
+    slug: string;
+    description?: string | null;
+  }>;
+  userSkills?: Array<{
+    id: string;
+    priority: string;
+    verificationStatus: string;
+    proficiencyLevel: number | null;
+    yearsOfExperience: number | null;
+    completedProjectsCount: number;
+    skill: {
+      id: string;
+      name: string;
+      slug: string;
+      category: string;
+    } | null;
+  }>;
   cvUrl?: string;
   linkedinUrl?: string;
   portfolioLinks?: PortfolioLink[];
