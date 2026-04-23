@@ -1209,7 +1209,10 @@ export class SettlementService {
       );
     }
 
-    const sourceOutflow = fundedAmount.minus(clientNet).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+    const refundedToClient = clientSideRecipient === project.clientId ? clientNet : new Decimal(0);
+    const sourceOutflow = fundedAmount
+      .minus(refundedToClient)
+      .toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
     clientWallet.heldBalance = heldBalance.minus(fundedAmount).toNumber();
     clientWallet.totalSpent = new Decimal(clientWallet.totalSpent || 0)
       .plus(sourceOutflow)

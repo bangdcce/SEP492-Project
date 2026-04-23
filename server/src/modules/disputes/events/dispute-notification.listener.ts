@@ -15,6 +15,8 @@ import { DISPUTE_EVENTS } from './dispute.events';
 import { DisputeGateway } from '../gateways/dispute.gateway';
 import { DisputeEscalationRequestKind } from '../dto/request-escalation.dto';
 
+const SafeOnEvent = (event: string) => OnEvent(event, { suppressErrors: true });
+
 @Injectable()
 export class DisputeNotificationListener {
   private readonly logger = new Logger(DisputeNotificationListener.name);
@@ -150,7 +152,7 @@ export class DisputeNotificationListener {
     return hearing?.disputeId ?? null;
   }
 
-  @OnEvent(DISPUTE_EVENTS.REJECTED)
+  @SafeOnEvent(DISPUTE_EVENTS.REJECTED)
   async handleDisputeRejected(payload: {
     disputeId?: string;
     reason?: string;
@@ -183,7 +185,7 @@ export class DisputeNotificationListener {
     );
   }
 
-  @OnEvent(DISPUTE_EVENTS.CREATED)
+  @SafeOnEvent(DISPUTE_EVENTS.CREATED)
   async handleDisputeCreated(payload: { disputeId?: string }): Promise<void> {
     if (!payload?.disputeId) {
       return;
@@ -203,7 +205,7 @@ export class DisputeNotificationListener {
     );
   }
 
-  @OnEvent(DISPUTE_EVENTS.INFO_REQUESTED)
+  @SafeOnEvent(DISPUTE_EVENTS.INFO_REQUESTED)
   async handleInfoRequested(payload: { disputeId?: string; reason?: string }): Promise<void> {
     if (!payload?.disputeId) {
       return;
@@ -227,7 +229,7 @@ export class DisputeNotificationListener {
     );
   }
 
-  @OnEvent(DISPUTE_EVENTS.INFO_PROVIDED)
+  @SafeOnEvent(DISPUTE_EVENTS.INFO_PROVIDED)
   async handleInfoProvided(payload: { disputeId?: string; userId?: string }): Promise<void> {
     if (!payload?.disputeId) {
       return;
@@ -250,7 +252,7 @@ export class DisputeNotificationListener {
     );
   }
 
-  @OnEvent(DISPUTE_EVENTS.ESCALATED)
+  @SafeOnEvent(DISPUTE_EVENTS.ESCALATED)
   async handleDisputeAccepted(payload: { disputeId?: string; adminId?: string }): Promise<void> {
     if (!payload?.disputeId) {
       return;
@@ -290,7 +292,7 @@ export class DisputeNotificationListener {
     );
   }
 
-  @OnEvent(DISPUTE_EVENTS.URGENT_CREATED)
+  @SafeOnEvent(DISPUTE_EVENTS.URGENT_CREATED)
   async handleUrgentDisputeCreated(payload: {
     disputeId?: string;
     category?: string;
@@ -338,7 +340,7 @@ export class DisputeNotificationListener {
     );
   }
 
-  @OnEvent('hearing.scheduled')
+  @SafeOnEvent('hearing.scheduled')
   async handleHearingScheduled(payload: {
     hearingId?: string;
     disputeId?: string;
@@ -375,7 +377,7 @@ export class DisputeNotificationListener {
     );
   }
 
-  @OnEvent('hearing.rescheduled')
+  @SafeOnEvent('hearing.rescheduled')
   async handleHearingRescheduled(payload: {
     hearingId?: string;
     disputeId?: string;
@@ -415,7 +417,7 @@ export class DisputeNotificationListener {
     );
   }
 
-  @OnEvent('hearing.inviteResponded')
+  @SafeOnEvent('hearing.inviteResponded')
   async handleHearingInviteResponded(payload: {
     eventId?: string;
     hearingId?: string | null;
@@ -474,7 +476,7 @@ export class DisputeNotificationListener {
     );
   }
 
-  @OnEvent('verdict.issued')
+  @SafeOnEvent('verdict.issued')
   async handleVerdictIssued(payload: {
     disputeId?: string;
     verdictId?: string;
@@ -505,7 +507,7 @@ export class DisputeNotificationListener {
     );
   }
 
-  @OnEvent(DISPUTE_EVENTS.REJECTION_APPEALED)
+  @SafeOnEvent(DISPUTE_EVENTS.REJECTION_APPEALED)
   async handleRejectionAppealed(payload: {
     disputeId?: string;
     userId?: string;
@@ -533,7 +535,7 @@ export class DisputeNotificationListener {
     );
   }
 
-  @OnEvent(DISPUTE_EVENTS.REJECTION_APPEAL_RESOLVED)
+  @SafeOnEvent(DISPUTE_EVENTS.REJECTION_APPEAL_RESOLVED)
   async handleRejectionAppealResolved(payload: {
     disputeId?: string;
     accepted?: boolean;
@@ -563,7 +565,7 @@ export class DisputeNotificationListener {
     );
   }
 
-  @OnEvent(DISPUTE_EVENTS.APPEAL_SUBMITTED)
+  @SafeOnEvent(DISPUTE_EVENTS.APPEAL_SUBMITTED)
   async handleAppealSubmitted(payload: {
     disputeId?: string;
     userId?: string;
@@ -592,7 +594,7 @@ export class DisputeNotificationListener {
     );
   }
 
-  @OnEvent(DISPUTE_EVENTS.APPEAL_RESOLVED)
+  @SafeOnEvent(DISPUTE_EVENTS.APPEAL_RESOLVED)
   async handleAppealResolved(payload: {
     disputeId?: string;
     resolvedById?: string;
@@ -635,7 +637,7 @@ export class DisputeNotificationListener {
     );
   }
 
-  @OnEvent(DISPUTE_EVENTS.ASSIGNED)
+  @SafeOnEvent(DISPUTE_EVENTS.ASSIGNED)
   async handleDisputeAssigned(payload: { disputeId?: string; staffId?: string }): Promise<void> {
     if (!payload?.disputeId || !payload.staffId) {
       return;
@@ -670,7 +672,7 @@ export class DisputeNotificationListener {
     );
   }
 
-  @OnEvent(DISPUTE_EVENTS.REASSIGNED)
+  @SafeOnEvent(DISPUTE_EVENTS.REASSIGNED)
   async handleDisputeReassigned(payload: {
     disputeId?: string;
     assignmentType?: string;
@@ -764,7 +766,7 @@ export class DisputeNotificationListener {
     }
   }
 
-  @OnEvent(DISPUTE_EVENTS.NOTE_ADDED)
+  @SafeOnEvent(DISPUTE_EVENTS.NOTE_ADDED)
   async handleReviewRequestAdded(payload: {
     disputeId?: string;
     actorId?: string;
@@ -876,7 +878,7 @@ export class DisputeNotificationListener {
     }
   }
 
-  @OnEvent('staff.dismissal_rate_high')
+  @SafeOnEvent('staff.dismissal_rate_high')
   async handleDismissalRateHigh(payload: {
     staffId?: string;
     dismissalRate?: number;
@@ -903,7 +905,7 @@ export class DisputeNotificationListener {
     );
   }
 
-  @OnEvent('dispute.dismissal_audit_requested')
+  @SafeOnEvent('dispute.dismissal_audit_requested')
   async handleDismissalAuditRequested(payload: {
     disputeId?: string;
     staffId?: string;

@@ -2,6 +2,8 @@ import { Injectable } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { DisputeGateway } from '../gateways/dispute.gateway';
 
+const SafeOnEvent = (event: string) => OnEvent(event, { suppressErrors: true });
+
 @Injectable()
 export class CalendarRealtimeListener {
   constructor(private readonly gateway: DisputeGateway) {}
@@ -56,7 +58,7 @@ export class CalendarRealtimeListener {
     });
   }
 
-  @OnEvent('calendar.eventCreated')
+  @SafeOnEvent('calendar.eventCreated')
   handleCalendarEventCreated(payload: Record<string, any>): void {
     if (!payload?.eventId) {
       return;
@@ -71,7 +73,7 @@ export class CalendarRealtimeListener {
     this.gateway.emitStaffDashboardEvent('CALENDAR_EVENT_CREATED', eventPayload);
   }
 
-  @OnEvent('calendar.eventUpdated')
+  @SafeOnEvent('calendar.eventUpdated')
   handleCalendarEventUpdated(payload: Record<string, any>): void {
     if (!payload?.eventId) {
       return;
@@ -86,7 +88,7 @@ export class CalendarRealtimeListener {
     this.gateway.emitStaffDashboardEvent('CALENDAR_EVENT_UPDATED', eventPayload);
   }
 
-  @OnEvent('calendar.rescheduleRequested')
+  @SafeOnEvent('calendar.rescheduleRequested')
   handleCalendarRescheduleRequested(payload: Record<string, any>): void {
     if (!payload?.requestId) {
       return;
@@ -105,7 +107,7 @@ export class CalendarRealtimeListener {
     this.gateway.emitStaffDashboardEvent('CALENDAR_RESCHEDULE_REQUESTED', eventPayload);
   }
 
-  @OnEvent('calendar.rescheduleProcessed')
+  @SafeOnEvent('calendar.rescheduleProcessed')
   handleCalendarRescheduleProcessed(payload: Record<string, any>): void {
     if (!payload?.requestId) {
       return;
@@ -124,7 +126,7 @@ export class CalendarRealtimeListener {
     this.gateway.emitStaffDashboardEvent('CALENDAR_RESCHEDULE_PROCESSED', eventPayload);
   }
 
-  @OnEvent('calendar.inviteResponded')
+  @SafeOnEvent('calendar.inviteResponded')
   handleCalendarInviteResponded(payload: Record<string, any>): void {
     if (!payload?.eventId) {
       return;
@@ -139,7 +141,7 @@ export class CalendarRealtimeListener {
     this.gateway.emitStaffDashboardEvent('CALENDAR_INVITE_RESPONDED', eventPayload);
   }
 
-  @OnEvent('calendar.availabilityUpdated')
+  @SafeOnEvent('calendar.availabilityUpdated')
   handleCalendarAvailabilityUpdated(payload: Record<string, any>): void {
     if (!payload?.userId) {
       return;
@@ -153,7 +155,7 @@ export class CalendarRealtimeListener {
     this.emitUserEvents([payload.userId], 'CALENDAR_AVAILABILITY_UPDATED', eventPayload);
   }
 
-  @OnEvent('calendar.availabilityDeleted')
+  @SafeOnEvent('calendar.availabilityDeleted')
   handleCalendarAvailabilityDeleted(payload: Record<string, any>): void {
     if (!payload?.userId || !payload?.availabilityId) {
       return;

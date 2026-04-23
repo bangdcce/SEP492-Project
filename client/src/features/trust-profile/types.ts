@@ -160,6 +160,16 @@ export interface CreateReviewPayload {
   comment?: string;
 }
 
+export type ProjectReviewStatus = "NONE" | "ACTIVE" | "SOFT_DELETED";
+
+export interface ProjectReviewAvailability {
+  projectId: string;
+  targetUserId: string;
+  hasReviewed: boolean;
+  canSubmit: boolean;
+  status: ProjectReviewStatus;
+}
+
 // Filter & Sort Types
 export type StarFilter = "all" | 1 | 2 | 3 | 4 | 5;
 export type SortOption = "newest" | "relevant" | "lowest";

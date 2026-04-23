@@ -272,6 +272,157 @@ describe('SettlementService', () => {
     );
   });
 
+  it('counts broker-side recovery as client spend for broker-versus-freelancer disputes', async () => {
+    const settlement = {
+      id: 'settlement-broker-1',
+      amountToFreelancer: 40,
+      amountToClient: 80,
+      platformFee: 0,
+    } as DisputeSettlementEntity;
+
+    const dispute = {
+      id: 'dispute-broker-1',
+      milestoneId: 'milestone-broker-1',
+      projectId: 'project-broker-1',
+      disputeType: DisputeType.BROKER_VS_FREELANCER,
+    } as DisputeEntity;
+
+    const escrow = {
+      id: 'escrow-broker-1',
+      milestoneId: 'milestone-broker-1',
+      fundedAmount: 120,
+      totalAmount: 120,
+      currency: 'USD',
+      status: EscrowStatus.DISPUTED,
+      releasedAmount: 0,
+      releaseTransactionIds: [],
+    } as unknown as EscrowEntity;
+
+    const project = {
+      id: 'project-broker-1',
+      clientId: 'client-1',
+      freelancerId: 'freelancer-1',
+      brokerId: 'broker-1',
+      status: ProjectStatus.IN_PROGRESS,
+      currency: 'USD',
+    } as ProjectEntity;
+
+    const milestone = {
+      id: 'milestone-broker-1',
+      status: MilestoneStatus.IN_PROGRESS,
+    } as MilestoneEntity;
+
+    const wallets = new Map<string, any>([
+      [
+        'client-1',
+        {
+          id: 'wallet-client',
+          userId: 'client-1',
+          balance: 0,
+          pendingBalance: 0,
+          heldBalance: 120,
+          totalSpent: 0,
+          totalEarned: 0,
+          currency: 'USD',
+          status: WalletStatus.ACTIVE,
+        },
+      ],
+    ]);
+
+    const escrowQueryBuilder = {
+      setLock: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      getOne: jest.fn().mockResolvedValue(escrow),
+    };
+
+    const walletQueryBuilder = {
+      setLock: jest.fn().mockReturnThis(),
+      where: jest.fn().mockImplementation((_clause: string, params: { userId: string }) => {
+        (walletQueryBuilder as any).__userId = params.userId;
+        return walletQueryBuilder;
+      }),
+      getOne: jest
+        .fn()
+        .mockImplementation(async () => wallets.get((walletQueryBuilder as any).__userId) || null),
+    };
+
+    const escrowRepo = {
+      createQueryBuilder: jest.fn().mockReturnValue(escrowQueryBuilder),
+      save: jest.fn().mockImplementation(async (value) => value),
+    };
+
+    const projectRepo = {
+      findOne: jest.fn().mockResolvedValue(project),
+    };
+
+    const milestoneRepo = {
+      findOne: jest.fn().mockResolvedValue(milestone),
+    };
+
+    const walletRepo = {
+      createQueryBuilder: jest.fn().mockReturnValue(walletQueryBuilder),
+      create: jest.fn().mockImplementation((payload) => ({
+        id: `wallet-${payload.userId}`,
+        balance: 0,
+        pendingBalance: 0,
+        heldBalance: 0,
+        totalSpent: 0,
+        totalEarned: 0,
+        ...payload,
+      })),
+      save: jest.fn().mockImplementation(async (wallet) => {
+        wallets.set(wallet.userId, wallet);
+        return wallet;
+      }),
+    };
+
+    const transactionRepo = {
+      create: jest.fn().mockImplementation((payload) => payload),
+      save: jest.fn().mockImplementation(async (tx) => ({
+        id: `tx-broker-${Math.random()}`,
+        ...tx,
+      })),
+    };
+
+    const userRepo = {
+      findOne: jest.fn().mockResolvedValue({ id: 'platform-owner' }),
+    };
+
+    const manager = {
+      getRepository: jest.fn().mockImplementation((entity) => {
+        if (entity === EscrowEntity) return escrowRepo;
+        if (entity === ProjectEntity) return projectRepo;
+        if (entity === MilestoneEntity) return milestoneRepo;
+        if (entity === WalletEntity) return walletRepo;
+        if (entity === TransactionEntity) return transactionRepo;
+        if (entity === UserEntity) return userRepo;
+        throw new Error(`Unexpected repository request: ${entity?.name ?? 'unknown'}`);
+      }),
+      save: jest.fn().mockImplementation(async (_entity, value) => value),
+    };
+
+    await (service as any).executeSettlementTransfers(manager, settlement, dispute);
+
+    expect(wallets.get('client-1')).toEqual(
+      expect.objectContaining({
+        heldBalance: 0,
+        totalSpent: 120,
+      }),
+    );
+    expect(wallets.get('broker-1')).toEqual(
+      expect.objectContaining({
+        balance: 80,
+        totalEarned: 80,
+      }),
+    );
+    expect(wallets.get('freelancer-1')).toEqual(
+      expect.objectContaining({
+        balance: 40,
+        totalEarned: 40,
+      }),
+    );
+  });
+
   it('writes dispute result when settlement is accepted and prepares post-commit payloads', async () => {
     const settlement = {
       id: 'settlement-accept-1',

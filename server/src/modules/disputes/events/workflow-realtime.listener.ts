@@ -2,6 +2,8 @@ import { Injectable } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { DisputeGateway } from '../gateways/dispute.gateway';
 
+const SafeOnEvent = (event: string) => OnEvent(event, { suppressErrors: true });
+
 type WorkflowRealtimePayload = {
   userId?: string | null;
   requestId?: string | null;
@@ -16,7 +18,7 @@ type WorkflowRealtimePayload = {
 export class WorkflowRealtimeListener {
   constructor(private readonly disputeGateway: DisputeGateway) {}
 
-  @OnEvent('request.updated')
+  @SafeOnEvent('request.updated')
   handleRequestUpdated(payload: WorkflowRealtimePayload) {
     if (!payload?.userId || !payload.requestId) {
       return;
@@ -29,7 +31,7 @@ export class WorkflowRealtimeListener {
     });
   }
 
-  @OnEvent('spec.updated')
+  @SafeOnEvent('spec.updated')
   handleSpecUpdated(payload: WorkflowRealtimePayload) {
     if (!payload?.userId || !payload.specId) {
       return;
@@ -43,7 +45,7 @@ export class WorkflowRealtimeListener {
     });
   }
 
-  @OnEvent('contract.updated')
+  @SafeOnEvent('contract.updated')
   handleContractUpdated(payload: WorkflowRealtimePayload) {
     if (!payload?.userId || !payload.contractId) {
       return;
@@ -58,7 +60,7 @@ export class WorkflowRealtimeListener {
     });
   }
 
-  @OnEvent('project.updated')
+  @SafeOnEvent('project.updated')
   handleProjectUpdated(payload: WorkflowRealtimePayload) {
     if (!payload?.userId || !payload.projectId) {
       return;
