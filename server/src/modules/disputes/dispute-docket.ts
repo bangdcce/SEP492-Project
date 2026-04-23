@@ -329,7 +329,7 @@ export const buildHearingDocket = (
       isArchived = true;
       freezeReason = 'A later hearing on this dispute is now the actionable docket entry.';
     } else if (hearing.status === HearingStatus.RESCHEDULED) {
-      freezeReason = 'This hearing was superseded by a rescheduled follow-up.';
+      freezeReason = 'This hearing was superseded by a rescheduled replacement session.';
     } else if (hearing.status === HearingStatus.CANCELED) {
       freezeReason = 'This hearing was canceled and is now archival record only.';
     } else if (hearing.status === HearingStatus.COMPLETED) {
@@ -543,7 +543,7 @@ export const resolveCaseGuide = (input: {
 
   if (input.userRole === UserRole.STAFF) {
     return input.caseStage === 'HEARING_IN_PROGRESS'
-      ? 'Conduct the active hearing, capture minutes, then close the session before any follow-up hearing.'
+      ? 'Conduct the active hearing, capture minutes, and close the session for a single-hearing verdict flow.'
       : 'Triage the case, review submissions, and advance the docket without leaving multiple hearings actionable.';
   }
 

@@ -158,6 +158,7 @@ import {
 // Constants for deadlines
 const DEFAULT_RESPONSE_DEADLINE_DAYS = 7;
 const DEFAULT_RESOLUTION_DEADLINE_DAYS = 14;
+const DISPUTE_ACTIVITY_DESCRIPTION_MAX_LENGTH = 500;
 const URGENT_THRESHOLD_HOURS = 48; // Dispute được coi là urgent nếu còn < 48h
 const DEFAULT_AVAILABILITY_LOOKAHEAD_DAYS = 7;
 const DEFAULT_HEARING_DURATION_MINUTES = 60;
@@ -6023,6 +6024,7 @@ export class DisputesService {
       where: { disputeId },
       order: { uploadedAt: 'ASC' },
     });
+    const hearingTranscripts = await this.buildDossierHearingTranscripts(disputeId, userRole);
     const auditTrail = await this.auditLogsService.findAllForExport({
       entityType: 'Dispute',
       entityId: disputeId,
@@ -6038,6 +6040,10 @@ export class DisputesService {
         timeline: dossier.timeline.length,
         evidence: evidenceItems.length,
         hearings: dossier.hearings.length,
+        hearingMessages: hearingTranscripts.reduce(
+          (sum, transcript) => sum + transcript.messages.length,
+          0,
+        ),
         contracts: dossier.contracts.length,
         auditTrail: auditTrail.length,
       },
@@ -6079,6 +6085,7 @@ export class DisputesService {
     const files = [
       ['manifest.json', JSON.stringify(manifest, null, 2)],
       ['timeline.json', JSON.stringify(timeline, null, 2)],
+      ['hearing-transcripts.json', JSON.stringify(hearingTranscripts, null, 2)],
       ['contract-snapshot.json', JSON.stringify(contractSnapshot, null, 2)],
       ['evidence-index.json', JSON.stringify(evidenceIndex, null, 2)],
       ['audit-trail.json', JSON.stringify(auditTrail, null, 2)],
@@ -6117,6 +6124,167 @@ export class DisputesService {
       archive.append(JSON.stringify(checksums, null, 2), { name: 'checksums.json' });
       Promise.resolve(archive.finalize()).catch(reject);
     });
+  }
+
+  private async buildDossierHearingTranscripts(
+    disputeId: string,
+    userRole: UserRole,
+  ): Promise<
+    Array<{
+      hearingId: string;
+      hearingNumber: number | null;
+      status: HearingStatus | null;
+      tier: HearingTier | null;
+      scheduledAt: Date | null;
+      startedAt: Date | null;
+      endedAt: Date | null;
+      messages: Array<{
+        id: string;
+        disputeId: string;
+        hearingId: string | null;
+        senderId: string | null;
+        senderRole: string;
+        senderHearingRole: HearingParticipantRole | null;
+        senderName: string | null;
+        senderEmail: string | null;
+        type: MessageType;
+        content: string | null;
+        replyToMessageId: string | null;
+        relatedEvidenceId: string | null;
+        attachedEvidenceIds: string[] | null;
+        metadata: Record<string, unknown> | null;
+        isHidden: boolean;
+        hiddenReason: string | null;
+        createdAt: Date;
+      }>;
+    }>
+  > {
+    const isStaffOrAdmin = [UserRole.STAFF, UserRole.ADMIN].includes(userRole);
+    const hearings = await this.hearingRepo.find({
+      where: { disputeId },
+      select: ['id', 'hearingNumber', 'status', 'tier', 'scheduledAt', 'startedAt', 'endedAt'],
+      order: { hearingNumber: 'ASC' },
+    });
+
+    const hearingMessages = await this.messageRepo.find({
+      where: {
+        disputeId,
+        hearingId: Not(IsNull()),
+        ...(isStaffOrAdmin ? {} : { isHidden: false }),
+      },
+      relations: ['sender'],
+      order: { createdAt: 'ASC' },
+    });
+
+    const hearingIds = Array.from(
+      new Set(
+        hearingMessages
+          .map((message) => message.hearingId)
+          .filter((hearingId): hearingId is string => Boolean(hearingId)),
+      ),
+    );
+    const senderIds = Array.from(
+      new Set(
+        hearingMessages
+          .map((message) => message.senderId)
+          .filter((senderId): senderId is string => Boolean(senderId)),
+      ),
+    );
+    const hearingParticipants =
+      hearingIds.length > 0 && senderIds.length > 0
+        ? await this.hearingParticipantRepo.find({
+            where: {
+              hearingId: In(hearingIds),
+              userId: In(senderIds),
+            },
+          })
+        : [];
+
+    const hearingRoleByCompositeKey = new Map(
+      hearingParticipants.map((participant) => [
+        `${participant.hearingId}:${participant.userId}`,
+        participant.role,
+      ]),
+    );
+
+    const transcriptMap = new Map(
+      hearings.map((hearing) => [
+        hearing.id,
+        {
+          hearingId: hearing.id,
+          hearingNumber: hearing.hearingNumber ?? null,
+          status: hearing.status ?? null,
+          tier: hearing.tier ?? null,
+          scheduledAt: hearing.scheduledAt ?? null,
+          startedAt: hearing.startedAt ?? null,
+          endedAt: hearing.endedAt ?? null,
+          messages: [] as Array<{
+            id: string;
+            disputeId: string;
+            hearingId: string | null;
+            senderId: string | null;
+            senderRole: string;
+            senderHearingRole: HearingParticipantRole | null;
+            senderName: string | null;
+            senderEmail: string | null;
+            type: MessageType;
+            content: string | null;
+            replyToMessageId: string | null;
+            relatedEvidenceId: string | null;
+            attachedEvidenceIds: string[] | null;
+            metadata: Record<string, unknown> | null;
+            isHidden: boolean;
+            hiddenReason: string | null;
+            createdAt: Date;
+          }>,
+        },
+      ]),
+    );
+
+    for (const message of hearingMessages) {
+      const hearingId = message.hearingId ?? null;
+      if (!hearingId) {
+        continue;
+      }
+
+      if (!transcriptMap.has(hearingId)) {
+        transcriptMap.set(hearingId, {
+          hearingId,
+          hearingNumber: null,
+          status: null,
+          tier: null,
+          scheduledAt: null,
+          startedAt: null,
+          endedAt: null,
+          messages: [],
+        });
+      }
+
+      transcriptMap.get(hearingId)?.messages.push({
+        id: message.id,
+        disputeId: message.disputeId,
+        hearingId,
+        senderId: message.senderId ?? null,
+        senderRole: message.senderRole,
+        senderHearingRole:
+          message.senderId && hearingId
+            ? hearingRoleByCompositeKey.get(`${hearingId}:${message.senderId}`) ?? null
+            : null,
+        senderName: message.sender?.fullName ?? null,
+        senderEmail: message.sender?.email ?? null,
+        type: message.type,
+        content: message.content ?? null,
+        replyToMessageId: message.replyToMessageId ?? null,
+        relatedEvidenceId: message.relatedEvidenceId ?? null,
+        attachedEvidenceIds: message.attachedEvidenceIds ?? null,
+        metadata: (message.metadata as Record<string, unknown> | null) ?? null,
+        isHidden: message.isHidden,
+        hiddenReason: message.hiddenReason ?? null,
+        createdAt: message.createdAt,
+      });
+    }
+
+    return Array.from(transcriptMap.values());
   }
 
   async getEscalationPolicy(disputeId: string, userId: string, userRole: UserRole) {
@@ -6855,7 +7023,7 @@ export class DisputesService {
   }> {
     const dispute = await this.disputeRepo.findOne({
       where: { id: disputeId },
-      select: ['id', 'status', 'assignedStaffId', 'raisedById'],
+      select: ['id', 'status', 'assignedStaffId', 'raisedById', 'currentTier', 'isAppealed'],
     });
     if (!dispute) {
       throw new NotFoundException('Dispute not found');
@@ -6912,6 +7080,31 @@ export class DisputesService {
         hearingId: existing.id,
         scheduledAt: existing.scheduledAt,
       };
+    }
+
+    const appealFlowActive =
+      dispute.currentTier > 1 ||
+      dispute.isAppealed ||
+      [DisputeStatus.APPEALED, DisputeStatus.REJECTION_APPEALED].includes(dispute.status);
+    if (!appealFlowActive) {
+      const previousHearing = await this.hearingRepo.findOne({
+        where: { disputeId: dispute.id },
+        select: ['id', 'scheduledAt', 'status'],
+        order: { hearingNumber: 'DESC', createdAt: 'DESC' },
+      });
+
+      if (previousHearing) {
+        return {
+          manualRequired: true,
+          reasonCode: 'MANUAL_REVIEW_REQUIRED',
+          reason:
+            'Single-hearing dispute flow is enabled. This dispute already has a hearing on record and cannot auto-schedule another one.',
+          fallbackReason:
+            'Single-hearing dispute flow is enabled. This dispute already has a hearing on record.',
+          hearingId: previousHearing.id,
+          scheduledAt: previousHearing.scheduledAt,
+        };
+      }
     }
 
     let moderatorId = dispute.assignedStaffId;
@@ -9342,16 +9535,33 @@ export class DisputesService {
     this.assertDisputeDisclaimerAccepted(dto.disclaimerAccepted, dto.disclaimerVersion);
 
     const normalizedReason = dto.reason.trim();
-    const previousStatus = existingDispute.status;
+    let previousStatus = existingDispute.status;
 
-    await this.verdictService.appealVerdict(disputeId, userId, normalizedReason, {
-      termsContentSnapshot: DISPUTE_DISCLAIMER_SNAPSHOT,
-      termsVersion: DISPUTE_DISCLAIMER_VERSION,
-    });
+    let updated: DisputeEntity | null = null;
+    try {
+      await this.verdictService.appealVerdict(disputeId, userId, normalizedReason, {
+        termsContentSnapshot: DISPUTE_DISCLAIMER_SNAPSHOT,
+        termsVersion: DISPUTE_DISCLAIMER_VERSION,
+      });
+    } catch (error) {
+      updated = await this.tryRecoverAppealAfterPartialSuccess(
+        error,
+        disputeId,
+        userId,
+        normalizedReason,
+      );
+      if (!updated) {
+        throw error;
+      }
 
-    let updated = await this.disputeRepo.findOne({ where: { id: disputeId } });
+      previousStatus = DisputeStatus.RESOLVED;
+    }
+
     if (!updated) {
-      throw new NotFoundException('Dispute not found after appeal submission');
+      updated = await this.disputeRepo.findOne({ where: { id: disputeId } });
+      if (!updated) {
+        throw new NotFoundException('Dispute not found after appeal submission');
+      }
     }
 
     if (dto.additionalEvidence?.length) {
@@ -9369,7 +9579,9 @@ export class DisputesService {
             ? existingDispute.raiserRole
             : existingDispute.defendantRole,
         action: DisputeAction.APPEAL_SUBMITTED,
-        description: `Appeal submitted: ${normalizedReason}`,
+        description: this.truncateDisputeActivityDescription(
+          `Appeal submitted: ${normalizedReason}`,
+        ),
         metadata: {
           previousStatus,
           reason: normalizedReason,
@@ -9396,6 +9608,61 @@ export class DisputesService {
     });
 
     return updated;
+  }
+
+  private truncateDisputeActivityDescription(description: string): string {
+    if (description.length <= DISPUTE_ACTIVITY_DESCRIPTION_MAX_LENGTH) {
+      return description;
+    }
+
+    return `${description.slice(0, DISPUTE_ACTIVITY_DESCRIPTION_MAX_LENGTH - 3)}...`;
+  }
+
+  private async tryRecoverAppealAfterPartialSuccess(
+    error: unknown,
+    disputeId: string,
+    userId: string,
+    appealReason: string,
+  ): Promise<DisputeEntity | null> {
+    if (!this.isAppealRetryableAfterPartialSuccess(error)) {
+      return null;
+    }
+
+    const recoveredDispute = await this.disputeRepo.findOne({ where: { id: disputeId } });
+    if (
+      !recoveredDispute ||
+      recoveredDispute.status !== DisputeStatus.APPEALED ||
+      !recoveredDispute.isAppealed ||
+      recoveredDispute.currentTier !== 2 ||
+      recoveredDispute.appealReason !== appealReason ||
+      (recoveredDispute.raisedById !== userId && recoveredDispute.defendantId !== userId)
+    ) {
+      return null;
+    }
+
+    this.logger.warn(
+      `Recovered submitAppeal retry after prior partial success for dispute ${disputeId}`,
+    );
+    return recoveredDispute;
+  }
+
+  private isAppealRetryableAfterPartialSuccess(error: unknown): boolean {
+    if (!(error instanceof BadRequestException)) {
+      return false;
+    }
+
+    const response = error.getResponse();
+    const message =
+      typeof response === 'string'
+        ? response
+        : Array.isArray((response as { message?: string | string[] }).message)
+          ? (response as { message: string[] }).message.join(', ')
+          : (response as { message?: string }).message;
+
+    return (
+      message === 'Dispute is not eligible for appeal' ||
+      message === 'Dispute has already been appealed'
+    );
   }
 
   async appealRejection(userId: string, disputeId: string, reason: string): Promise<DisputeEntity> {

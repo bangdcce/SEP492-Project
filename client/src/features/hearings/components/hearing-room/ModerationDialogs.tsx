@@ -1,4 +1,4 @@
-import React, { memo, useState, useCallback, useEffect } from "react";
+import React, { memo, useCallback, useEffect, useState } from "react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -11,8 +11,6 @@ import {
 } from "@/shared/components/ui/alert-dialog";
 import { Textarea } from "@/shared/components/ui/textarea";
 import { AlertTriangle, Clock, Pause } from "lucide-react";
-
-/* ─── Pause Hearing Dialog ─── */
 
 interface PauseDialogProps {
   open: boolean;
@@ -51,7 +49,7 @@ export const PauseHearingDialog = memo(function PauseHearingDialog({
         <Textarea
           value={reason}
           onChange={(e) => setReason(e.target.value)}
-          placeholder="Enter the reason for pausing this hearing…"
+          placeholder="Enter the reason for pausing this hearing..."
           rows={3}
           className="text-sm"
           autoFocus
@@ -63,7 +61,7 @@ export const PauseHearingDialog = memo(function PauseHearingDialog({
             disabled={loading || !reason.trim()}
             className="bg-amber-500 hover:bg-amber-600"
           >
-            {loading ? "Pausing…" : "Pause session"}
+            {loading ? "Pausing..." : "Pause session"}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
@@ -71,15 +69,12 @@ export const PauseHearingDialog = memo(function PauseHearingDialog({
   );
 });
 
-/* ─── End Hearing Dialog ─── */
-
 interface EndDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onConfirm: (data: {
     summary: string;
     findings: string;
-    pendingActions?: string[];
     noShowNote?: string;
     forceEnd?: boolean;
   }) => void;
@@ -97,8 +92,6 @@ export const EndHearingDialog = memo(function EndHearingDialog({
   const [summary, setSummary] = useState("");
   const [findings, setFindings] = useState("");
   const [noShowNote, setNoShowNote] = useState("");
-  const [pendingAction, setPendingAction] = useState("");
-  const [pendingActions, setPendingActions] = useState<string[]>([]);
   const [forceEnd, setForceEnd] = useState(false);
 
   useEffect(() => {
@@ -107,26 +100,12 @@ export const EndHearingDialog = memo(function EndHearingDialog({
     }
   }, [open, verdictAnnounced]);
 
-  const addPendingAction = useCallback(() => {
-    const trimmed = pendingAction.trim();
-    if (trimmed && !pendingActions.includes(trimmed)) {
-      setPendingActions((prev) => [...prev, trimmed]);
-      setPendingAction("");
-    }
-  }, [pendingAction, pendingActions]);
-
-  const removePendingAction = useCallback((idx: number) => {
-    setPendingActions((prev) => prev.filter((_, i) => i !== idx));
-  }, []);
-
   const handleConfirm = useCallback(() => {
     const summaryTrimmed = summary.trim();
     const findingsTrimmed = findings.trim();
     const resolvedSummary =
       summaryTrimmed ||
-      (verdictAnnounced
-        ? "Hearing closed after verdict announcement."
-        : "");
+      (verdictAnnounced ? "Hearing closed after verdict announcement." : "");
     const resolvedFindings =
       findingsTrimmed ||
       (verdictAnnounced
@@ -140,19 +119,10 @@ export const EndHearingDialog = memo(function EndHearingDialog({
     onConfirm({
       summary: resolvedSummary,
       findings: resolvedFindings,
-      pendingActions: pendingActions.length > 0 ? pendingActions : undefined,
       noShowNote: noShowNote.trim() || undefined,
       forceEnd: forceEnd || undefined,
     });
-  }, [
-    onConfirm,
-    summary,
-    findings,
-    verdictAnnounced,
-    pendingActions,
-    noShowNote,
-    forceEnd,
-  ]);
+  }, [findings, forceEnd, noShowNote, onConfirm, summary, verdictAnnounced]);
 
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
@@ -168,14 +138,12 @@ export const EndHearingDialog = memo(function EndHearingDialog({
                 This action will <strong>permanently end</strong> the hearing
                 session. Once ended:
               </p>
-              <ul className="list-disc pl-5 space-y-1 text-sm">
+              <ul className="list-disc space-y-1 pl-5 text-sm">
                 <li>No further messages or evidence can be submitted</li>
                 <li>The hearing transcript will be finalized</li>
                 <li>All participants will be disconnected</li>
               </ul>
-              <p className="font-medium text-rose-700">
-                This cannot be undone.
-              </p>
+              <p className="font-medium text-rose-700">This cannot be undone.</p>
               {verdictAnnounced ? (
                 <p className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-800">
                   Verdict has already been announced. You can keep minutes concise
@@ -183,7 +151,6 @@ export const EndHearingDialog = memo(function EndHearingDialog({
                 </p>
               ) : null}
 
-              {/* Summary */}
               <div className="space-y-1">
                 <label className="text-xs font-medium text-slate-700">
                   Summary {verdictAnnounced ? "(optional)" : "*"}
@@ -192,12 +159,11 @@ export const EndHearingDialog = memo(function EndHearingDialog({
                   value={summary}
                   onChange={(e) => setSummary(e.target.value)}
                   rows={2}
-                  className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm placeholder:text-slate-400 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 focus:outline-none"
-                  placeholder="Brief summary of the hearing session…"
+                  className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm placeholder:text-slate-400 focus:border-slate-400 focus:outline-none focus:ring-1 focus:ring-slate-400"
+                  placeholder="Brief summary of the hearing session..."
                 />
               </div>
 
-              {/* Findings */}
               <div className="space-y-1">
                 <label className="text-xs font-medium text-slate-700">
                   Findings {verdictAnnounced ? "(optional)" : "*"}
@@ -206,56 +172,9 @@ export const EndHearingDialog = memo(function EndHearingDialog({
                   value={findings}
                   onChange={(e) => setFindings(e.target.value)}
                   rows={2}
-                  className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm placeholder:text-slate-400 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 focus:outline-none"
-                  placeholder="Key findings or conclusions…"
+                  className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm placeholder:text-slate-400 focus:border-slate-400 focus:outline-none focus:ring-1 focus:ring-slate-400"
+                  placeholder="Key findings or conclusions..."
                 />
-              </div>
-
-              {/* Pending actions */}
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-slate-700">
-                  Pending Actions (optional)
-                </label>
-                <div className="flex gap-1.5">
-                  <input
-                    value={pendingAction}
-                    onChange={(e) => setPendingAction(e.target.value)}
-                    onKeyDown={(e) =>
-                      e.key === "Enter" &&
-                      (e.preventDefault(), addPendingAction())
-                    }
-                    className="flex-1 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm placeholder:text-slate-400 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 focus:outline-none"
-                    placeholder="Add action item…"
-                  />
-                  <button
-                    type="button"
-                    onClick={addPendingAction}
-                    disabled={!pendingAction.trim()}
-                    className="h-8 rounded-md bg-slate-200 px-3 text-xs font-medium text-slate-700 hover:bg-slate-300 disabled:opacity-50 transition-colors"
-                  >
-                    Add
-                  </button>
-                </div>
-                {pendingActions.length > 0 && (
-                  <ul className="mt-1 space-y-1">
-                    {pendingActions.map((action, idx) => (
-                      <li
-                        key={idx}
-                        className="flex items-center gap-1.5 text-sm text-slate-700"
-                      >
-                        <span className="h-1.5 w-1.5 rounded-full bg-amber-500 shrink-0" />
-                        <span className="flex-1 truncate">{action}</span>
-                        <button
-                          type="button"
-                          onClick={() => removePendingAction(idx)}
-                          className="text-slate-400 hover:text-rose-500 text-xs"
-                        >
-                          ×
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
               </div>
 
               <div className="space-y-1">
@@ -266,7 +185,7 @@ export const EndHearingDialog = memo(function EndHearingDialog({
                   value={noShowNote}
                   onChange={(e) => setNoShowNote(e.target.value)}
                   rows={2}
-                  className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm placeholder:text-slate-400 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 focus:outline-none"
+                  className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm placeholder:text-slate-400 focus:border-slate-400 focus:outline-none focus:ring-1 focus:ring-slate-400"
                   placeholder="Document absence details if applicable..."
                 />
               </div>
@@ -286,21 +205,16 @@ export const EndHearingDialog = memo(function EndHearingDialog({
           <AlertDialogCancel disabled={loading}>Cancel</AlertDialogCancel>
           <AlertDialogAction
             onClick={handleConfirm}
-            disabled={
-              loading ||
-              (!verdictAnnounced && (!summary.trim() || !findings.trim()))
-            }
+            disabled={loading || (!verdictAnnounced && (!summary.trim() || !findings.trim()))}
             className="bg-rose-600 hover:bg-rose-700"
           >
-            {loading ? "Ending…" : "End hearing"}
+            {loading ? "Ending..." : "End hearing"}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
   );
 });
-
-/* ─── Extend Hearing Dialog ─── */
 
 interface ExtendDialogProps {
   open: boolean;
@@ -343,7 +257,7 @@ export const ExtendHearingDialog = memo(function ExtendHearingDialog({
 
         <div className="space-y-3">
           <div>
-            <label className="text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5 block">
+            <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-slate-600">
               Additional time
             </label>
             <div className="grid grid-cols-4 gap-2">
@@ -365,7 +279,7 @@ export const ExtendHearingDialog = memo(function ExtendHearingDialog({
           <Textarea
             value={reason}
             onChange={(e) => setReason(e.target.value)}
-            placeholder="Reason for extending the hearing…"
+            placeholder="Reason for extending the hearing..."
             rows={2}
             className="text-sm"
           />
@@ -378,7 +292,7 @@ export const ExtendHearingDialog = memo(function ExtendHearingDialog({
             disabled={loading || !reason.trim()}
             className="bg-amber-500 hover:bg-amber-600"
           >
-            {loading ? "Extending…" : `Extend by ${minutes}m`}
+            {loading ? "Extending..." : `Extend by ${minutes}m`}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

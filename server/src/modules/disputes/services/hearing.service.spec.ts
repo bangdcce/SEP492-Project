@@ -412,6 +412,108 @@ describe('HearingService', () => {
     });
   });
 
+  describe('runtime state reconciliation', () => {
+    it('repairs stale scheduled hearings before evaluating chat permission', async () => {
+      jest.spyOn(service as any, 'buildDocketForDispute').mockResolvedValue({ items: [] });
+      calendarRepo.findOne.mockResolvedValue({ id: 'event-1' });
+      eventParticipantRepo.find.mockResolvedValue([
+        {
+          userId: 'defendant-1',
+          status: ParticipantStatus.ACCEPTED,
+        },
+      ]);
+
+      hearingRepo.findOne.mockResolvedValue({
+        id: 'h-1',
+        disputeId: 'd-1',
+        tier: HearingTier.TIER_1,
+        status: HearingStatus.SCHEDULED,
+        scheduledAt: new Date('2026-04-24T10:00:00.000Z'),
+        startedAt: new Date('2026-04-24T10:05:00.000Z'),
+        endedAt: null,
+        pausedAt: null,
+        isChatRoomActive: false,
+        currentSpeakerRole: SpeakerRole.ALL,
+        participants: [
+          {
+            userId: 'defendant-1',
+            role: HearingParticipantRole.DEFENDANT,
+          },
+        ],
+        dispute: {
+          id: 'd-1',
+          status: DisputeStatus.IN_PROGRESS,
+        },
+      });
+      hearingRepo.update.mockResolvedValue({ affected: 1 });
+
+      const result = await service.getChatPermission('h-1', 'defendant-1');
+
+      expect(result.allowed).toBe(true);
+      expect(hearingRepo.update).toHaveBeenCalledWith(
+        'h-1',
+        expect.objectContaining({
+          status: HearingStatus.IN_PROGRESS,
+          isChatRoomActive: true,
+        }),
+      );
+    });
+
+    it('returns normalized hearing status in hearing detail responses', async () => {
+      jest.spyOn(service as any, 'buildDocketForDispute').mockResolvedValue({ items: [] });
+      jest
+        .spyOn(service as any, 'loadConfirmationSummaryByHearingIds')
+        .mockResolvedValue(new Map());
+      jest.spyOn(service as any, 'buildHearingWorkspacePermissions').mockResolvedValue({
+        canSendMessage: true,
+        canUploadEvidence: false,
+        canAttachEvidenceLink: false,
+        canManageEvidenceIntake: false,
+      });
+
+      hearingRepo.findOne.mockResolvedValue({
+        id: 'h-1',
+        disputeId: 'd-1',
+        moderatorId: 'staff-1',
+        tier: HearingTier.TIER_1,
+        status: HearingStatus.SCHEDULED,
+        scheduledAt: new Date('2026-04-24T10:00:00.000Z'),
+        startedAt: new Date('2026-04-24T10:05:00.000Z'),
+        endedAt: null,
+        pausedAt: null,
+        isChatRoomActive: false,
+        isEvidenceIntakeOpen: false,
+        currentSpeakerRole: SpeakerRole.ALL,
+        estimatedDurationMinutes: 60,
+        participants: [
+          {
+            userId: 'defendant-1',
+            role: HearingParticipantRole.DEFENDANT,
+            isRequired: true,
+          },
+        ],
+        dispute: {
+          id: 'd-1',
+          status: DisputeStatus.IN_PROGRESS,
+          phase: DisputePhase.EVIDENCE_SUBMISSION,
+          raisedById: 'raiser-1',
+          defendantId: 'defendant-1',
+          assignedStaffId: 'staff-1',
+          escalatedToAdminId: null,
+        },
+      });
+      hearingRepo.update.mockResolvedValue({ affected: 1 });
+
+      const result = await service.getHearingById('h-1', {
+        id: 'defendant-1',
+        role: UserRole.FREELANCER,
+      } as UserEntity);
+
+      expect(result.status).toBe(HearingStatus.IN_PROGRESS);
+      expect(result.isChatRoomActive).toBe(true);
+    });
+  });
+
   describe('early start readiness', () => {
     it('requires online + ACCEPTED RSVP for required participants', () => {
       const participants = [

@@ -62,6 +62,7 @@ const REPORT_REASONS = [
 ];
 
 const PROJECT_PARTICIPANT_ROLES = new Set(["CLIENT", "BROKER", "FREELANCER"]);
+const MIN_DISPUTE_REASON_LENGTH = 20;
 
 export const CreateDisputeWizard = ({
   onClose,
@@ -321,8 +322,10 @@ export const CreateDisputeWizard = ({
     }
 
     const reasonText = customReason.trim();
-    if (reasonText.length < 20) {
-      toast.error("Please provide more detail (at least 20 characters).");
+    if (reasonText.length < MIN_DISPUTE_REASON_LENGTH) {
+      toast.error(
+        `Please provide more detail (at least ${MIN_DISPUTE_REASON_LENGTH} characters).`,
+      );
       return;
     }
     if (!projectId || !milestoneId) {
@@ -572,6 +575,17 @@ export const CreateDisputeWizard = ({
                 onChange={(e) => setCustomReason(e.target.value)}
               />
             </div>
+            <div className="mt-2 flex items-center justify-between text-xs text-slate-400">
+              <span>
+                {customReason.length} characters
+                {customReason.length > 0 &&
+                customReason.length < MIN_DISPUTE_REASON_LENGTH ? (
+                  <span className="ml-1 text-amber-500">
+                    (min {MIN_DISPUTE_REASON_LENGTH})
+                  </span>
+                ) : null}
+              </span>
+            </div>
             <p className="mt-2 text-sm text-gray-500">
               Be specific. Vague descriptions may lead to your dispute being
               rejected during Triage.
@@ -639,7 +653,7 @@ export const CreateDisputeWizard = ({
             <button
               disabled={
                 !isDisputeAllowed ||
-                customReason.trim().length < 20 ||
+                customReason.trim().length < MIN_DISPUTE_REASON_LENGTH ||
                 !selectedCategory ||
                 !isCategoryAllowed(selectedCategory)
               }
