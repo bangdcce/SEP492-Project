@@ -7,6 +7,7 @@ import { apiClient } from "@/shared/api/client";
 import type {
   CreateReviewPayload,
   CreateReportPayload,
+  ProjectReviewAvailability,
   TrustProfileResponse,
   Review,
   ReviewEditHistoryEntry,
@@ -28,6 +29,20 @@ export const getTrustProfile = async (userId: string) => {
  */
 export const getReviewsByUser = async (userId: string) => {
   return apiClient.get<Review[]>(`/reviews?targetUserId=${userId}`);
+};
+
+export const getProjectReviewStatus = async (
+  projectId: string,
+  targetUserId: string,
+) => {
+  const searchParams = new URLSearchParams({
+    projectId,
+    targetUserId,
+  });
+
+  return apiClient.get<ProjectReviewAvailability>(
+    `/reviews/status?${searchParams.toString()}`,
+  );
 };
 
 /**

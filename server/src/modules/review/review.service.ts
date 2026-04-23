@@ -12,6 +12,7 @@ import {
   MilestoneEntity,
   MilestoneStatus,
   ProjectEntity,
+  ProjectStatus,
   ReportEntity,
   ReportStatus,
   ReviewEntity,
@@ -83,6 +84,11 @@ export class ReviewService {
     });
 
     if (!project) throw new NotFoundException('Project not found');
+    if (![ProjectStatus.COMPLETED, ProjectStatus.PAID].includes(project.status)) {
+      throw new BadRequestException(
+        'You can only review after the project is completed or paid.',
+      );
+    }
 
     await this.assertFinalMilestonePaid(projectId);
 
@@ -108,6 +114,7 @@ export class ReviewService {
     // Kiểm tra xem đã review chưa (Mỗi người chềEreview 1 lần cho 1 dự án/đối tượng)
     const existingReview = await this.reviewRepo.findOne({
       where: { projectId, reviewerId, targetUserId },
+      withDeleted: true,
     });
 
     if (existingReview) {
@@ -302,6 +309,22 @@ export class ReviewService {
     });
 
     return reviews;
+  }
+
+  async getProjectReviewStatus(reviewerId: string, projectId: string, targetUserId: string) {
+    const existingReview = await this.reviewRepo.findOne({
+      where: { projectId, reviewerId, targetUserId },
+      withDeleted: true,
+      select: ['id', 'projectId', 'reviewerId', 'targetUserId', 'deletedAt'],
+    });
+
+    return {
+      projectId,
+      targetUserId,
+      hasReviewed: Boolean(existingReview),
+      canSubmit: !existingReview,
+      status: !existingReview ? 'NONE' : existingReview.deletedAt ? 'SOFT_DELETED' : 'ACTIVE',
+    };
   }
 
   async getEditHistory(reviewId: string) {

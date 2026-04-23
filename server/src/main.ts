@@ -280,4 +280,11 @@ async function bootstrap() {
   }
 }
 
-void bootstrap();
+void bootstrap().catch((error: unknown) => {
+  const logger = new Logger('Bootstrap');
+  logger.error(
+    `Fatal bootstrap error: ${error instanceof Error ? error.message : 'unknown error'}`,
+    error instanceof Error ? error.stack : undefined,
+  );
+  process.exit(1);
+});

@@ -94,19 +94,6 @@ export const projectSpecsApi = {
     return apiClient.get(`/project-specs/by-request/${requestId}`);
   },
 
-  getPendingSpecs: (): Promise<ProjectSpec[]> => {
-    return apiClient.get('/project-specs/pending');
-  },
-
-  /** Staff audit (legacy) */
-  auditSpec: (
-    id: string,
-    action: 'APPROVE' | 'REJECT',
-    reason?: string,
-  ): Promise<ProjectSpec> => {
-    return apiClient.post(`/project-specs/${id}/audit`, { action, reason });
-  },
-
   /** Legacy: create full spec directly */
   createSpec: (data: CreateProjectSpecDTO): Promise<SpecMutationResponse> => {
     return apiClient.post('/project-specs', data);

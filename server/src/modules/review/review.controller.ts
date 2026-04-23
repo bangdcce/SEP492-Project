@@ -157,6 +157,18 @@ export class ReviewController {
     return this.reviewService.findByTargetUser(targetUserId);
   }
 
+  @Get('status')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Get review availability for the current user on a project target' })
+  async getProjectReviewStatus(
+    @GetUser('id') reviewerId: string,
+    @Query('projectId', new ParseUUIDPipe()) projectId: string,
+    @Query('targetUserId', new ParseUUIDPipe()) targetUserId: string,
+  ) {
+    return this.reviewService.getProjectReviewStatus(reviewerId, projectId, targetUserId);
+  }
+
   // 2. GET edit history for a review
   @Get(':id/history')
   @UseGuards(JwtAuthGuard)

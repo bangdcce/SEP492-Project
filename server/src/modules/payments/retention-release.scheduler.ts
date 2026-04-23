@@ -34,12 +34,18 @@ export class RetentionReleaseScheduler {
       return;
     }
 
-    const result: DueRetentionReleaseResult = await this.escrowReleaseService.releaseDueRetentions(
-      new Date(),
-    );
-    if (result.scanned > 0 || result.failed > 0) {
-      this.logger.log(
-        `Retention release scan: scanned=${result.scanned}, released=${result.released}, failed=${result.failed}`,
+    try {
+      const result: DueRetentionReleaseResult = await this.escrowReleaseService.releaseDueRetentions(
+        new Date(),
+      );
+      if (result.scanned > 0 || result.failed > 0) {
+        this.logger.log(
+          `Retention release scan: scanned=${result.scanned}, released=${result.released}, failed=${result.failed}`,
+        );
+      }
+    } catch (error) {
+      this.logger.error(
+        `Retention release scan failed: ${error instanceof Error ? error.message : 'unknown error'}`,
       );
     }
   }

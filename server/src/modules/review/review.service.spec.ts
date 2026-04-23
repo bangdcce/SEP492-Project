@@ -311,7 +311,7 @@ describe('ReviewService', () => {
         },
         {},
       ),
-    ).rejects.toThrow('completed or paid project');
+    ).rejects.toThrow('project is completed or paid');
 
     expect(dataSource.transaction).not.toHaveBeenCalled();
     expect(eventEmitter.emitAsync).not.toHaveBeenCalled();
@@ -408,6 +408,86 @@ describe('ReviewService', () => {
     expect(reviewRepo.findOne).not.toHaveBeenCalled();
     expect(dataSource.transaction).not.toHaveBeenCalled();
     expect(eventEmitter.emitAsync).not.toHaveBeenCalled();
+  });
+
+  it('rejects review creation when a soft-deleted review already exists for the same tuple', async () => {
+    projectRepo.findOne.mockResolvedValue({
+      id: 'project-1',
+      status: ProjectStatus.PAID,
+      clientId: 'reviewer-1',
+      freelancerId: 'target-1',
+      brokerId: null,
+      totalBudget: 20000000,
+    });
+    milestoneRepo.find.mockResolvedValue([
+      { id: 'milestone-1', sortOrder: 1, status: MilestoneStatus.PAID },
+    ]);
+    reviewRepo.findOne.mockResolvedValue({
+      id: 'review-soft-deleted',
+      projectId: 'project-1',
+      reviewerId: 'reviewer-1',
+      targetUserId: 'target-1',
+      deletedAt: new Date('2026-03-18T09:00:00.000Z'),
+    });
+
+    await expect(
+      service.create(
+        'reviewer-1',
+        {
+          projectId: 'project-1',
+          targetUserId: 'target-1',
+          rating: 5,
+          comment: 'Should fail',
+        },
+        {},
+      ),
+    ).rejects.toThrow('already reviewed this user');
+
+    expect(reviewRepo.findOne).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          projectId: 'project-1',
+          reviewerId: 'reviewer-1',
+          targetUserId: 'target-1',
+        },
+        withDeleted: true,
+      }),
+    );
+    expect(dataSource.transaction).not.toHaveBeenCalled();
+  });
+
+  it('returns SOFT_DELETED review status when the current user already reviewed and the review was soft deleted', async () => {
+    reviewRepo.findOne.mockResolvedValue({
+      id: 'review-soft-deleted',
+      projectId: 'project-1',
+      reviewerId: 'reviewer-1',
+      targetUserId: 'target-1',
+      deletedAt: new Date('2026-03-18T09:00:00.000Z'),
+    });
+
+    const result = await service.getProjectReviewStatus(
+      'reviewer-1',
+      'project-1',
+      'target-1',
+    );
+
+    expect(reviewRepo.findOne).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          projectId: 'project-1',
+          reviewerId: 'reviewer-1',
+          targetUserId: 'target-1',
+        },
+        withDeleted: true,
+      }),
+    );
+    expect(result).toEqual({
+      projectId: 'project-1',
+      targetUserId: 'target-1',
+      hasReviewed: true,
+      canSubmit: false,
+      status: 'SOFT_DELETED',
+    });
   });
 
   it('updates a review and emits a post-commit trust score event', async () => {

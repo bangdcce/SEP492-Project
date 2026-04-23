@@ -183,7 +183,7 @@ export default function ProjectRequestDetailsPage() {
 
   const handleBack = () => {
     if (isAdmin) {
-      navigate("/admin/specs");
+      navigate("/admin/dashboard");
     } else if (user?.role === "BROKER") {
       // If assigned to me, go to My Requests, otherwise Marketplace
       if (request?.brokerId === user?.id) {
