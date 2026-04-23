@@ -85,11 +85,6 @@ import { EmailService } from '../../auth/email.service';
 import { HearingPresenceService } from './hearing-presence.service';
 import { EvidenceService } from './evidence.service';
 import { buildHearingDocket, isDisputeClosedStatus } from '../dispute-docket';
-import {
-  buildDefaultFollowUpAction,
-  normalizeDisputeFollowUpActionInput,
-  type NormalizedDisputeFollowUpAction,
-} from '../dispute-follow-up';
 import { CalendarService } from '../../calendar/calendar.service';
 import {
   ScheduleHearingDto,
@@ -314,22 +309,14 @@ const HEARING_PHASE_SEQUENCE: DisputePhase[] = [
 const AUTO_CLOSE_SUMMARY_PREFIX = 'System auto-close:';
 const TIME_LIMIT_REACHED_SUMMARY = `${AUTO_CLOSE_SUMMARY_PREFIX} The hearing reached its scheduled duration and grace period without a manual close or verdict.`;
 const PAUSE_ABANDONED_SUMMARY = `${AUTO_CLOSE_SUMMARY_PREFIX} The hearing remained paused beyond the allowed timeout and was closed as abandoned.`;
-const SCHEDULED_EXPIRED_SUMMARY = `${AUTO_CLOSE_SUMMARY_PREFIX} The hearing passed its scheduled start and grace window without being started, so it was closed for follow-up review.`;
+const SCHEDULED_EXPIRED_SUMMARY = `${AUTO_CLOSE_SUMMARY_PREFIX} The hearing passed its scheduled start and grace window without being started, so it was closed for manual review.`;
 const FOLLOW_UP_FINDINGS =
-  'No verdict was issued during this session. The dispute remains open for a follow-up hearing.';
+  'No verdict was issued during this session. The dispute remains open for manual staff review.';
 const SCHEDULED_EXPIRED_FINDINGS =
-  'The scheduled hearing did not start before the grace window elapsed. Review attendance, confirmations, and reschedule if the dispute still requires a live session.';
+  'The scheduled hearing did not start before the grace window elapsed. Review attendance, confirmations, and decide whether the dispute should proceed without opening another hearing automatically.';
 const PENDING_CONFIRMATION_TIMEOUT_SUMMARY = `${AUTO_CLOSE_SUMMARY_PREFIX} Required confirmations did not arrive before the hearing window, so the session was canceled and flagged for manual review.`;
 const PENDING_CONFIRMATION_TIMEOUT_FINDINGS =
   'The hearing remained blocked in confirmation handling and now requires manual staff/admin review before another slot is scheduled.';
-const DEFAULT_FOLLOW_UP_PENDING_ACTIONS: NormalizedDisputeFollowUpAction[] = [
-  buildDefaultFollowUpAction('REQUEST_MORE_EVIDENCE', {
-    note: 'Review the hearing record and pending evidence before the next session.',
-  }),
-  buildDefaultFollowUpAction('SCHEDULE_FOLLOW_UP_HEARING', {
-    note: 'Continue the dispute in the next scheduled hearing unless a verdict is issued earlier.',
-  }),
-];
 
 // =============================================================================
 // SERVICE
@@ -444,6 +431,66 @@ export class HearingService implements OnModuleInit {
     return hearing.startedAt || hearing.scheduledAt;
   }
 
+  private resolveEffectiveHearingRuntimeState(
+    hearing: Pick<
+      DisputeHearingEntity,
+      'status' | 'startedAt' | 'endedAt' | 'pausedAt' | 'isChatRoomActive'
+    >,
+  ): Pick<DisputeHearingEntity, 'status' | 'isChatRoomActive'> {
+    const hasStarted = Boolean(hearing.startedAt);
+    const hasEnded = Boolean(hearing.endedAt);
+    const hasPauseMarker = Boolean(hearing.pausedAt) && !hasEnded;
+
+    let status = hearing.status;
+    if (hasEnded) {
+      status = status === HearingStatus.CANCELED ? HearingStatus.CANCELED : HearingStatus.COMPLETED;
+    } else if (hasPauseMarker && status !== HearingStatus.CANCELED) {
+      status = HearingStatus.PAUSED;
+    } else if (
+      status !== HearingStatus.CANCELED &&
+      status !== HearingStatus.COMPLETED &&
+      status !== HearingStatus.RESCHEDULED &&
+      (hasStarted || hearing.isChatRoomActive)
+    ) {
+      status = HearingStatus.IN_PROGRESS;
+    }
+
+    const isChatRoomActive = status === HearingStatus.IN_PROGRESS;
+
+    return {
+      status,
+      isChatRoomActive,
+    };
+  }
+
+  private async reconcileHearingRuntimeState<
+    T extends Pick<
+      DisputeHearingEntity,
+      'id' | 'status' | 'startedAt' | 'endedAt' | 'pausedAt' | 'isChatRoomActive'
+    >,
+  >(hearing: T): Promise<T> {
+    const effective = this.resolveEffectiveHearingRuntimeState(hearing);
+    const patch: Partial<DisputeHearingEntity> = {};
+
+    if (effective.status !== hearing.status) {
+      patch.status = effective.status;
+    }
+    if (effective.isChatRoomActive !== hearing.isChatRoomActive) {
+      patch.isChatRoomActive = effective.isChatRoomActive;
+    }
+
+    if (Object.keys(patch).length > 0) {
+      await this.hearingRepository.update(hearing.id, patch);
+      Object.assign(hearing, patch);
+      this.logger.warn(
+        `hearing_runtime_state_reconciled hearingId=${hearing.id} ` +
+          `status=${hearing.status} chat=${hearing.isChatRoomActive}`,
+      );
+    }
+
+    return hearing;
+  }
+
   private buildHearingTimebox(
     hearing: Pick<
       DisputeHearingEntity,
@@ -503,7 +550,7 @@ export class HearingService implements OnModuleInit {
 
   private buildSystemClosureMinutes(
     reason: Exclude<HearingClosureReason, 'MANUAL_CLOSE'>,
-  ): Pick<EndHearingDto, 'summary' | 'findings' | 'pendingActions' | 'forceEnd' | 'noShowNote'> {
+  ): Pick<EndHearingDto, 'summary' | 'findings' | 'forceEnd' | 'noShowNote'> {
     return {
       summary:
         reason === 'PAUSE_ABANDONED'
@@ -512,7 +559,6 @@ export class HearingService implements OnModuleInit {
             ? SCHEDULED_EXPIRED_SUMMARY
             : TIME_LIMIT_REACHED_SUMMARY,
       findings: reason === 'SCHEDULED_EXPIRED' ? SCHEDULED_EXPIRED_FINDINGS : FOLLOW_UP_FINDINGS,
-      pendingActions: DEFAULT_FOLLOW_UP_PENDING_ACTIONS,
       forceEnd: true,
       noShowNote: undefined,
     };
@@ -809,7 +855,7 @@ export class HearingService implements OnModuleInit {
       speakerRoleBeforePause: null,
       summary: closureMinutes.summary,
       findings: closureMinutes.findings,
-      pendingActions: closureMinutes.pendingActions,
+      pendingActions: null,
       noShowNote:
         'System-generated note: the hearing expired before it could be started. ' +
         `Blocked reason: ${blockedReason}.`,
@@ -1553,7 +1599,7 @@ export class HearingService implements OnModuleInit {
       speakerRoleBeforePause: null,
       summary: PENDING_CONFIRMATION_TIMEOUT_SUMMARY,
       findings: PENDING_CONFIRMATION_TIMEOUT_FINDINGS,
-      pendingActions: DEFAULT_FOLLOW_UP_PENDING_ACTIONS,
+      pendingActions: null,
       noShowNote: `System-generated note: ${reason}`,
     });
 
@@ -1662,6 +1708,8 @@ export class HearingService implements OnModuleInit {
       throw new NotFoundException(`Hearing ${hearingId} not found`);
     }
 
+    await this.reconcileHearingRuntimeState(hearing);
+
     const docketEntry = await this.getHearingDocketEntry(hearing);
     if (docketEntry && !docketEntry.isActionable) {
       return {
@@ -1749,6 +1797,8 @@ export class HearingService implements OnModuleInit {
     hearing: DisputeHearingEntity,
     user: UserEntity,
   ): Promise<HearingWorkspacePermissions> {
+    await this.reconcileHearingRuntimeState(hearing);
+
     const chatPermission = await this.getChatPermission(hearing.id, user.id);
     const permissions: HearingWorkspacePermissions = {
       canSendMessage: chatPermission.allowed,
@@ -1833,6 +1883,8 @@ export class HearingService implements OnModuleInit {
     if (!hearing) {
       throw new NotFoundException(`Hearing ${hearingId} not found`);
     }
+
+    await this.reconcileHearingRuntimeState(hearing);
 
     const participantRecord = hearing.participants?.find(
       (participant) => participant.userId === userId,
@@ -2325,14 +2377,24 @@ export class HearingService implements OnModuleInit {
       minutesRecorded?: boolean;
     },
   ) {
+    const runtime = this.resolveEffectiveHearingRuntimeState(hearing);
     const participantConfirmationSummary = confirmationSummaryByHearingId?.get(hearing.id);
-    const lifecycle = this.resolveHearingLifecycle(hearing);
-    const timebox = this.buildHearingTimebox(hearing);
-    const closureReason = this.deriveClosureReason(hearing);
+    const lifecycle = this.resolveHearingLifecycle({
+      ...hearing,
+      status: runtime.status,
+    });
+    const timebox = this.buildHearingTimebox({
+      ...hearing,
+      status: runtime.status,
+    });
+    const closureReason = this.deriveClosureReason({
+      summary: hearing.summary,
+      status: runtime.status,
+    });
     return {
       id: hearing.id,
       disputeId: hearing.disputeId,
-      status: hearing.status,
+      status: runtime.status,
       lifecycle,
       scheduledAt: hearing.scheduledAt,
       startedAt: hearing.startedAt,
@@ -2342,7 +2404,7 @@ export class HearingService implements OnModuleInit {
       externalMeetingLink: hearing.externalMeetingLink,
       moderatorId: hearing.moderatorId,
       currentSpeakerRole: hearing.currentSpeakerRole,
-      isChatRoomActive: hearing.isChatRoomActive,
+      isChatRoomActive: runtime.isChatRoomActive,
       isEvidenceIntakeOpen: hearing.isEvidenceIntakeOpen,
       evidenceIntakeOpenedAt: hearing.evidenceIntakeOpenedAt,
       evidenceIntakeClosedAt: hearing.evidenceIntakeClosedAt,
@@ -2504,6 +2566,8 @@ export class HearingService implements OnModuleInit {
     if (!hearing) {
       throw new NotFoundException(`Hearing ${hearingId} not found`);
     }
+
+    await this.reconcileHearingRuntimeState(hearing);
 
     if (user.role === UserRole.ADMIN) {
       return hearing;
@@ -3025,6 +3089,9 @@ export class HearingService implements OnModuleInit {
       select: [
         'id',
         'status',
+        'startedAt',
+        'endedAt',
+        'pausedAt',
         'isChatRoomActive',
         'moderatorId',
         'isEvidenceIntakeOpen',
@@ -3038,6 +3105,8 @@ export class HearingService implements OnModuleInit {
     if (!hearing) {
       throw new NotFoundException(`Hearing ${hearingId} not found`);
     }
+
+    await this.reconcileHearingRuntimeState(hearing);
 
     const control = await this.canControlSpeaker(hearingId, actorId);
     if (!control.canControl) {
@@ -3084,12 +3153,22 @@ export class HearingService implements OnModuleInit {
   async closeEvidenceIntake(hearingId: string, actorId: string) {
     const hearing = await this.hearingRepository.findOne({
       where: { id: hearingId },
-      select: ['id', 'status', 'isChatRoomActive', 'disputeId'],
+      select: [
+        'id',
+        'status',
+        'startedAt',
+        'endedAt',
+        'pausedAt',
+        'isChatRoomActive',
+        'disputeId',
+      ],
     });
 
     if (!hearing) {
       throw new NotFoundException(`Hearing ${hearingId} not found`);
     }
+
+    await this.reconcileHearingRuntimeState(hearing);
 
     const control = await this.canControlSpeaker(hearingId, actorId);
     if (!control.canControl) {
@@ -4194,12 +4273,23 @@ export class HearingService implements OnModuleInit {
 
     const hearing = await this.hearingRepository.findOne({
       where: { id: hearingId },
-      select: ['id', 'status', 'isChatRoomActive', 'currentSpeakerRole', 'disputeId'],
+      select: [
+        'id',
+        'status',
+        'startedAt',
+        'endedAt',
+        'pausedAt',
+        'isChatRoomActive',
+        'currentSpeakerRole',
+        'disputeId',
+      ],
     });
 
     if (!hearing) {
       throw new NotFoundException(`Hearing ${hearingId} not found`);
     }
+
+    await this.reconcileHearingRuntimeState(hearing);
 
     if (hearing.status !== HearingStatus.IN_PROGRESS || !hearing.isChatRoomActive) {
       throw new BadRequestException('Chat room is not active');
@@ -4311,12 +4401,23 @@ export class HearingService implements OnModuleInit {
     // 1. Tﾃｬm hearing vﾃ validate
     const hearing = await this.hearingRepository.findOne({
       where: { id: hearingId },
-      select: ['id', 'status', 'isChatRoomActive', 'currentSpeakerRole', 'disputeId'],
+      select: [
+        'id',
+        'status',
+        'startedAt',
+        'endedAt',
+        'pausedAt',
+        'isChatRoomActive',
+        'currentSpeakerRole',
+        'disputeId',
+      ],
     });
 
     if (!hearing) {
       throw new NotFoundException(`Hearing ${hearingId} not found`);
     }
+
+    await this.reconcileHearingRuntimeState(hearing);
 
     if (hearing.status !== HearingStatus.IN_PROGRESS || !hearing.isChatRoomActive) {
       throw new BadRequestException('Hearing is not in progress or chat room is not active');
@@ -5115,7 +5216,6 @@ export class HearingService implements OnModuleInit {
       closureReason: HearingClosureReason;
       summary: string;
       findings: string;
-      pendingActions?: unknown[] | null;
       forceEnd?: boolean;
       noShowNote?: string | null;
       skipActionableCheck?: boolean;
@@ -5136,7 +5236,6 @@ export class HearingService implements OnModuleInit {
     const summary = input.summary?.trim();
     const findings = input.findings?.trim();
     let noShowNote = input.noShowNote?.trim() || null;
-    const pendingActions = normalizeDisputeFollowUpActionInput(input.pendingActions ?? []);
 
     if (!summary || !findings) {
       throw new BadRequestException({
@@ -5271,7 +5370,7 @@ export class HearingService implements OnModuleInit {
       speakerRoleBeforePause: null,
       summary,
       findings,
-      pendingActions: pendingActions.length > 0 ? pendingActions : null,
+      pendingActions: null,
       noShowNote,
     });
 
@@ -5337,7 +5436,6 @@ export class HearingService implements OnModuleInit {
       closureReason: 'MANUAL_CLOSE',
       summary: dto.summary,
       findings: dto.findings,
-      pendingActions: dto.pendingActions,
       forceEnd: dto.forceEnd || closingAfterVerdict,
       noShowNote: dto.noShowNote,
       skipActionableCheck: closingAfterVerdict,
@@ -6655,6 +6753,8 @@ export class HearingService implements OnModuleInit {
     if (!hearing) {
       throw new NotFoundException(`Hearing ${hearingId} not found`);
     }
+
+    await this.reconcileHearingRuntimeState(hearing);
 
     // 2. Check if hearing is active
     if (hearing.status !== HearingStatus.IN_PROGRESS) {

@@ -1,5 +1,4 @@
 import {
-  IsArray,
   IsBoolean,
   IsNotEmpty,
   IsOptional,
@@ -8,7 +7,6 @@ import {
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ResolveDisputeDto } from './resolve-dispute.dto';
-import { FollowUpActionDto, TransformFollowUpActions } from './follow-up-action.dto';
 
 export class CloseHearingMinutesDto {
   @IsString()
@@ -18,13 +16,6 @@ export class CloseHearingMinutesDto {
   @IsString()
   @IsNotEmpty()
   findings: string;
-
-  @TransformFollowUpActions()
-  @IsArray()
-  @ValidateNested({ each: true })
-  @Type(() => FollowUpActionDto)
-  @IsOptional()
-  pendingActions?: FollowUpActionDto[];
 
   @IsOptional()
   @IsBoolean()

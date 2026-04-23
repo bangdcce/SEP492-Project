@@ -62,6 +62,7 @@ describe('DisputesService', () => {
   let disputeInternalMembershipRepo: any;
   let activityRepo: any;
   let evidenceRepo: any;
+  let messageRepo: any;
   let contractRepo: any;
   let userRepo: any;
   let projectRepo: any;
@@ -86,6 +87,42 @@ describe('DisputesService', () => {
     exist: jest.fn(),
     createQueryBuilder: jest.fn(),
   });
+
+  const readZipEntries = async (buffer: Buffer): Promise<Record<string, string>> => {
+    const yauzl = require('yauzl');
+
+    return await new Promise((resolve, reject) => {
+      yauzl.fromBuffer(buffer, { lazyEntries: true }, (openError: Error | null, zipfile: any) => {
+        if (openError || !zipfile) {
+          reject(openError || new Error('Failed to open zip buffer'));
+          return;
+        }
+
+        const entries: Record<string, string> = {};
+        zipfile.readEntry();
+
+        zipfile.on('entry', (entry: any) => {
+          zipfile.openReadStream(entry, (streamError: Error | null, stream: any) => {
+            if (streamError || !stream) {
+              reject(streamError || new Error(`Failed to read zip entry ${entry.fileName}`));
+              return;
+            }
+
+            const chunks: Buffer[] = [];
+            stream.on('data', (chunk: Buffer) => chunks.push(chunk));
+            stream.on('end', () => {
+              entries[entry.fileName] = Buffer.concat(chunks).toString('utf8');
+              zipfile.readEntry();
+            });
+            stream.on('error', reject);
+          });
+        });
+
+        zipfile.on('end', () => resolve(entries));
+        zipfile.on('error', reject);
+      });
+    });
+  };
 
   const createQueryRunnerMock = () => ({
     connect: jest.fn().mockResolvedValue(undefined),
@@ -142,7 +179,10 @@ describe('DisputesService', () => {
           },
         },
         { provide: TrustScoreService, useValue: {} },
-        { provide: AuditLogsService, useValue: { logCustom: jest.fn() } },
+        {
+          provide: AuditLogsService,
+          useValue: { logCustom: jest.fn(), findAllForExport: jest.fn() },
+        },
         { provide: EventEmitter2, useValue: { emit: jest.fn() } },
         { provide: UserWarningService, useValue: {} },
         { provide: SettlementService, useValue: {} },
@@ -178,6 +218,7 @@ describe('DisputesService', () => {
     disputeInternalMembershipRepo = module.get(getRepositoryToken(DisputeInternalMembershipEntity));
     activityRepo = module.get(getRepositoryToken(DisputeActivityEntity));
     evidenceRepo = module.get(getRepositoryToken(DisputeEvidenceEntity));
+    messageRepo = module.get(getRepositoryToken(DisputeMessageEntity));
     contractRepo = module.get(getRepositoryToken(ContractEntity));
     userRepo = module.get(getRepositoryToken(UserEntity));
     projectRepo = module.get(getRepositoryToken(ProjectEntity));
@@ -195,7 +236,9 @@ describe('DisputesService', () => {
     disputeInternalMembershipRepo.find.mockResolvedValue([]);
     userRepo.find.mockResolvedValue([]);
     hearingRepo.find.mockResolvedValue([]);
+    messageRepo.find.mockResolvedValue([]);
     auditLogsService.logCustom.mockResolvedValue(undefined);
+    auditLogsService.findAllForExport.mockResolvedValue([]);
     staffAssignmentService.estimateDisputeComplexity.mockResolvedValue(null);
     hearingService.scheduleHearing.mockReset();
     hearingService.rescheduleHearing.mockReset();
@@ -747,6 +790,108 @@ describe('DisputesService', () => {
     });
   });
 
+  describe('exportDisputeDossier', () => {
+    it('includes hearing room chat transcripts in the exported dossier package', async () => {
+      disputeRepo.findOne.mockResolvedValue({
+        id: 'd-1',
+        projectId: 'p-1',
+        milestoneId: 'm-1',
+        raisedById: 'raiser-1',
+        defendantId: 'def-1',
+        raiserRole: UserRole.CLIENT,
+        defendantRole: UserRole.FREELANCER,
+        status: DisputeStatus.IN_MEDIATION,
+        category: null,
+        priority: null,
+        reason: 'Delivery dispute',
+        disputedAmount: 100,
+        createdAt: new Date('2026-03-01T10:00:00.000Z'),
+        assignedStaffId: 'staff-1',
+        project: { title: 'Project Alpha' },
+        raiser: { fullName: 'Client One', email: 'client@example.com' },
+        defendant: { fullName: 'Freelancer One', email: 'freelancer@example.com' },
+      });
+      jest.spyOn(service as any, 'assertDisputeAccess').mockResolvedValue(undefined);
+      activityRepo.find.mockResolvedValue([]);
+      evidenceRepo.find.mockResolvedValue([]);
+      hearingRepo.find
+        .mockResolvedValueOnce([
+          {
+            id: 'hearing-1',
+            status: HearingStatus.IN_PROGRESS,
+            scheduledAt: new Date('2026-03-10T10:00:00.000Z'),
+            hearingNumber: 1,
+            tier: 'TIER_1',
+          },
+        ])
+        .mockResolvedValueOnce([
+          {
+            id: 'hearing-1',
+            status: HearingStatus.IN_PROGRESS,
+            scheduledAt: new Date('2026-03-10T10:00:00.000Z'),
+            startedAt: new Date('2026-03-10T10:05:00.000Z'),
+            endedAt: null,
+            hearingNumber: 1,
+            tier: 'TIER_1',
+          },
+        ]);
+      contractRepo.find.mockResolvedValue([]);
+      messageRepo.find.mockResolvedValue([
+        {
+          id: 'msg-1',
+          disputeId: 'd-1',
+          hearingId: 'hearing-1',
+          senderId: 'raiser-1',
+          senderRole: UserRole.CLIENT,
+          type: 'TEXT',
+          content: 'This is my opening statement in chat.',
+          replyToMessageId: null,
+          relatedEvidenceId: null,
+          attachedEvidenceIds: null,
+          metadata: { phase: 'PRESENTATION' },
+          isHidden: false,
+          hiddenReason: null,
+          createdAt: new Date('2026-03-10T10:06:00.000Z'),
+          sender: {
+            id: 'raiser-1',
+            fullName: 'Client One',
+            email: 'client@example.com',
+          },
+        },
+      ]);
+      hearingParticipantRepo.find.mockResolvedValue([
+        {
+          hearingId: 'hearing-1',
+          userId: 'raiser-1',
+          role: 'RAISER',
+        },
+      ]);
+      auditLogsService.findAllForExport.mockResolvedValue([]);
+
+      const exported = await service.exportDisputeDossier('d-1', 'raiser-1', UserRole.CLIENT);
+      const zipEntries = await readZipEntries(exported.buffer);
+      const manifest = JSON.parse(zipEntries['manifest.json']);
+      const hearingTranscripts = JSON.parse(zipEntries['hearing-transcripts.json']);
+
+      expect(exported.fileName).toBe('dispute-d-1-dossier.zip');
+      expect(manifest.counts.hearingMessages).toBe(1);
+      expect(hearingTranscripts).toEqual([
+        expect.objectContaining({
+          hearingId: 'hearing-1',
+          hearingNumber: 1,
+          messages: [
+            expect.objectContaining({
+              id: 'msg-1',
+              senderId: 'raiser-1',
+              senderHearingRole: 'RAISER',
+              content: 'This is my opening statement in chat.',
+            }),
+          ],
+        }),
+      ]);
+    });
+  });
+
   describe('createGroup', () => {
     it('creates multiple disputes atomically and returns root/group info', async () => {
       const queryRunner = createQueryRunnerMock();
@@ -1105,6 +1250,97 @@ describe('DisputesService', () => {
         actualResults:
           'submitAppeal delegated to VerdictService.appealVerdict, merged extra-proof into the dispute evidence array, saved activity logs, and returned the APPEALED dispute state.',
       });
+    });
+
+    it('truncates appeal activity descriptions so long reasons do not overflow the audit column', async () => {
+      const longReason = 'A'.repeat(700);
+      const updatedDispute = {
+        id: 'd-1',
+        status: DisputeStatus.APPEALED,
+        raisedById: 'raiser-1',
+        raiserRole: UserRole.CLIENT,
+        defendantId: 'def-1',
+        defendantRole: UserRole.FREELANCER,
+        appealDeadline: new Date('2026-04-19T10:00:00.000Z'),
+        evidence: [],
+      };
+
+      disputeRepo.findOne
+        .mockResolvedValueOnce({
+          id: 'd-1',
+          status: DisputeStatus.RESOLVED,
+          raisedById: 'raiser-1',
+          raiserRole: UserRole.CLIENT,
+          defendantId: 'def-1',
+          defendantRole: UserRole.FREELANCER,
+        })
+        .mockResolvedValueOnce(updatedDispute);
+      verdictService.appealVerdict.mockResolvedValue(updatedDispute);
+      activityRepo.create.mockImplementation((payload: unknown) => payload);
+
+      await service.submitAppeal('raiser-1', 'd-1', {
+        reason: longReason,
+        disclaimerAccepted: true,
+        disclaimerVersion: DISPUTE_DISCLAIMER_VERSION,
+      });
+
+      expect(activityRepo.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          description: expect.any(String),
+          metadata: expect.objectContaining({
+            reason: longReason,
+          }),
+        }),
+      );
+
+      const savedActivity =
+        activityRepo.create.mock.calls[activityRepo.create.mock.calls.length - 1]?.[0];
+      expect(savedActivity.description.length).toBeLessThanOrEqual(500);
+      expect(savedActivity.description.endsWith('...')).toBe(true);
+    });
+
+    it('recovers appeal retries after a prior attempt already transitioned the dispute', async () => {
+      const appealedDispute = {
+        id: 'd-1',
+        status: DisputeStatus.APPEALED,
+        isAppealed: true,
+        currentTier: 2,
+        appealReason: 'A'.repeat(220),
+        raisedById: 'raiser-1',
+        raiserRole: UserRole.CLIENT,
+        defendantId: 'def-1',
+        defendantRole: UserRole.FREELANCER,
+        appealDeadline: new Date('2026-04-19T10:00:00.000Z'),
+        evidence: ['existing-proof'],
+      };
+
+      disputeRepo.findOne
+        .mockResolvedValueOnce({
+          ...appealedDispute,
+          status: DisputeStatus.APPEALED,
+        })
+        .mockResolvedValueOnce(appealedDispute);
+      verdictService.appealVerdict.mockRejectedValue(
+        new BadRequestException('Dispute is not eligible for appeal'),
+      );
+      activityRepo.create.mockImplementation((payload: unknown) => payload);
+
+      const result = await service.submitAppeal('raiser-1', 'd-1', {
+        reason: 'A'.repeat(220),
+        disclaimerAccepted: true,
+        disclaimerVersion: DISPUTE_DISCLAIMER_VERSION,
+      });
+
+      expect(result).toEqual(appealedDispute);
+      expect(activityRepo.save).toHaveBeenCalled();
+      expect(eventEmitter.emit).toHaveBeenCalledWith(
+        'dispute.status_changed',
+        expect.objectContaining({
+          disputeId: 'd-1',
+          previousStatus: DisputeStatus.RESOLVED,
+          newStatus: DisputeStatus.APPEALED,
+        }),
+      );
     });
 
     it('rejects appeal resolution for non-admin staff', async () => {

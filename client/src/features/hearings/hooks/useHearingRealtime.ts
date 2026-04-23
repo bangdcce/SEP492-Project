@@ -7,6 +7,7 @@ interface HearingRealtimeHandlers {
   onMessageSent?: (payload: any) => void;
   onMessageHidden?: (payload: any) => void;
   onMessageUnhidden?: (payload: any) => void;
+  onHearingInviteResponded?: (payload: any) => void;
   onSpeakerControlChanged?: (payload: any) => void;
   onPhaseTransitioned?: (payload: any) => void;
   onEvidenceIntakeChanged?: (payload: any) => void;
@@ -175,6 +176,10 @@ export const useHearingRealtime = (
     const onMessageUnhidden = withDedup("MESSAGE_UNHIDDEN", (p: any) =>
       handlersRef.current?.onMessageUnhidden?.(p),
     );
+    const onHearingInviteResponded = withDedup(
+      "HEARING_INVITE_RESPONDED",
+      (p: any) => handlersRef.current?.onHearingInviteResponded?.(p),
+    );
     const onSpeakerControlChanged = withDedup("SPEAKER_CONTROL_CHANGED", (p: any) =>
       handlersRef.current?.onSpeakerControlChanged?.(p),
     );
@@ -265,6 +270,7 @@ export const useHearingRealtime = (
     socket.on("MESSAGE_SENT", onMessageSent);
     socket.on("MESSAGE_HIDDEN", onMessageHidden);
     socket.on("MESSAGE_UNHIDDEN", onMessageUnhidden);
+    socket.on("HEARING_INVITE_RESPONDED", onHearingInviteResponded);
     socket.on("SPEAKER_CONTROL_CHANGED", onSpeakerControlChanged);
     socket.on("PHASE_TRANSITIONED", onPhaseTransitioned);
     socket.on("EVIDENCE_INTAKE_CHANGED", onEvidenceIntakeChanged);
@@ -303,6 +309,7 @@ export const useHearingRealtime = (
       socket.off("MESSAGE_SENT", onMessageSent);
       socket.off("MESSAGE_HIDDEN", onMessageHidden);
       socket.off("MESSAGE_UNHIDDEN", onMessageUnhidden);
+      socket.off("HEARING_INVITE_RESPONDED", onHearingInviteResponded);
       socket.off("SPEAKER_CONTROL_CHANGED", onSpeakerControlChanged);
       socket.off("PHASE_TRANSITIONED", onPhaseTransitioned);
       socket.off("EVIDENCE_INTAKE_CHANGED", onEvidenceIntakeChanged);

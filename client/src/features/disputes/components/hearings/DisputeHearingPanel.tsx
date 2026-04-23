@@ -92,7 +92,6 @@ export const DisputeHearingPanel = ({
     useState<DisputeHearingSummary | null>(null);
   const [endSummary, setEndSummary] = useState("");
   const [endFindings, setEndFindings] = useState("");
-  const [endPendingActions, setEndPendingActions] = useState("");
   const [testActionLoading, setTestActionLoading] = useState<string | null>(null);
   const [testScheduleHint, setTestScheduleHint] = useState<string>("");
   const [testScheduleOpen, setTestScheduleOpen] = useState(false);
@@ -514,7 +513,6 @@ export const DisputeHearingPanel = ({
     setEndHearingTarget(hearing);
     setEndSummary("");
     setEndFindings("");
-    setEndPendingActions("");
     setEndOpen(true);
   };
 
@@ -533,9 +531,6 @@ export const DisputeHearingPanel = ({
         hearingId: endHearingTarget.id,
         summary,
         findings,
-        pendingActions: endPendingActions
-          ? endPendingActions.split(",").map((item) => item.trim()).filter(Boolean)
-          : undefined,
       });
       toast.success("Hearing ended.");
       setEndOpen(false);
@@ -1199,13 +1194,6 @@ export const DisputeHearingPanel = ({
               onChange={(event) => setEndFindings(event.target.value)}
               className="w-full border border-gray-200 rounded-lg p-2 text-sm"
               placeholder="Findings"
-            />
-            <input
-              data-testid="end-hearing-pending-actions"
-              value={endPendingActions}
-              onChange={(event) => setEndPendingActions(event.target.value)}
-              className="w-full border border-gray-200 rounded-lg p-2 text-sm"
-              placeholder="Pending actions (comma-separated)"
             />
           </div>
           <DialogFooter>

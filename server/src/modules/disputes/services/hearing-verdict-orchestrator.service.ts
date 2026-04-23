@@ -215,7 +215,6 @@ export class HearingVerdictOrchestratorService {
           hearingId,
           summary,
           findings,
-          pendingActions: dto.closeHearing.pendingActions,
           forceEnd: dto.closeHearing.forceEnd,
           noShowNote,
         },

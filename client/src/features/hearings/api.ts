@@ -83,7 +83,6 @@ export const endHearing = async (
     hearingId,
     summary: input.summary,
     findings: input.findings,
-    pendingActions: input.pendingActions,
     forceEnd: input.forceEnd,
     noShowNote: input.noShowNote,
   });

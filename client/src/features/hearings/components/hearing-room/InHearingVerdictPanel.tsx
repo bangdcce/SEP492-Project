@@ -14,9 +14,7 @@ import { sectionCardClass, panelTitleClass } from "./constants";
 import { issueHearingVerdict } from "@/features/hearings/api";
 import { MoneySplitSlider } from "@/features/disputes/components/shared/MoneySplitSlider";
 import {
-  getDisputeActionCatalog,
   getDisputeRuleCatalog,
-  type DisputeActionCatalogItem,
   type DisputeRuleCatalogItem,
 } from "@/features/disputes/api";
 import { getApiErrorDetails } from "@/shared/utils/apiError";
@@ -43,14 +41,14 @@ const FAULT_TYPES = [
   { value: "MUTUAL_FAULT", label: "Mutual fault" },
   { value: "NO_FAULT", label: "No fault" },
   { value: "OTHER", label: "Other" },
-];
+] as const;
 
 const FAULTY_PARTIES = [
   { value: "raiser", label: "Dispute raiser" },
   { value: "defendant", label: "Dispute defendant" },
   { value: "both", label: "Both dispute parties" },
   { value: "none", label: "No party at fault" },
-];
+] as const;
 
 const VERDICT_RESULTS = [
   {
@@ -68,7 +66,7 @@ const VERDICT_RESULTS = [
     label: "Split",
     color: "border-amber-500 bg-amber-50 text-amber-800",
   },
-];
+] as const;
 
 const SAMPLE_FACTUAL_FINDINGS =
   "Based on the signed scope, milestone history, hearing statements, and platform logs, the responsible party did not satisfy the agreed deliverable obligations within the confirmed timeline. The record shows unresolved defects and no approved scope change that would excuse the missed delivery baseline.";
@@ -102,9 +100,10 @@ type PanelErrorState = {
   details?: string[];
 };
 
-const FACTUAL_MIN_LENGTH = 100;
-const LEGAL_MIN_LENGTH = 100;
-const CONCLUSION_MIN_LENGTH = 50;
+const FACTUAL_MIN_LENGTH = 20;
+const LEGAL_MIN_LENGTH = 20;
+const CONCLUSION_MIN_LENGTH = 10;
+const ADMIN_COMMENT_MIN_LENGTH = 5;
 
 const CHECKLIST_LABELS: Record<string, string> = {
   hearingSessionActive: "Hearing is active",
@@ -113,6 +112,16 @@ const CHECKLIST_LABELS: Record<string, string> = {
   minutesPrepared: "Minutes are prepared",
   noShowDocumentation: "No-show documentation is complete",
   attendanceValidated: "Attendance validation passed",
+};
+
+const getFieldCounterTone = (valid: boolean, hasValue: boolean) => {
+  if (valid) {
+    return "text-emerald-600";
+  }
+  if (hasValue) {
+    return "text-amber-600";
+  }
+  return "text-slate-400";
 };
 
 const parseApiErrorPayload = (error: unknown): PanelErrorState => {
@@ -167,11 +176,8 @@ export const InHearingVerdictPanel = memo(function InHearingVerdictPanel({
   const [faultyParty, setFaultyParty] = useState("");
 
   const [policyCatalog, setPolicyCatalog] = useState<DisputeRuleCatalogItem[]>([]);
-  const [actionCatalog, setActionCatalog] = useState<DisputeActionCatalogItem[]>([]);
   const [policySearch, setPolicySearch] = useState("");
   const [selectedPolicies, setSelectedPolicies] = useState<string[]>([]);
-  const [selectedActionCodes, setSelectedActionCodes] = useState<string[]>([]);
-  const [actionNotes, setActionNotes] = useState<Record<string, string>>({});
 
   const [evidenceBasis, setEvidenceBasis] = useState("");
   const [factualFindings, setFactualFindings] = useState("");
@@ -194,14 +200,11 @@ export const InHearingVerdictPanel = memo(function InHearingVerdictPanel({
     const loadCatalogs = async () => {
       try {
         setCatalogLoading(true);
-        const [rules, actions] = await Promise.all([
-          getDisputeRuleCatalog({
-            faultType: faultType || undefined,
-            disputeCategory: disputeCategory || undefined,
-            result: result || undefined,
-          }),
-          getDisputeActionCatalog(),
-        ]);
+        const rules = await getDisputeRuleCatalog({
+          faultType: faultType || undefined,
+          disputeCategory: disputeCategory || undefined,
+          result: result || undefined,
+        });
         if (cancelled) {
           return;
         }
@@ -209,11 +212,10 @@ export const InHearingVerdictPanel = memo(function InHearingVerdictPanel({
         setSelectedPolicies((previous) =>
           previous.filter((code) => rules.some((rule) => rule.code === code)),
         );
-        setActionCatalog(actions);
       } catch (error) {
-        console.error("Failed to load dispute catalogs:", error);
+        console.error("Failed to load dispute policy catalog:", error);
         if (!cancelled) {
-          toast.error("Could not load dispute policy catalogs.");
+          toast.error("Could not load dispute policy catalog.");
         }
       } finally {
         if (!cancelled) {
@@ -234,10 +236,6 @@ export const InHearingVerdictPanel = memo(function InHearingVerdictPanel({
     () => new Map(policyCatalog.map((item) => [item.code, item])),
     [policyCatalog],
   );
-  const actionMap = useMemo(
-    () => new Map(actionCatalog.map((item) => [item.code, item])),
-    [actionCatalog],
-  );
 
   const filteredPolicies = useMemo(() => {
     const query = policySearch.trim().toLowerCase();
@@ -253,23 +251,25 @@ export const InHearingVerdictPanel = memo(function InHearingVerdictPanel({
       .slice(0, 8);
   }, [policyCatalog, policySearch]);
 
-  const selectedActionItems = useMemo(
-    () =>
-      selectedActionCodes
-        .map((code) => actionMap.get(code))
-        .filter((item): item is DisputeActionCatalogItem => Boolean(item)),
-    [actionMap, selectedActionCodes],
-  );
-
   const factualLength = factualFindings.trim().length;
   const legalLength = legalAnalysis.trim().length;
   const conclusionLength = conclusion.trim().length;
+  const evidenceBasisLength = evidenceBasis.trim().length;
+  const adminCommentLength = adminComment.trim().length;
+  const summaryLength = summary.trim().length;
+  const findingsLength = findings.trim().length;
+
+  const evidenceBasisValid = evidenceBasisLength > 0;
+  const factualValid = factualLength >= FACTUAL_MIN_LENGTH;
+  const legalValid = legalLength >= LEGAL_MIN_LENGTH;
+  const conclusionValid = conclusionLength >= CONCLUSION_MIN_LENGTH;
+  const adminCommentValid = adminCommentLength >= ADMIN_COMMENT_MIN_LENGTH;
 
   const coreReasoningValid =
-    factualLength >= FACTUAL_MIN_LENGTH &&
-    legalLength >= LEGAL_MIN_LENGTH &&
-    conclusionLength >= CONCLUSION_MIN_LENGTH &&
-    evidenceBasis.trim().length > 0;
+    factualValid &&
+    legalValid &&
+    conclusionValid &&
+    evidenceBasisValid;
 
   const verdictInputValid =
     Boolean(result) &&
@@ -277,21 +277,45 @@ export const InHearingVerdictPanel = memo(function InHearingVerdictPanel({
     Boolean(faultyParty) &&
     selectedPolicies.length >= 1 &&
     coreReasoningValid &&
-    adminComment.trim().length >= 5;
+    adminCommentValid;
 
-  const minutesValid = summary.trim().length > 0 && findings.trim().length > 0;
+  const minutesValid = summaryLength > 0 && findingsLength > 0;
   const isValid = verdictInputValid && minutesValid;
+
+  const missingRequirements = useMemo(() => {
+    const items: string[] = [];
+
+    if (!result) items.push("Choose a verdict result");
+    if (!faultType) items.push("Choose a fault type");
+    if (!faultyParty) items.push("Choose a faulty party");
+    if (selectedPolicies.length < 1) items.push("Select at least 1 violated policy");
+    if (!evidenceBasisValid) items.push("Add evidence basis / references");
+    if (!factualValid) items.push(`Factual findings need at least ${FACTUAL_MIN_LENGTH} characters`);
+    if (!legalValid) items.push(`Legal analysis needs at least ${LEGAL_MIN_LENGTH} characters`);
+    if (!conclusionValid) items.push(`Conclusion needs at least ${CONCLUSION_MIN_LENGTH} characters`);
+    if (!adminCommentValid) {
+      items.push(`Admin comment needs at least ${ADMIN_COMMENT_MIN_LENGTH} characters`);
+    }
+    if (summaryLength < 1) items.push("Add hearing minutes summary");
+    if (findingsLength < 1) items.push("Add hearing minutes findings");
+
+    return items;
+  }, [
+    adminCommentValid,
+    conclusionValid,
+    evidenceBasisValid,
+    factualValid,
+    faultType,
+    faultyParty,
+    findingsLength,
+    legalValid,
+    result,
+    selectedPolicies.length,
+    summaryLength,
+  ]);
 
   const togglePolicy = useCallback((code: string) => {
     setSelectedPolicies((prev) =>
-      prev.includes(code)
-        ? prev.filter((item) => item !== code)
-        : [...prev, code],
-    );
-  }, []);
-
-  const toggleAction = useCallback((code: string) => {
-    setSelectedActionCodes((prev) =>
       prev.includes(code)
         ? prev.filter((item) => item !== code)
         : [...prev, code],
@@ -311,20 +335,12 @@ export const InHearingVerdictPanel = memo(function InHearingVerdictPanel({
 
   const fillValidSample = useCallback(() => {
     const firstPolicy = policyCatalog[0]?.code;
-    const firstAction = actionCatalog.find(
-      (item) => item.code === "SCHEDULE_FOLLOW_UP_HEARING",
-    )?.code;
 
     setResult((prev) => prev || "WIN_CLIENT");
     handleFaultTypeChange("NON_DELIVERY");
     setFaultyParty((prev) => prev || "defendant");
     if (firstPolicy) {
       setSelectedPolicies((prev) => (prev.includes(firstPolicy) ? prev : [firstPolicy]));
-    }
-    if (firstAction) {
-      setSelectedActionCodes((prev) =>
-        prev.includes(firstAction) ? prev : [...prev, firstAction],
-      );
     }
     setEvidenceBasis((prev) => prev.trim() || SAMPLE_EVIDENCE_BASIS);
     setFactualFindings((prev) =>
@@ -337,13 +353,13 @@ export const InHearingVerdictPanel = memo(function InHearingVerdictPanel({
       prev.trim().length >= CONCLUSION_MIN_LENGTH ? prev : SAMPLE_CONCLUSION,
     );
     setAdminComment((prev) =>
-      prev.trim().length >= 5 ? prev : SAMPLE_ADMIN_COMMENT,
+      prev.trim().length >= ADMIN_COMMENT_MIN_LENGTH ? prev : SAMPLE_ADMIN_COMMENT,
     );
     setSummary((prev) => (prev.trim().length > 0 ? prev : SAMPLE_MINUTES_SUMMARY));
     setFindings((prev) => (prev.trim().length > 0 ? prev : SAMPLE_MINUTES_FINDINGS));
     setNoShowNote((prev) => (prev.trim().length > 0 ? prev : SAMPLE_NO_SHOW_NOTE));
     setPanelError(null);
-  }, [actionCatalog, handleFaultTypeChange, policyCatalog]);
+  }, [handleFaultTypeChange, policyCatalog]);
 
   const submitVerdict = useCallback(async () => {
     if (!isValid) {
@@ -373,16 +389,6 @@ export const InHearingVerdictPanel = memo(function InHearingVerdictPanel({
         closeHearing: {
           summary: summary.trim(),
           findings: findings.trim(),
-          pendingActions:
-            selectedActionItems.length > 0
-              ? selectedActionItems.map((item) => ({
-                  code: item.code,
-                  label: item.label,
-                  ownerRole: item.ownerRole,
-                  urgent: item.defaultUrgent,
-                  note: actionNotes[item.code]?.trim() || undefined,
-                }))
-              : undefined,
           forceEnd: forceEnd || undefined,
           noShowNote: noShowNote.trim() || undefined,
         },
@@ -399,10 +405,11 @@ export const InHearingVerdictPanel = memo(function InHearingVerdictPanel({
       setSubmitting(false);
     }
   }, [
-    actionNotes,
     adminComment,
+    conclusion,
     evidenceBasis,
     factualFindings,
+    faultType,
     faultyParty,
     findings,
     forceEnd,
@@ -412,12 +419,9 @@ export const InHearingVerdictPanel = memo(function InHearingVerdictPanel({
     noShowNote,
     onVerdictIssued,
     result,
-    selectedActionItems,
     selectedPolicies,
     splitRatioClient,
     summary,
-    conclusion,
-    faultType,
   ]);
 
   return (
@@ -430,7 +434,8 @@ export const InHearingVerdictPanel = memo(function InHearingVerdictPanel({
         <div>
           <h3 className={panelTitleClass}>In-Hearing Verdict</h3>
           <p className="mt-1 text-sm text-slate-500">
-            Issue the verdict directly from the hearing record using canonical policy and action catalogs.
+            Issue the verdict directly from the hearing record using the canonical
+            policy catalog.
           </p>
         </div>
         <div className="rounded-full border border-slate-200 p-2 text-slate-500">
@@ -445,7 +450,7 @@ export const InHearingVerdictPanel = memo(function InHearingVerdictPanel({
               <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" />
               <div>
                 This panel closes the hearing and issues the verdict in one transaction.
-                Use canonical policy codes and follow-up actions only.
+                Use canonical policy codes only.
               </div>
             </div>
             {INTERNAL_DEV_TOOLS_ENABLED ? (
@@ -598,6 +603,9 @@ export const InHearingVerdictPanel = memo(function InHearingVerdictPanel({
                 className="block w-full rounded-lg border border-gray-300 p-3 shadow-sm focus:border-teal-500 focus:ring-teal-500"
                 placeholder="State the evidence basis, testimony, or platform logs relied on."
               />
+              <div className="mt-1 text-right text-xs text-slate-500">
+                {evidenceBasisValid ? "Required field completed" : "Required"}
+              </div>
             </div>
             <div>
               <label className="mb-1 block text-sm font-medium text-slate-900">
@@ -609,6 +617,14 @@ export const InHearingVerdictPanel = memo(function InHearingVerdictPanel({
                 onChange={(event) => setFactualFindings(event.target.value)}
                 className="block w-full rounded-lg border border-gray-300 p-3 shadow-sm focus:border-teal-500 focus:ring-teal-500"
               />
+              <div
+                className={cn(
+                  "mt-1 text-right text-xs",
+                  getFieldCounterTone(factualValid, factualLength > 0),
+                )}
+              >
+                {factualLength}/{FACTUAL_MIN_LENGTH} characters
+              </div>
             </div>
             <div>
               <label className="mb-1 block text-sm font-medium text-slate-900">
@@ -620,6 +636,14 @@ export const InHearingVerdictPanel = memo(function InHearingVerdictPanel({
                 onChange={(event) => setLegalAnalysis(event.target.value)}
                 className="block w-full rounded-lg border border-gray-300 p-3 shadow-sm focus:border-teal-500 focus:ring-teal-500"
               />
+              <div
+                className={cn(
+                  "mt-1 text-right text-xs",
+                  getFieldCounterTone(legalValid, legalLength > 0),
+                )}
+              >
+                {legalLength}/{LEGAL_MIN_LENGTH} characters
+              </div>
             </div>
             <div>
               <label className="mb-1 block text-sm font-medium text-slate-900">
@@ -631,6 +655,14 @@ export const InHearingVerdictPanel = memo(function InHearingVerdictPanel({
                 onChange={(event) => setConclusion(event.target.value)}
                 className="block w-full rounded-lg border border-gray-300 p-3 shadow-sm focus:border-teal-500 focus:ring-teal-500"
               />
+              <div
+                className={cn(
+                  "mt-1 text-right text-xs",
+                  getFieldCounterTone(conclusionValid, conclusionLength > 0),
+                )}
+              >
+                {conclusionLength}/{CONCLUSION_MIN_LENGTH} characters
+              </div>
             </div>
             <div>
               <label className="mb-1 block text-sm font-medium text-slate-900">
@@ -642,60 +674,14 @@ export const InHearingVerdictPanel = memo(function InHearingVerdictPanel({
                 onChange={(event) => setAdminComment(event.target.value)}
                 className="block w-full rounded-lg border border-gray-300 p-3 shadow-sm focus:border-teal-500 focus:ring-teal-500"
               />
-            </div>
-          </div>
-
-          <div className="rounded-xl border border-slate-200 bg-slate-50 p-5">
-            <h4 className="text-sm font-semibold text-slate-900">Follow-up Actions</h4>
-            <p className="mt-1 text-sm text-slate-500">
-              Select any action that should remain on the docket after this hearing closes.
-            </p>
-            <div className="mt-4 grid gap-3 md:grid-cols-2">
-              {actionCatalog.map((action) => {
-                const selected = selectedActionCodes.includes(action.code);
-                return (
-                  <div
-                    key={action.code}
-                    className={cn(
-                      "rounded-xl border p-4",
-                      selected
-                        ? "border-sky-300 bg-sky-50"
-                        : "border-slate-200 bg-white",
-                    )}
-                  >
-                    <label className="flex items-start gap-3">
-                      <input
-                        type="checkbox"
-                        checked={selected}
-                        onChange={() => toggleAction(action.code)}
-                        className="mt-1"
-                      />
-                      <span className="min-w-0">
-                        <span className="block text-sm font-semibold text-slate-900">
-                          {action.label}
-                        </span>
-                        <span className="mt-1 block text-xs text-slate-500">
-                          Owner: {action.ownerRole} · {action.guidance}
-                        </span>
-                      </span>
-                    </label>
-                    {selected ? (
-                      <textarea
-                        rows={2}
-                        value={actionNotes[action.code] || ""}
-                        onChange={(event) =>
-                          setActionNotes((prev) => ({
-                            ...prev,
-                            [action.code]: event.target.value,
-                          }))
-                        }
-                        className="mt-3 block w-full rounded-lg border border-slate-300 p-2 text-sm shadow-sm focus:border-teal-500 focus:ring-teal-500"
-                        placeholder="Optional note for this follow-up action"
-                      />
-                    ) : null}
-                  </div>
-                );
-              })}
+              <div
+                className={cn(
+                  "mt-1 text-right text-xs",
+                  getFieldCounterTone(adminCommentValid, adminCommentLength > 0),
+                )}
+              >
+                {adminCommentLength}/{ADMIN_COMMENT_MIN_LENGTH} characters
+              </div>
             </div>
           </div>
 
@@ -764,9 +750,20 @@ export const InHearingVerdictPanel = memo(function InHearingVerdictPanel({
             </div>
           ) : null}
 
+          {!isValid ? (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+              <div className="font-semibold">Issue Verdict is still locked</div>
+              <ul className="mt-2 list-disc pl-5">
+                {missingRequirements.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
           <div className="flex items-center justify-end gap-3">
             <div className="text-right text-xs text-slate-500">
-              {selectedPolicies.length} policy · {selectedActionCodes.length} action
+              {selectedPolicies.length} policy
             </div>
             <button
               type="button"
@@ -774,7 +771,11 @@ export const InHearingVerdictPanel = memo(function InHearingVerdictPanel({
               disabled={!isValid || submitting}
               className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-60"
             >
-              {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Gavel className="h-4 w-4" />}
+              {submitting ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Gavel className="h-4 w-4" />
+              )}
               Issue Verdict
             </button>
           </div>
@@ -784,7 +785,8 @@ export const InHearingVerdictPanel = memo(function InHearingVerdictPanel({
               <AlertDialogHeader>
                 <AlertDialogTitle>Issue verdict and close hearing?</AlertDialogTitle>
                 <AlertDialogDescription>
-                  This will finalize the current hearing session and submit the verdict using the selected policy catalog items.
+                  This will finalize the current hearing session and submit the verdict
+                  using the selected policy catalog items.
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
@@ -793,7 +795,6 @@ export const InHearingVerdictPanel = memo(function InHearingVerdictPanel({
                   <li>Fault type: {faultType || "-"}</li>
                   <li>Faulty party: {faultyParty || "-"}</li>
                   <li>Policies: {selectedPolicies.join(", ") || "-"}</li>
-                  <li>Follow-up actions: {selectedActionCodes.join(", ") || "-"}</li>
                 </ul>
               </div>
               <AlertDialogFooter>

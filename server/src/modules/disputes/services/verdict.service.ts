@@ -266,6 +266,11 @@ const VERDICT_CONFIG = {
 } as const;
 
 const TRUST_SCORE_MAX = 5;
+const VERDICT_REASONING_MIN_LENGTHS = {
+  factualFindings: 20,
+  legalAnalysis: 20,
+  conclusion: 10,
+} as const;
 
 export interface LegalSignatureContext {
   termsContentSnapshot?: string;
@@ -1366,16 +1371,31 @@ export class VerdictService {
       });
     }
 
-    if ((reasoning.factualFindings || '').trim().length < 100) {
-      errors.push('factualFindings must be at least 100 characters');
+    if (
+      (reasoning.factualFindings || '').trim().length <
+      VERDICT_REASONING_MIN_LENGTHS.factualFindings
+    ) {
+      errors.push(
+        `factualFindings must be at least ${VERDICT_REASONING_MIN_LENGTHS.factualFindings} characters`,
+      );
     }
 
-    if ((reasoning.legalAnalysis || '').trim().length < 100) {
-      errors.push('legalAnalysis must be at least 100 characters');
+    if (
+      (reasoning.legalAnalysis || '').trim().length <
+      VERDICT_REASONING_MIN_LENGTHS.legalAnalysis
+    ) {
+      errors.push(
+        `legalAnalysis must be at least ${VERDICT_REASONING_MIN_LENGTHS.legalAnalysis} characters`,
+      );
     }
 
-    if ((reasoning.conclusion || '').trim().length < 50) {
-      errors.push('conclusion must be at least 50 characters');
+    if (
+      (reasoning.conclusion || '').trim().length <
+      VERDICT_REASONING_MIN_LENGTHS.conclusion
+    ) {
+      errors.push(
+        `conclusion must be at least ${VERDICT_REASONING_MIN_LENGTHS.conclusion} characters`,
+      );
     }
 
     if (!this.hasEvidenceBasis(reasoning)) {
