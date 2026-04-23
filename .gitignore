@@ -1,0 +1,122 @@
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Dependencies
+node_modules
+.pnp
+.pnp.js
+
+# Yarn
+.yarn/cache
+.yarn/unplugged
+.yarn/build-state.yml
+.yarn/install-state.gz
+yarn-error.log
+
+# Build outputs
+dist
+build
+*.log
+*.tsbuildinfo
+
+# OS generated files
+.DS_Store
+.Thumbs.db
+Thumbs.db
+
+# IDE
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.idea
+*.swp
+*.swo
+*~
+
+# Testing
+coverage
+.nyc_output
+
+# Temporary files
+*.tmp
+*.temp
+.cache
+ /docs/
+__pycache__/
+*.pyc
+tmpclaude-*-cwd
+client/test-artifacts/
+server/test-artifacts/
+tmp-render-test.png
+tmp_userguide.zip
+tmp_userguide_extract/
+user_manual_section_3.html
+
+# AI/Agent skills (local only)
+.agent/
+
+# Local Codex desktop state
+.codex/config.toml
+.codex/environments/
+
+# Local scratch outputs
+test-results/
+tmp/
+figma/BrokerDashboard-Figma-Spec.md
+
+# Submission cleanup (top-level only)
+/.agent/
+/.agents/
+/.codex/
+/.codex-venv-doc/
+/.codex-worktrees/
+/.cursor/
+/.github/
+/.opencode/
+/.tmp/
+/.venv/
+/.vscode/
+/__pycache__/
+/demo-guides/
+/diagram/
+/docs/
+/erd_pages/
+/figma/
+/output/
+/scripts/
+/tmp-skill-test-dir/
+/tools/
+/Walkthrough
+
+# Root-level loose docs and generated artifacts
+/1
+/Class Specifications Create Request
+/Makefile
+/a136_spec.ts
+/fix_brace.js
+/fix_casing.js
+/init.sql
+/lucid_import.csv
+/refine_db_desc.py
+/resolve_detail.js
+/schema.sql
+/skills-lock.json
+/software_brokerage_backlog.csv
+/UC-Des.html
+/UC-Descriptions.html
+/database_structure.html
+/yarn.lock
+/.~*.xlsx
+/*.csv
+/*.doc
+/*.docx
+/*.md
+!/README.md
+/*.pdf
+/*.txt
+/*.xlsx
+/*.xlsm
