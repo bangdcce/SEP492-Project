@@ -24,7 +24,19 @@ export interface UserProfilePublic {
     skills?: string[];
     portfolioLinks?: any[];
   };
-  userSkills?: any[]; // Simplified for now
+  userSkills?: Array<{
+    id: string;
+    priority?: 'PRIMARY' | 'SECONDARY' | string;
+    yearsOfExperience?: number | null;
+    completedProjectsCount?: number | null;
+    proficiencyLevel?: number | null;
+    verificationStatus?: string;
+    skill?: {
+      id: string;
+      name: string;
+      slug?: string;
+    } | null;
+  }>;
 }
 
 export const discoveryApi = {
