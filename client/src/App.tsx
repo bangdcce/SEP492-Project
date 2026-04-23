@@ -93,9 +93,6 @@ const BrokerProjectsPage = lazy(() =>
     default: module.BrokerProjectsPage,
   })),
 );
-const AuditSpecsPage = lazy(
-  () => import("@/features/project-specs/AuditSpecsPage"),
-);
 const CreateClientSpecPage = lazy(
   () => import("@/features/project-specs/CreateClientSpecPage"),
 );
@@ -182,11 +179,6 @@ const StaffLayout = lazy(() =>
 const StaffDashboardPage = lazy(() =>
   import("@/features/staff/pages/StaffDashboardPage").then((m) => ({
     default: m.StaffDashboardPage,
-  })),
-);
-const StaffProjectsPage = lazy(() =>
-  import("@/features/staff/pages/StaffProjectsPage").then((m) => ({
-    default: m.StaffProjectsPage,
   })),
 );
 const StaffQueuePage = lazy(() =>
@@ -959,16 +951,6 @@ function App() {
           }
         />
         <Route
-          path="/admin/specs"
-          element={
-            <RoleGuard allowedRoles={["ADMIN"]}>
-              <AdminDashboardLayout>
-                <AuditSpecsPage />
-              </AdminDashboardLayout>
-            </RoleGuard>
-          }
-        />
-        <Route
           path="/admin/requests/:id"
           element={
             <RoleGuard allowedRoles={["ADMIN"]}>
@@ -1243,7 +1225,6 @@ function App() {
           }
         >
           <Route path="dashboard" element={<StaffDashboardPage />} />
-          <Route path="projects" element={<StaffProjectsPage />} />
           <Route path="queue" element={<StaffQueuePage />} />
           <Route path="caseload" element={<StaffCaseloadPage />} />
           <Route path="calendar" element={<StaffCalendarPage />} />

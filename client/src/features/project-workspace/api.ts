@@ -7,8 +7,6 @@ import type {
   TaskLink,
   TaskSubmission,
   TaskStatusUpdateResult,
-  PendingProjectInvite,
-  ActiveSupervisedProject,
   ProjectStaffInviteStatus,
   StaffRecommendation,
   StaffSummary,
@@ -150,21 +148,6 @@ export const inviteProjectStaff = async (
   staffId: string,
 ): Promise<WorkspaceProject> => {
   return apiClient.post<WorkspaceProject>(`/projects/${projectId}/invite-staff`, { staffId });
-};
-
-export const fetchPendingProjectInvites = async (): Promise<PendingProjectInvite[]> => {
-  return apiClient.get<PendingProjectInvite[]>("/projects/pending-invites");
-};
-
-export const getActiveSupervisedProjects = async (): Promise<ActiveSupervisedProject[]> => {
-  return apiClient.get<ActiveSupervisedProject[]>("/projects/staff/active");
-};
-
-export const respondToProjectStaffInvite = async (
-  projectId: string,
-  status: ProjectStaffInviteStatus,
-): Promise<WorkspaceProject> => {
-  return apiClient.post<WorkspaceProject>(`/projects/${projectId}/staff-response`, { status });
 };
 
 export const fetchBoard = async (projectId: string): Promise<KanbanBoard> => {

@@ -38,6 +38,7 @@ import {
   TransactionType,
   UserEntity,
   UserRole,
+  UserStatus,
   WalletEntity,
 } from 'src/database/entities';
 import { AdminVerdictDto, AppealVerdictDto, VerdictReasoningDto } from '../dto/verdict.dto';
@@ -780,10 +781,68 @@ export class VerdictService {
     return fallbackWallet;
   }
 
+  private async getOrCreateWallet(
+    queryRunner: QueryRunner,
+    userId: string,
+    currency = VERDICT_CONFIG.APPEAL_FEE_CURRENCY,
+  ): Promise<WalletEntity> {
+    const walletRepo = queryRunner.manager.getRepository(WalletEntity);
+    const existing = await walletRepo
+      .createQueryBuilder('wallet')
+      .setLock('pessimistic_write')
+      .where('wallet.userId = :userId', { userId })
+      .getOne();
+
+    if (existing) {
+      return existing;
+    }
+
+    const wallet = walletRepo.create({
+      userId,
+      balance: 0,
+      pendingBalance: 0,
+      heldBalance: 0,
+      totalDeposited: 0,
+      totalWithdrawn: 0,
+      totalEarned: 0,
+      totalSpent: 0,
+      currency,
+    });
+
+    return walletRepo.save(wallet);
+  }
+
+  private async resolvePlatformWalletOwner(queryRunner: QueryRunner): Promise<UserEntity> {
+    const userRepo = queryRunner.manager.getRepository(UserEntity);
+    const platformOwner = await userRepo.findOne({
+      where: [
+        { role: UserRole.ADMIN, status: UserStatus.ACTIVE },
+        { role: UserRole.STAFF, status: UserStatus.ACTIVE },
+      ],
+      order: { createdAt: 'ASC' },
+    });
+
+    if (!platformOwner) {
+      throw new ConflictException(
+        'Cannot finalize verdict because no active ADMIN/STAFF platform wallet owner is available',
+      );
+    }
+
+    return platformOwner;
+  }
+
+  private shouldCountTransactionAsEarned(
+    type: TransactionType,
+    metadata?: Record<string, any> | null,
+  ): boolean {
+    return type === TransactionType.ESCROW_RELEASE || metadata?.countAsEarned === true;
+  }
+
   private async debitEscrowHeldBalanceForVerdict(
     queryRunner: QueryRunner,
     escrowId: string,
     amountToDebit: Decimal,
+    sourceOutflow: Decimal = amountToDebit,
   ): Promise<void> {
     if (amountToDebit.lessThanOrEqualTo(0)) {
       return;
@@ -819,6 +878,13 @@ export class VerdictService {
       .toDecimalPlaces(2, Decimal.ROUND_HALF_UP)
       .toNumber();
 
+    if (sourceOutflow.greaterThan(0)) {
+      sourceWallet.totalSpent = new Decimal(sourceWallet.totalSpent || 0)
+        .plus(sourceOutflow)
+        .toDecimalPlaces(2, Decimal.ROUND_HALF_UP)
+        .toNumber();
+    }
+
     await queryRunner.manager.save(WalletEntity, sourceWallet);
 
     if (!escrow.clientWalletId) {
@@ -836,19 +902,17 @@ export class VerdictService {
     referenceType: string,
     referenceId: string,
     metadata: Record<string, any>,
+    options?: { currency?: string },
   ): Promise<TransactionEntity | null> {
     if (amount <= 0) {
       return null;
     }
 
-    const wallet = await queryRunner.manager.findOne(WalletEntity, {
-      where: { userId },
-      lock: { mode: 'pessimistic_write' },
-    });
-
-    if (!wallet) {
-      throw new NotFoundException(`Wallet for user ${userId} not found`);
-    }
+    const wallet = await this.getOrCreateWallet(
+      queryRunner,
+      userId,
+      options?.currency || VERDICT_CONFIG.APPEAL_FEE_CURRENCY,
+    );
 
     wallet.pendingBalance = new Decimal(wallet.pendingBalance)
       .plus(amount)
@@ -862,7 +926,7 @@ export class VerdictService {
       amount,
       fee: 0,
       netAmount: amount,
-      currency: wallet.currency || VERDICT_CONFIG.APPEAL_FEE_CURRENCY,
+      currency: wallet.currency || options?.currency || VERDICT_CONFIG.APPEAL_FEE_CURRENCY,
       type,
       status: TransactionStatus.PENDING,
       referenceType,
@@ -883,26 +947,27 @@ export class VerdictService {
     referenceType: string,
     referenceId: string,
     metadata: Record<string, any>,
+    options?: { currency?: string; addToTotalEarned?: boolean },
   ): Promise<TransactionEntity | null> {
     if (amount <= 0) {
       return null;
     }
 
-    const wallet = await queryRunner.manager.findOne(WalletEntity, {
-      where: { userId },
-      lock: { mode: 'pessimistic_write' },
-    });
-
-    if (!wallet) {
-      throw new NotFoundException(`Wallet for user ${userId} not found`);
-    }
+    const wallet = await this.getOrCreateWallet(
+      queryRunner,
+      userId,
+      options?.currency || VERDICT_CONFIG.APPEAL_FEE_CURRENCY,
+    );
 
     wallet.balance = new Decimal(wallet.balance)
       .plus(amount)
       .toDecimalPlaces(2, Decimal.ROUND_HALF_UP)
       .toNumber();
 
-    if (type === TransactionType.ESCROW_RELEASE) {
+    if (
+      options?.addToTotalEarned ||
+      this.shouldCountTransactionAsEarned(type, metadata)
+    ) {
       wallet.totalEarned = new Decimal(wallet.totalEarned)
         .plus(amount)
         .toDecimalPlaces(2, Decimal.ROUND_HALF_UP)
@@ -916,7 +981,7 @@ export class VerdictService {
       amount,
       fee: 0,
       netAmount: amount,
-      currency: wallet.currency || VERDICT_CONFIG.APPEAL_FEE_CURRENCY,
+      currency: wallet.currency || options?.currency || VERDICT_CONFIG.APPEAL_FEE_CURRENCY,
       type,
       status: TransactionStatus.COMPLETED,
       referenceType,
@@ -943,14 +1008,31 @@ export class VerdictService {
       dispute.disputeType,
       project,
     );
+    const currency = escrow.currency || project.currency || VERDICT_CONFIG.APPEAL_FEE_CURRENCY;
+    const platformFee = new Decimal(distribution.platformFee || 0).toDecimalPlaces(
+      2,
+      Decimal.ROUND_HALF_UP,
+    );
 
     if (!pending) {
       const totalTransferAmount = new Decimal(distribution.clientAmount || 0)
         .plus(distribution.freelancerAmount || 0)
         .plus(distribution.brokerAmount || 0)
+        .plus(platformFee)
+        .toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+      const refundToClient = clientSideRecipient === project.clientId
+        ? new Decimal(distribution.clientAmount || 0)
+        : new Decimal(0);
+      const sourceOutflow = totalTransferAmount
+        .minus(refundToClient)
         .toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
 
-      await this.debitEscrowHeldBalanceForVerdict(queryRunner, escrow.id, totalTransferAmount);
+      await this.debitEscrowHeldBalanceForVerdict(
+        queryRunner,
+        escrow.id,
+        totalTransferAmount,
+        sourceOutflow,
+      );
     }
 
     if (distribution.clientAmount > 0) {
@@ -968,6 +1050,7 @@ export class VerdictService {
             'Escrow',
             escrow.id,
             metadata,
+            { currency },
           )
         : await this.createCompletedTransfer(
             queryRunner,
@@ -978,6 +1061,7 @@ export class VerdictService {
             'Escrow',
             escrow.id,
             metadata,
+            { currency },
           );
       if (transaction) {
         transactions.push(transaction);
@@ -995,6 +1079,7 @@ export class VerdictService {
             'Escrow',
             escrow.id,
             metadata,
+            { currency },
           )
         : await this.createCompletedTransfer(
             queryRunner,
@@ -1005,6 +1090,7 @@ export class VerdictService {
             'Escrow',
             escrow.id,
             metadata,
+            { currency },
           );
       if (transaction) {
         transactions.push(transaction);
@@ -1022,6 +1108,7 @@ export class VerdictService {
             'Escrow',
             escrow.id,
             metadata,
+            { currency },
           )
         : await this.createCompletedTransfer(
             queryRunner,
@@ -1032,6 +1119,43 @@ export class VerdictService {
             'Escrow',
             escrow.id,
             metadata,
+            { currency },
+          );
+      if (transaction) {
+        transactions.push(transaction);
+      }
+    }
+
+    if (platformFee.greaterThan(0)) {
+      const platformOwner = await this.resolvePlatformWalletOwner(queryRunner);
+      const platformMetadata = {
+        ...metadata,
+        stage: 'verdict_platform_fee',
+        role: 'PLATFORM',
+        countAsEarned: true,
+      };
+      const transaction = pending
+        ? await this.createPendingTransfer(
+            queryRunner,
+            platformOwner.id,
+            platformFee.toNumber(),
+            TransactionType.FEE_DEDUCTION,
+            `Verdict platform fee for dispute ${dispute.id}`,
+            'Escrow',
+            escrow.id,
+            platformMetadata,
+            { currency },
+          )
+        : await this.createCompletedTransfer(
+            queryRunner,
+            platformOwner.id,
+            platformFee.toNumber(),
+            TransactionType.FEE_DEDUCTION,
+            `Verdict platform fee for dispute ${dispute.id}`,
+            'Escrow',
+            escrow.id,
+            platformMetadata,
+            { currency, addToTotalEarned: true },
           );
       if (transaction) {
         transactions.push(transaction);
@@ -1141,6 +1265,7 @@ export class VerdictService {
     const now = new Date();
 
     const escrowDebitTotals = new Map<string, Decimal>();
+    const escrowSourceOutflowTotals = new Map<string, Decimal>();
     for (const transaction of pendingTransactions) {
       if (transaction.referenceType !== 'Escrow' || !transaction.referenceId) {
         throw new ConflictException('Pending verdict transfer is missing escrow reference');
@@ -1155,10 +1280,23 @@ export class VerdictService {
         transaction.referenceId,
         previousAmount.plus(txAmount).toDecimalPlaces(2, Decimal.ROUND_HALF_UP),
       );
+
+      if (transaction.type !== TransactionType.REFUND) {
+        const previousOutflow = escrowSourceOutflowTotals.get(transaction.referenceId) || new Decimal(0);
+        escrowSourceOutflowTotals.set(
+          transaction.referenceId,
+          previousOutflow.plus(txAmount).toDecimalPlaces(2, Decimal.ROUND_HALF_UP),
+        );
+      }
     }
 
     for (const [escrowId, debitAmount] of escrowDebitTotals.entries()) {
-      await this.debitEscrowHeldBalanceForVerdict(queryRunner, escrowId, debitAmount);
+      await this.debitEscrowHeldBalanceForVerdict(
+        queryRunner,
+        escrowId,
+        debitAmount,
+        escrowSourceOutflowTotals.get(escrowId) || new Decimal(0),
+      );
     }
 
     for (const transaction of pendingTransactions) {
@@ -1184,7 +1322,7 @@ export class VerdictService {
         .toDecimalPlaces(2, Decimal.ROUND_HALF_UP)
         .toNumber();
 
-      if (transaction.type === TransactionType.ESCROW_RELEASE) {
+      if (this.shouldCountTransactionAsEarned(transaction.type, transaction.metadata)) {
         wallet.totalEarned = new Decimal(wallet.totalEarned)
           .plus(transaction.amount)
           .toDecimalPlaces(2, Decimal.ROUND_HALF_UP)

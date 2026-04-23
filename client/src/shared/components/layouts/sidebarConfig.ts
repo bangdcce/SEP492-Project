@@ -45,13 +45,6 @@ export const adminMenuItems: SidebarMenuItem[] = [
     description: "Review KYC submissions",
   },
   {
-    id: "spec-audit",
-    label: "Spec Audit",
-    icon: Shield,
-    path: "/admin/specs",
-    description: "Approve project specifications",
-  },
-  {
     id: "user-management",
     label: "User Management",
     icon: Users,

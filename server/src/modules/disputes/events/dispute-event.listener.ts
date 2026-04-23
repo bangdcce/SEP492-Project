@@ -20,6 +20,8 @@ import { StaffAssignmentService } from '../services/staff-assignment.service';
 import { DisputesService } from '../disputes.service';
 import { VerdictService } from '../services/verdict.service';
 
+const SafeOnEvent = (event: string) => OnEvent(event, { suppressErrors: true });
+
 @Injectable()
 export class DisputeEventListener {
   private readonly logger = new Logger(DisputeEventListener.name);
@@ -288,7 +290,7 @@ export class DisputeEventListener {
   // 7.2 Event System Integration
   // ===========================================================================
 
-  @OnEvent(DISPUTE_EVENTS.CREATED)
+  @SafeOnEvent(DISPUTE_EVENTS.CREATED)
   async handleDisputeCreated(payload: { disputeId?: string }): Promise<void> {
     if (!payload?.disputeId) {
       return;
@@ -326,7 +328,7 @@ export class DisputeEventListener {
     }
   }
 
-  @OnEvent('settlement.exhausted')
+  @SafeOnEvent('settlement.exhausted')
   async handleSettlementFailed(payload: { disputeId?: string }): Promise<void> {
     if (!payload?.disputeId) {
       return;
@@ -365,7 +367,7 @@ export class DisputeEventListener {
     }
   }
 
-  @OnEvent('hearing.scheduled')
+  @SafeOnEvent('hearing.scheduled')
   async handleHearingScheduled(payload: {
     hearingId?: string;
     disputeId?: string;
@@ -400,7 +402,7 @@ export class DisputeEventListener {
     });
   }
 
-  @OnEvent('hearing.rescheduled')
+  @SafeOnEvent('hearing.rescheduled')
   async handleHearingRescheduled(payload: {
     previousHearingId?: string;
     hearingId?: string;
@@ -438,7 +440,7 @@ export class DisputeEventListener {
     });
   }
 
-  @OnEvent('hearing.started')
+  @SafeOnEvent('hearing.started')
   async handleHearingStarted(payload: {
     hearingId?: string;
     startedAt?: Date;
@@ -479,7 +481,7 @@ export class DisputeEventListener {
     });
   }
 
-  @OnEvent('hearing.inviteResponded')
+  @SafeOnEvent('hearing.inviteResponded')
   async handleHearingInviteResponded(payload: {
     eventId?: string;
     hearingId?: string | null;
@@ -569,7 +571,7 @@ export class DisputeEventListener {
     });
   }
 
-  @OnEvent('hearing.ended')
+  @SafeOnEvent('hearing.ended')
   async handleHearingEnded(payload: {
     hearingId?: string;
     disputeId?: string;
@@ -621,7 +623,7 @@ export class DisputeEventListener {
     });
   }
 
-  @OnEvent('hearing.timeWarning')
+  @SafeOnEvent('hearing.timeWarning')
   async handleHearingTimeWarning(payload: {
     hearingId?: string;
     disputeId?: string;
@@ -669,7 +671,7 @@ export class DisputeEventListener {
     });
   }
 
-  @OnEvent('verdict.issued')
+  @SafeOnEvent('verdict.issued')
   async handleVerdictIssued(payload: {
     disputeId?: string;
     verdictId?: string;
@@ -738,7 +740,7 @@ export class DisputeEventListener {
     });
   }
 
-  @OnEvent(DISPUTE_EVENTS.APPEAL_SUBMITTED)
+  @SafeOnEvent(DISPUTE_EVENTS.APPEAL_SUBMITTED)
   async handleAppealSubmitted(payload: {
     disputeId?: string;
     appellantId?: string;
@@ -781,7 +783,7 @@ export class DisputeEventListener {
     });
   }
 
-  @OnEvent(DISPUTE_EVENTS.APPEAL_RESOLVED)
+  @SafeOnEvent(DISPUTE_EVENTS.APPEAL_RESOLVED)
   async handleAppealResolved(payload: {
     disputeId?: string;
     resolvedById?: string;
@@ -824,7 +826,7 @@ export class DisputeEventListener {
     });
   }
 
-  @OnEvent(DISPUTE_EVENTS.APPEAL_DEADLINE_PASSED)
+  @SafeOnEvent(DISPUTE_EVENTS.APPEAL_DEADLINE_PASSED)
   async handleAppealDeadlinePassed(payload: { disputeId?: string }): Promise<void> {
     if (!payload?.disputeId) {
       return;
@@ -850,7 +852,7 @@ export class DisputeEventListener {
     }
   }
 
-  @OnEvent(DISPUTE_EVENTS.STATUS_CHANGED)
+  @SafeOnEvent(DISPUTE_EVENTS.STATUS_CHANGED)
   async handleDisputeStatusChanged(payload: {
     disputeId?: string;
     previousStatus?: string;
@@ -876,7 +878,7 @@ export class DisputeEventListener {
     });
   }
 
-  @OnEvent(DISPUTE_EVENTS.CLOSED)
+  @SafeOnEvent(DISPUTE_EVENTS.CLOSED)
   async handleDisputeClosed(payload: {
     disputeId?: string;
     closedStatus?: string;
@@ -900,7 +902,7 @@ export class DisputeEventListener {
     });
   }
 
-  @OnEvent(DISPUTE_EVENTS.RESOLVED)
+  @SafeOnEvent(DISPUTE_EVENTS.RESOLVED)
   async handleDisputeResolved(payload: {
     disputeId?: string;
     projectId?: string;
@@ -936,7 +938,7 @@ export class DisputeEventListener {
     });
   }
 
-  @OnEvent(DISPUTE_EVENTS.ASSIGNED)
+  @SafeOnEvent(DISPUTE_EVENTS.ASSIGNED)
   async handleDisputeAssignedRealtime(payload: {
     disputeId?: string;
     staffId?: string;
@@ -959,7 +961,7 @@ export class DisputeEventListener {
     });
   }
 
-  @OnEvent(DISPUTE_EVENTS.REASSIGNED)
+  @SafeOnEvent(DISPUTE_EVENTS.REASSIGNED)
   async handleDisputeReassignedRealtime(payload: {
     disputeId?: string;
     assignmentType?: string;
@@ -990,7 +992,7 @@ export class DisputeEventListener {
     });
   }
 
-  @OnEvent(DISPUTE_EVENTS.INFO_REQUESTED)
+  @SafeOnEvent(DISPUTE_EVENTS.INFO_REQUESTED)
   async handleInfoRequestedRealtime(payload: {
     disputeId?: string;
     reason?: string;
@@ -1014,7 +1016,7 @@ export class DisputeEventListener {
     });
   }
 
-  @OnEvent(DISPUTE_EVENTS.INFO_PROVIDED)
+  @SafeOnEvent(DISPUTE_EVENTS.INFO_PROVIDED)
   async handleInfoProvidedRealtime(payload: {
     disputeId?: string;
     userId?: string;
@@ -1037,7 +1039,7 @@ export class DisputeEventListener {
     });
   }
 
-  @OnEvent(DISPUTE_EVENTS.DEFENDANT_RESPONDED)
+  @SafeOnEvent(DISPUTE_EVENTS.DEFENDANT_RESPONDED)
   async handleDefendantRespondedRealtime(payload: {
     disputeId?: string;
     defendantId?: string;
@@ -1059,7 +1061,7 @@ export class DisputeEventListener {
     });
   }
 
-  @OnEvent('staff.shortage')
+  @SafeOnEvent('staff.shortage')
   handleStaffOverloaded(payload: {
     availableCount?: number;
     requiredCount?: number;
@@ -1077,7 +1079,7 @@ export class DisputeEventListener {
   // 7.3 WebSocket Gateway (Real-time)
   // ===========================================================================
 
-  @OnEvent(DISPUTE_EVENTS.MESSAGE_SENT)
+  @SafeOnEvent(DISPUTE_EVENTS.MESSAGE_SENT)
   handleMessageSent(payload: {
     disputeId?: string;
     hearingId?: string;
@@ -1105,7 +1107,7 @@ export class DisputeEventListener {
     this.gateway.emitDisputeEvent(payload.disputeId, 'MESSAGE_SENT', messagePayload);
   }
 
-  @OnEvent(DISPUTE_EVENTS.MESSAGE_HIDDEN)
+  @SafeOnEvent(DISPUTE_EVENTS.MESSAGE_HIDDEN)
   handleMessageHidden(payload: {
     disputeId?: string;
     hearingId?: string;
@@ -1131,7 +1133,7 @@ export class DisputeEventListener {
     this.gateway.emitDisputeEvent(payload.disputeId, 'MESSAGE_HIDDEN', hiddenPayload);
   }
 
-  @OnEvent(DISPUTE_EVENTS.MESSAGE_UNHIDDEN)
+  @SafeOnEvent(DISPUTE_EVENTS.MESSAGE_UNHIDDEN)
   handleMessageUnhidden(payload: {
     disputeId?: string;
     hearingId?: string;
@@ -1156,7 +1158,7 @@ export class DisputeEventListener {
     this.gateway.emitDisputeEvent(payload.disputeId, 'MESSAGE_UNHIDDEN', unhiddenPayload);
   }
 
-  @OnEvent('hearing.speakerControlChanged')
+  @SafeOnEvent('hearing.speakerControlChanged')
   async handleSpeakerControlChanged(payload: {
     hearingId?: string;
     changedBy?: string;
@@ -1196,7 +1198,7 @@ export class DisputeEventListener {
     });
   }
 
-  @OnEvent('hearing.phaseTransitioned')
+  @SafeOnEvent('hearing.phaseTransitioned')
   async handleHearingPhaseTransitioned(payload: {
     hearingId?: string;
     disputeId?: string;
@@ -1235,7 +1237,7 @@ export class DisputeEventListener {
     }
   }
 
-  @OnEvent('hearing.evidenceIntakeChanged')
+  @SafeOnEvent('hearing.evidenceIntakeChanged')
   async handleHearingEvidenceIntakeChanged(payload: {
     hearingId?: string;
     disputeId?: string;
@@ -1272,7 +1274,7 @@ export class DisputeEventListener {
     }
   }
 
-  @OnEvent('hearing.paused')
+  @SafeOnEvent('hearing.paused')
   async handleHearingPaused(payload: {
     hearingId?: string;
     disputeId?: string;
@@ -1312,7 +1314,7 @@ export class DisputeEventListener {
     });
   }
 
-  @OnEvent('hearing.resumed')
+  @SafeOnEvent('hearing.resumed')
   async handleHearingResumed(payload: {
     hearingId?: string;
     disputeId?: string;
@@ -1350,7 +1352,7 @@ export class DisputeEventListener {
     });
   }
 
-  @OnEvent('hearing.statementSubmitted')
+  @SafeOnEvent('hearing.statementSubmitted')
   async handleHearingStatementSubmitted(payload: {
     hearingId?: string;
     disputeId?: string;
@@ -1398,7 +1400,7 @@ export class DisputeEventListener {
     });
   }
 
-  @OnEvent('hearing.questionAsked')
+  @SafeOnEvent('hearing.questionAsked')
   handleHearingQuestionAsked(payload: {
     hearingId?: string;
     disputeId?: string;
@@ -1423,7 +1425,7 @@ export class DisputeEventListener {
     }
   }
 
-  @OnEvent('hearing.questionAnswered')
+  @SafeOnEvent('hearing.questionAnswered')
   handleHearingQuestionAnswered(payload: {
     hearingId?: string;
     disputeId?: string;
@@ -1455,7 +1457,7 @@ export class DisputeEventListener {
     }
   }
 
-  @OnEvent('hearing.questionCancelled')
+  @SafeOnEvent('hearing.questionCancelled')
   handleHearingQuestionCancelled(payload: {
     hearingId?: string;
     disputeId?: string;
@@ -1483,7 +1485,7 @@ export class DisputeEventListener {
     }
   }
 
-  @OnEvent('hearing.objectionResolved')
+  @SafeOnEvent('hearing.objectionResolved')
   async handleHearingObjectionResolved(payload: {
     hearingId?: string;
     disputeId?: string;
@@ -1527,7 +1529,7 @@ export class DisputeEventListener {
     }
   }
 
-  @OnEvent('hearing.presenceChanged')
+  @SafeOnEvent('hearing.presenceChanged')
   handleHearingPresenceChanged(payload: {
     hearingId?: string;
     disputeId?: string;
@@ -1557,7 +1559,7 @@ export class DisputeEventListener {
     }
   }
 
-  @OnEvent('hearing.extended')
+  @SafeOnEvent('hearing.extended')
   async handleHearingExtended(payload: {
     hearingId?: string;
     disputeId?: string;
@@ -1594,7 +1596,7 @@ export class DisputeEventListener {
     });
   }
 
-  @OnEvent('hearing.support_invited')
+  @SafeOnEvent('hearing.support_invited')
   async handleHearingSupportInvited(payload: {
     hearingId?: string;
     disputeId?: string;
@@ -1640,7 +1642,7 @@ export class DisputeEventListener {
     });
   }
 
-  @OnEvent('hearing.reminder_sent')
+  @SafeOnEvent('hearing.reminder_sent')
   async handleHearingReminderSent(payload: {
     hearingId?: string;
     disputeId?: string;
@@ -1679,7 +1681,7 @@ export class DisputeEventListener {
     });
   }
 
-  @OnEvent('settlement.offered')
+  @SafeOnEvent('settlement.offered')
   handleSettlementOffered(payload: {
     settlementId?: string;
     disputeId?: string;
@@ -1698,7 +1700,7 @@ export class DisputeEventListener {
     });
   }
 
-  @OnEvent('settlement.accepted')
+  @SafeOnEvent('settlement.accepted')
   async handleSettlementAccepted(payload: {
     settlementId?: string;
     disputeId?: string;
@@ -1730,7 +1732,7 @@ export class DisputeEventListener {
     });
   }
 
-  @OnEvent('settlement.rejected')
+  @SafeOnEvent('settlement.rejected')
   async handleSettlementRejected(payload: {
     settlementId?: string;
     disputeId?: string;
@@ -1764,7 +1766,7 @@ export class DisputeEventListener {
     });
   }
 
-  @OnEvent('settlement.chatUnlocked')
+  @SafeOnEvent('settlement.chatUnlocked')
   async handleSettlementChatUnlocked(payload: {
     disputeId?: string;
     userId?: string;
@@ -1787,7 +1789,7 @@ export class DisputeEventListener {
     });
   }
 
-  @OnEvent('hearing.phaseDeadlinesSet')
+  @SafeOnEvent('hearing.phaseDeadlinesSet')
   async handleHearingPhaseDeadlinesSet(payload: {
     hearingId?: string;
     disputeId?: string;
@@ -1819,7 +1821,7 @@ export class DisputeEventListener {
     }
   }
 
-  @OnEvent('hearing.statementDraftSaved')
+  @SafeOnEvent('hearing.statementDraftSaved')
   async handleHearingStatementDraftSaved(payload: {
     hearingId?: string;
     statementId?: string;
@@ -1848,7 +1850,7 @@ export class DisputeEventListener {
     }
   }
 
-  @OnEvent('hearing.moderatorDisconnect')
+  @SafeOnEvent('hearing.moderatorDisconnect')
   async handleHearingModeratorDisconnect(payload: {
     hearingId?: string;
     moderatorId?: string;
@@ -1883,7 +1885,7 @@ export class DisputeEventListener {
     }
   }
 
-  @OnEvent('hearing.moderatorReconnect')
+  @SafeOnEvent('hearing.moderatorReconnect')
   async handleHearingModeratorReconnect(payload: {
     hearingId?: string;
     moderatorId?: string;
@@ -1913,7 +1915,7 @@ export class DisputeEventListener {
     }
   }
 
-  @OnEvent(DISPUTE_EVENTS.EVIDENCE_ADDED)
+  @SafeOnEvent(DISPUTE_EVENTS.EVIDENCE_ADDED)
   async handleEvidenceUploaded(payload: {
     disputeId?: string;
     evidenceId?: string;

@@ -245,6 +245,7 @@ export class TrustProfilesService {
         targetUserId,
         projectId: In(sharedProjectIds),
       },
+      withDeleted: true,
       select: ['projectId'],
     });
     const reviewedProjectIds = new Set(existingReviews.map((review) => review.projectId));
