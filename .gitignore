@@ -2,6 +2,7 @@
 .env
 .env.local
 .env.*.local
+server/secrets/
 
 # Dependencies
 node_modules
@@ -116,6 +117,7 @@ figma/BrokerDashboard-Figma-Spec.md
 /*.docx
 /*.md
 !/README.md
+!/LOCAL_DOCKER_DEPLOY.md
 /*.pdf
 /*.txt
 /*.xlsx

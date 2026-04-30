@@ -1,0 +1,55 @@
+services:
+  interdev-api:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    env_file:
+      - ./server/.env
+    environment:
+      NODE_ENV: production
+      APP_PORT: 3000
+      APP_URL: http://localhost:3000
+      PUBLIC_API_URL: http://localhost:3000
+      BACKEND_URL: http://localhost:3000
+      FRONTEND_URL: http://localhost:8080
+      CLIENT_URL: http://localhost:8080
+      CORS_ORIGIN: http://localhost:8080,http://localhost:5173,https://localhost:5173
+      CORS_CREDENTIALS: "true"
+      AUTH_COOKIE_SECURE: "false"
+      AUTH_COOKIE_SAME_SITE: lax
+      STARTUP_READINESS_FAIL_FAST: "false"
+      SOCKET_REDIS_ENABLED: ${SOCKET_REDIS_ENABLED:-false}
+      REDIS_URL: redis://interdev-redis:6379
+    ports:
+      - "3000:3000"
+    volumes:
+      - interdev_uploads:/app/uploads
+    restart: unless-stopped
+
+  interdev-web:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: http://localhost:3000
+        VITE_ENV: production
+    ports:
+      - "8080:80"
+    depends_on:
+      - interdev-api
+    restart: unless-stopped
+
+  interdev-redis:
+    image: redis:7-alpine
+    profiles:
+      - redis
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - interdev_redis:/data
+    restart: unless-stopped
+
+volumes:
+  interdev_uploads:
+  interdev_redis:
