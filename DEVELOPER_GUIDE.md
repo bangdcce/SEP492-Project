@@ -1,5 +1,169 @@
-https://vscode.dev/github/bangdcce/SEP492-Project/blob/AnDev/client/.env
-https://vscode.dev/github/bangdcce/SEP492-Project/blob/AnDev/server/.env
+client/.env
+# API Configuration
+VITE_API_URL=https://localhost:3000
+
+# Supabase Configuration (Client-side)
+VITE_SUPABASE_URL=https://xxxxxxxxxxxxx.supabase.co
+VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
+
+# App Configuration
+VITE_APP_NAME=InterDev
+VITE_APP_VERSION=1.0.0
+
+# Environment
+VITE_ENV=development
+
+# Google reCAPTCHA
+# Get your site key from: https://www.google.com/recaptcha/admin
+VITE_RECAPTCHA_SITE_KEY=6Le-CT8sAAAAAAnM6SyyXz7Wy1NK8IXJ3wRtQj3Z
+
+server/.env
+# ==============================================
+# APPLICATION CONFIGURATION
+# ==============================================
+NODE_ENV=development
+APP_ENV=development
+APP_NAME=InterDev
+APP_PORT=3000
+APP_URL=https://your-domain.com
+
+# ==============================================
+# DATABASE CONFIGURATION
+# ==============================================
+# Using Supabase PostgreSQL
+DB_HOST=aws-1-ap-south-1.pooler.supabase.com
+DB_PORT=6543
+DB_USERNAME=postgres.rssrcxsuygjzmqmdvgae
+DB_PASSWORD=phucand3pzai
+DB_DATABASE=postgres
+DB_SYNCHRONIZE=false
+DB_LOGGING=false
+DB_POOL_MAX=4
+DB_POOL_IDLE_MS=10000
+DB_POOL_CONN_TIMEOUT_MS=5000
+DB_POOL_MAX_USES=5000
+DB_POOL_ALLOW_EXIT_ON_IDLE=true
+DB_QUERY_TIMEOUT_MS=30000
+DB_STATEMENT_TIMEOUT_MS=30000
+
+# ==============================================
+# BACKGROUND JOBS CONFIGURATION
+# ==============================================
+HEARING_REMINDER_CRON_ENABLED=false
+HEARING_AUTO_START_ENABLED=false
+DISPUTE_MEDIATION_TIMEOUT_CRON_ENABLED=false
+DISPUTE_TEST_MODE=true
+
+# ==============================================
+# SUPABASE STORAGE CONFIGURATIONyar
+# ==============================================
+# Get these from: Supabase Dashboard > Settings > API
+SUPABASE_URL=https://rssrcxsuygjzmqmdvgae.supabase.co
+SUPABASE_SERVICE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJzc3JjeHN1eWdqem1xbWR2Z2FlIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2NDQ2NzcxMiwiZXhwIjoyMDgwMDQzNzEyfQ.LoCV-YOYy0mVPHsm_ZV6DL4ZC2STMh9VzGSs-k2YwtI
+
+# ==============================================
+# REDIS CONFIGURATION
+# ==============================================
+REDIS_HOST=your-redis-host.com
+REDIS_PORT=6379
+REDIS_PASSWORD=your-redis-password
+REDIS_DB=0
+
+# ==============================================
+# JWT CONFIGURATION
+# ==============================================
+JWT_SECRET=your-super-secret-jwt-key-change-this-in-production
+JWT_EXPIRATION=24h
+JWT_REFRESH_SECRET=your-super-secret-refresh-key
+JWT_REFRESH_EXPIRATION=7d
+
+# ==============================================
+# CORS CONFIGURATION
+# ==============================================
+CORS_ORIGIN=https://localhost:5173
+CORS_CREDENTIALS=true
+AUTH_COOKIE_SAME_SITE=none
+# ==============================================
+# API DOCUMENTATION
+# ==============================================
+SWAGGER_ENABLED=true
+SWAGGER_PATH=/api-docs
+
+# ==============================================
+# EMAIL CONFIGURATION
+# ==============================================
+# Gmail SMTP settings
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=bao20048888@gmail.com
+SMTP_PASS=hrcl zwhl lfzv pcll
+FROM_EMAIL=InterDev <bao20048888@gmail.com>
+FROM_NAME=InterDev Platform
+
+# Frontend URL for reset links
+CLIENT_URL=https://localhost:5173
+
+# ==============================================
+# GOOGLE OAUTH 2.0 CONFIGURATION
+# ==============================================
+# Get credentials from: https://console.cloud.google.com/apis/credentials
+# See GOOGLE_OAUTH_SETUP.md for detailed setup instructions
+
+GOOGLE_CLIENT_ID=903396358158-358osb8l52clc04pvvbd8jehgkgmrgtf.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=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
+GOOGLE_CALLBACK_URL=http://localhost:3000/auth/google/callback
+FRONTEND_URL=https://localhost:5173
+
+# ==============================================
+# HUNTER.IO EMAIL VERIFICATION
+# ==============================================
+HUNTER_API_KEY=your_api_key_here
+HUNTER_ENABLED=false
+
+# ==============================================
+# GOOGLE reCAPTCHA CONFIGURATION
+# ==============================================
+# Get your keys from: https://www.google.com/recaptcha/admin
+# Enable/disable reCAPTCHA for registration (true/false)
+RECAPTCHA_ENABLED=true
+# reCAPTCHA Site Key (for frontend)
+RECAPTCHA_SITE_KEY=6Le-CT8sAAAAAAnM6SyyXz7Wy1NK8IXJ3wRtQj3Z
+# reCAPTCHA Secret Key (for backend verification)
+RECAPTCHA_SECRET_KEY=6Le-CT8sAAAAAM2hK8hY3LGTyRFu-AwUZ1-X2xlA
+
+ADMIN_EMAIL=admin33@interdev.local
+ADMIN_SEED_SECRET=my-secret-key-123
+
+
+VIRUSTOTAL_API_KEY=f44c35292ad7d00d2204fff082f994646523cdd6961e01ca7282bff3119a0ce3
+VIRUSTOTAL_API_URL=https://www.virustotal.com/api/v3
+GITHUB_API_TOKEN=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
+KYC_ENCRYPTION_KEY=O4rrorJXagy22WarsqZiYnUcf7+PbUfyymd47beQHPQ=
+DOCUMENT_HASH_SALT=U28osZVuQ/LOmTIF69JDJKqmYUS3Q6OEJECMBGvxGyQ=
+FPT_AI_ENABLED=true
+FPT_AI_API_KEY=pvm5MyDXUKKJ1DSMFNfb8pNJ5D1W5o2o
+FPT_AI_API_URL=https://api.fpt.ai/vision/idr/vnm
+
+# AI Confidence Thresholds (0-1 scale)
+FPT_AI_AUTO_APPROVE_THRESHOLD=0.80
+FPT_AI_ADMIN_REVIEW_THRESHOLD=0.55
+
+# ==============================================
+# AI MATCHING ENGINE
+# ==============================================
+GEMINI_API_KEY=AIzaSyCZtTSiUV4ac-PFRyJgXf8WPEelLcwzuk4
+GROQ_API_KEY=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
+GEMINI_MODEL=gemini-3.1-flash-lite-preview
+MATCHING_AI_ENABLED=true
+MATCHING_AI_TOP_N=3
+
+
+# PayPal Sandbox checkout for milestone funding.
+# Use `sb` for the generic sandbox shortcut or paste your own sandbox app client id.
+PAYPAL_CLIENT_ID=AVnRDLNXQGrmlANBmzi2NQV_U8lBfLAL4KzEDcfWqK3HdxQhgXWNdBtKTrlkJ2LAUfuH5HwSOOEWgc-e
+PAYPAL_CLIENT_SECRET=EJqL_8wjfUAwXUXkyQVCev2ScF9v-bUzZ5lP1GCPOcPx62HuvIvU4hizqzZBZ9Ro0oo0QqBUlsFebKYN
+
 # InterDev Developer Guide 📘
 
 Tài liệu hướng dẫn chi tiết cho developer mới tham gia dự án InterDev.
