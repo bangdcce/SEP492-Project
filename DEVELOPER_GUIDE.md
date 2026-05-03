@@ -1,3 +1,5 @@
+https://vscode.dev/github/bangdcce/SEP492-Project/blob/AnDev/client/.env
+https://vscode.dev/github/bangdcce/SEP492-Project/blob/AnDev/server/.env
 # InterDev Developer Guide 📘
 
 Tài liệu hướng dẫn chi tiết cho developer mới tham gia dự án InterDev.
