@@ -21,6 +21,7 @@ import {
   getSubmissionEvidenceUrl,
   getSubmissionPreviewText,
 } from "../../utils";
+import { decodeHtmlEntities } from "@/shared/utils/helpers";
 
 interface MilestoneApprovalCardProps {
   milestone: Milestone;
@@ -47,31 +48,36 @@ const STATUS_META: Record<
 > = {
   IN_PROGRESS: {
     title: "Milestone Ready to Submit",
-    subtitle: "All tasks are done. Submit the milestone to start the review flow.",
+    subtitle:
+      "All tasks are done. Submit the milestone to start the review flow.",
     tone: "border-emerald-200 bg-gradient-to-br from-emerald-50 via-white to-teal-50",
     icon: PartyPopper,
   },
   PENDING_STAFF_REVIEW: {
     title: "Waiting for Broker Review",
-    subtitle: "The assigned broker reviews the milestone before client approval.",
+    subtitle:
+      "The assigned broker reviews the milestone before client approval.",
     tone: "border-sky-200 bg-gradient-to-br from-sky-50 via-white to-cyan-50",
     icon: ShieldCheck,
   },
   PENDING_CLIENT_APPROVAL: {
     title: "Waiting for Client Approval",
-    subtitle: "Broker review is complete. The client can now approve and release funds.",
+    subtitle:
+      "Broker review is complete. The client can now approve and release funds.",
     tone: "border-indigo-200 bg-gradient-to-br from-indigo-50 via-white to-slate-50",
     icon: UserCheck,
   },
   SUBMITTED: {
     title: "Waiting for Client Approval",
-    subtitle: "Milestone has been submitted and is waiting for the next approval step.",
+    subtitle:
+      "Milestone has been submitted and is waiting for the next approval step.",
     tone: "border-emerald-200 bg-gradient-to-br from-emerald-50 via-white to-teal-50",
     icon: CheckCircle,
   },
   REVISIONS_REQUIRED: {
     title: "Revisions Requested",
-    subtitle: "Update the work based on feedback, then submit this milestone for review again.",
+    subtitle:
+      "Update the work based on feedback, then submit this milestone for review again.",
     tone: "border-rose-200 bg-gradient-to-br from-rose-50 via-white to-orange-50",
     icon: XCircle,
   },
@@ -81,23 +87,30 @@ const STAFF_REVIEW_ATTESTATIONS = [
   {
     key: "deliverablesVerified",
     label: "Deliverables Match The Milestone",
-    description: "Reviewed the submitted deliverables, evidence links, and core output against the locked milestone scope.",
+    description:
+      "Reviewed the submitted deliverables, evidence links, and core output against the locked milestone scope.",
   },
   {
     key: "meetsRequirements",
     label: "Ready For Client Acceptance",
-    description: "Confirmed the milestone is ready for the client to validate the business outcome and approve release.",
+    description:
+      "Confirmed the milestone is ready for the client to validate the business outcome and approve release.",
   },
   {
     key: "noMaliciousContent",
     label: "Release Summary Is Accurate",
-    description: "Checked the release context, payout split, and broker note so the client has the right approval summary.",
+    description:
+      "Checked the release context, payout split, and broker note so the client has the right approval summary.",
   },
 ] as const;
 
-type StaffReviewChecklistKey = (typeof STAFF_REVIEW_ATTESTATIONS)[number]["key"];
+type StaffReviewChecklistKey =
+  (typeof STAFF_REVIEW_ATTESTATIONS)[number]["key"];
 
-const createInitialStaffReviewChecks = (): Record<StaffReviewChecklistKey, boolean> => ({
+const createInitialStaffReviewChecks = (): Record<
+  StaffReviewChecklistKey,
+  boolean
+> => ({
   deliverablesVerified: false,
   meetsRequirements: false,
   noMaliciousContent: false,
@@ -142,10 +155,11 @@ export function MilestoneApprovalCard({
   const effectiveMilestoneStatus = isLegacyBrokerApprovedSubmitted
     ? "PENDING_CLIENT_APPROVAL"
     : milestoneStatus;
-  const statusMeta = STATUS_META[effectiveMilestoneStatus] ?? STATUS_META.IN_PROGRESS;
+  const statusMeta =
+    STATUS_META[effectiveMilestoneStatus] ?? STATUS_META.IN_PROGRESS;
   const HeaderIcon = statusMeta.icon;
   const formattedAmount = formatCurrency(milestone.amount, currency ?? "USD");
-  const milestoneTitle = milestone.title.replace(/&amp;/g, "&");
+  const milestoneTitle = decodeHtmlEntities(milestone.title);
 
   const submittedWork = useMemo(
     () =>
@@ -173,7 +187,9 @@ export function MilestoneApprovalCard({
 
   const canFreelancerRequestReview =
     role === "FREELANCER" &&
-    ["PENDING", "IN_PROGRESS", "REVISIONS_REQUIRED"].includes(effectiveMilestoneStatus);
+    ["PENDING", "IN_PROGRESS", "REVISIONS_REQUIRED"].includes(
+      effectiveMilestoneStatus,
+    );
   const canAssignedReviewerReview =
     isAssignedReviewer && effectiveMilestoneStatus === "PENDING_STAFF_REVIEW";
   const canClientApproveNow =
@@ -193,9 +209,9 @@ export function MilestoneApprovalCard({
           ? hasIntermediateReviewer
             ? `Submitted. ${assignedReviewerLabel || "The broker"} needs to review this milestone before client approval.`
             : "Waiting for the client to approve this milestone."
-            : effectiveMilestoneStatus === "REVISIONS_REQUIRED"
-              ? "Revisions were requested. Update the deliverables and request review again."
-          : "Complete the next action to move this milestone forward.";
+          : effectiveMilestoneStatus === "REVISIONS_REQUIRED"
+            ? "Revisions were requested. Update the deliverables and request review again."
+            : "Complete the next action to move this milestone forward.";
   const completedStaffReviewChecks = STAFF_REVIEW_ATTESTATIONS.filter(
     (item) => staffReviewChecks[item.key],
   ).length;
@@ -271,7 +287,9 @@ export function MilestoneApprovalCard({
       await onRequestReview(milestone.id);
     } catch (err: unknown) {
       const errorMessage =
-        err instanceof Error ? err.message : "Failed to request milestone review";
+        err instanceof Error
+          ? err.message
+          : "Failed to request milestone review";
       setError(errorMessage);
     } finally {
       setIsRequestingReview(false);
@@ -281,7 +299,9 @@ export function MilestoneApprovalCard({
   const handleStaffReview = async (recommendation: "ACCEPT" | "REJECT") => {
     const note = staffNote.trim();
     if (!isStaffReviewReady || !note) {
-      setError("Complete the broker review checklist and add a note before submitting.");
+      setError(
+        "Complete the broker review checklist and add a note before submitting.",
+      );
       return;
     }
 
@@ -311,7 +331,9 @@ export function MilestoneApprovalCard({
 
   return (
     <>
-      <div className={`relative overflow-hidden rounded-2xl border-2 p-6 shadow-lg ${statusMeta.tone}`}>
+      <div
+        className={`relative overflow-hidden rounded-2xl border-2 p-6 shadow-lg ${statusMeta.tone}`}
+      >
         <div className="absolute inset-0 opacity-5">
           <div className="absolute -right-12 -top-12 h-48 w-48 rounded-full bg-emerald-500" />
           <div className="absolute -bottom-8 -left-8 h-32 w-32 rounded-full bg-teal-500" />
@@ -324,13 +346,17 @@ export function MilestoneApprovalCard({
                 <HeaderIcon className="h-6 w-6 text-slate-700" />
               </div>
               <div>
-                <h3 className="text-lg font-bold text-slate-900">{statusMeta.title}</h3>
+                <h3 className="text-lg font-bold text-slate-900">
+                  {statusMeta.title}
+                </h3>
                 <p className="text-sm text-slate-600">{statusMeta.subtitle}</p>
               </div>
             </div>
             <div className="flex items-center gap-2 rounded-full bg-white/80 px-3 py-1">
               <CheckCircle className="h-4 w-4 text-emerald-600" />
-              <span className="text-sm font-semibold text-emerald-700">100% Complete</span>
+              <span className="text-sm font-semibold text-emerald-700">
+                100% Complete
+              </span>
             </div>
           </div>
 
@@ -338,11 +364,15 @@ export function MilestoneApprovalCard({
             <div className="flex items-center justify-between gap-4">
               <div>
                 <p className="text-sm text-slate-500">Milestone</p>
-                <p className="text-lg font-semibold text-slate-900">{milestoneTitle}</p>
+                <p className="text-lg font-semibold text-slate-900">
+                  {milestoneTitle}
+                </p>
               </div>
               <div className="text-right">
                 <p className="text-sm text-slate-500">Amount</p>
-                <p className="text-xl font-bold text-emerald-600">{formattedAmount}</p>
+                <p className="text-xl font-bold text-emerald-600">
+                  {formattedAmount}
+                </p>
               </div>
             </div>
             <p className="mt-3 text-sm text-slate-600">{waitingMessage}</p>
@@ -361,12 +391,13 @@ export function MilestoneApprovalCard({
             </div>
           )}
 
-          {effectiveMilestoneStatus === "REVISIONS_REQUIRED" && milestone.feedback && (
-            <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">
-              <p className="font-semibold">Client requested revisions:</p>
-              <p className="mt-1">{milestone.feedback}</p>
-            </div>
-          )}
+          {effectiveMilestoneStatus === "REVISIONS_REQUIRED" &&
+            milestone.feedback && (
+              <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">
+                <p className="font-semibold">Client requested revisions:</p>
+                <p className="mt-1">{milestone.feedback}</p>
+              </div>
+            )}
 
           {submittedWork.length > 0 && (
             <div className="mb-5">
@@ -375,7 +406,12 @@ export function MilestoneApprovalCard({
               </p>
               <div className="space-y-2">
                 {submittedWork.map(
-                  ({ task, latestApprovedSubmission, evidenceUrl, preview }) => (
+                  ({
+                    task,
+                    latestApprovedSubmission,
+                    evidenceUrl,
+                    preview,
+                  }) => (
                     <div
                       key={task.id}
                       className="flex items-center justify-between rounded-lg bg-white/70 px-4 py-3 transition-all hover:bg-white"
@@ -383,12 +419,16 @@ export function MilestoneApprovalCard({
                       <div className="flex items-center gap-3">
                         <FileCheck className="h-5 w-5 text-teal-600" />
                         <div>
-                          <p className="font-medium text-slate-800">{task.title}</p>
+                          <p className="font-medium text-slate-800">
+                            {task.title}
+                          </p>
                           <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                             Version {latestApprovedSubmission.version}
                           </p>
                           {preview && (
-                            <p className="line-clamp-1 text-xs text-slate-500">{preview}</p>
+                            <p className="line-clamp-1 text-xs text-slate-500">
+                              {preview}
+                            </p>
                           )}
                         </div>
                       </div>
@@ -475,9 +515,9 @@ export function MilestoneApprovalCard({
             {!canFreelancerRequestReview &&
               !canAssignedReviewerReview &&
               !canClientApproveNow && (
-              <div className="flex-1 rounded-xl border border-slate-200 bg-white/70 px-4 py-3 text-sm text-slate-600">
-                {waitingMessage}
-              </div>
+                <div className="flex-1 rounded-xl border border-slate-200 bg-white/70 px-4 py-3 text-sm text-slate-600">
+                  {waitingMessage}
+                </div>
               )}
           </div>
 
@@ -489,8 +529,9 @@ export function MilestoneApprovalCard({
                   Broker Review Summary
                 </div>
                 <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-700">
-                  Confirm whether this milestone is ready for client approval, or send
-                  it back with a specific note describing what still needs to change.
+                  Confirm whether this milestone is ready for client approval,
+                  or send it back with a specific note describing what still
+                  needs to change.
                 </p>
               </div>
 
@@ -502,11 +543,13 @@ export function MilestoneApprovalCard({
                         Review checklist
                       </p>
                       <p className="text-xs text-slate-500">
-                        Complete every confirmation before sending your recommendation.
+                        Complete every confirmation before sending your
+                        recommendation.
                       </p>
                     </div>
                     <div className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-600">
-                      {completedStaffReviewChecks}/{STAFF_REVIEW_ATTESTATIONS.length} completed
+                      {completedStaffReviewChecks}/
+                      {STAFF_REVIEW_ATTESTATIONS.length} completed
                     </div>
                   </div>
 
@@ -528,7 +571,9 @@ export function MilestoneApprovalCard({
                           className="mt-0.5 border-slate-300 data-[state=checked]:border-teal-600 data-[state=checked]:bg-teal-600"
                         />
                         <div>
-                          <p className="text-sm font-medium text-slate-900">{item.label}</p>
+                          <p className="text-sm font-medium text-slate-900">
+                            {item.label}
+                          </p>
                           <p className="mt-1 text-xs leading-5 text-slate-500">
                             {item.description}
                           </p>
@@ -560,14 +605,16 @@ export function MilestoneApprovalCard({
                     className="min-h-[168px] rounded-2xl border-slate-300 bg-white px-4 py-3 text-sm leading-6 text-slate-900 placeholder:text-slate-400 focus-visible:border-teal-600 focus-visible:ring-teal-600/15"
                   />
                   <p className="text-xs leading-5 text-slate-500">
-                    Call out the deliverables checked, any concerns, and why you are accepting or rejecting the milestone.
+                    Call out the deliverables checked, any concerns, and why you
+                    are accepting or rejecting the milestone.
                   </p>
                 </div>
 
                 <div className="flex items-start gap-3 rounded-2xl border border-slate-200 bg-slate-50/70 px-4 py-3 text-sm text-slate-700">
                   <ShieldAlert className="mt-0.5 h-4 w-4 flex-shrink-0 text-slate-500" />
                   <p className="leading-6">
-                    The client will use this note during final approval and fund release. Keep it factual and specific.
+                    The client will use this note during final approval and fund
+                    release. Keep it factual and specific.
                   </p>
                 </div>
 
@@ -673,7 +720,10 @@ export function MilestoneApprovalCard({
                       Freelancer
                     </p>
                     <p className="mt-2 text-sm font-semibold text-slate-950">
-                      {formatCurrency(milestone.escrow.developerShare, currency ?? "USD")}
+                      {formatCurrency(
+                        milestone.escrow.developerShare,
+                        currency ?? "USD",
+                      )}
                     </p>
                   </div>
                   <div>
@@ -681,7 +731,10 @@ export function MilestoneApprovalCard({
                       Broker
                     </p>
                     <p className="mt-2 text-sm font-semibold text-slate-950">
-                      {formatCurrency(milestone.escrow.brokerShare, currency ?? "USD")}
+                      {formatCurrency(
+                        milestone.escrow.brokerShare,
+                        currency ?? "USD",
+                      )}
                     </p>
                   </div>
                   <div>
@@ -689,7 +742,10 @@ export function MilestoneApprovalCard({
                       Platform fee
                     </p>
                     <p className="mt-2 text-sm font-semibold text-slate-950">
-                      {formatCurrency(milestone.escrow.platformFee, currency ?? "USD")}
+                      {formatCurrency(
+                        milestone.escrow.platformFee,
+                        currency ?? "USD",
+                      )}
                     </p>
                   </div>
                 </div>
@@ -753,15 +809,19 @@ export function MilestoneApprovalCard({
                   Request Milestone Revisions
                 </h3>
                 <p className="mt-1 text-sm leading-6 text-slate-600">
-                  Explain what needs to be updated so the freelancer can revise and
-                  resubmit this milestone for review.
+                  Explain what needs to be updated so the freelancer can revise
+                  and resubmit this milestone for review.
                 </p>
               </div>
             </div>
 
             <div className="mb-5 rounded-2xl border border-slate-200 bg-slate-50 px-5 py-4 text-sm leading-6 text-slate-700">
-              Milestone <span className="font-semibold text-slate-900">{milestone.title}</span> will move
-              back to revisions required and can be submitted again after updates.
+              Milestone{" "}
+              <span className="font-semibold text-slate-900">
+                {milestone.title}
+              </span>{" "}
+              will move back to revisions required and can be submitted again
+              after updates.
             </div>
 
             <div className="mb-5">

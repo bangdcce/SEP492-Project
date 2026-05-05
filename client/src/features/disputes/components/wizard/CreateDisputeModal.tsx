@@ -1,6 +1,7 @@
 import { X } from "lucide-react";
 import { CreateDisputeWizard } from "./CreateDisputeWizard";
 import type { MilestoneDisputePolicy } from "@/features/project-workspace/types";
+import { decodeHtmlEntities } from "@/shared/utils/helpers";
 
 interface CreateDisputeModalProps {
   isOpen: boolean;
@@ -31,7 +32,7 @@ export const CreateDisputeModal = ({
   currentUserId,
   projectMembers,
 }: CreateDisputeModalProps) => {
-  const safeMilestoneTitle = milestoneTitle.replaceAll("&amp;", "&");
+  const safeMilestoneTitle = decodeHtmlEntities(milestoneTitle);
 
   if (!isOpen) {
     return null;

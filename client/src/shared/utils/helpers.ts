@@ -7,7 +7,7 @@
  */
 export const debounce = <T extends (...args: unknown[]) => unknown>(
   func: T,
-  wait: number
+  wait: number,
 ): ((...args: Parameters<T>) => void) => {
   let timeout: ReturnType<typeof setTimeout> | null = null;
 
@@ -22,7 +22,7 @@ export const debounce = <T extends (...args: unknown[]) => unknown>(
  */
 export const throttle = <T extends (...args: unknown[]) => unknown>(
   func: T,
-  limit: number
+  limit: number,
 ): ((...args: Parameters<T>) => void) => {
   let inThrottle: boolean;
 
@@ -76,4 +76,18 @@ export const truncate = (str: string, maxLength: number): string => {
 export const capitalize = (str: string): string => {
   if (!str) return "";
   return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();
+};
+
+export const decodeHtmlEntities = (value: string): string => {
+  if (!value || !value.includes("&")) {
+    return value;
+  }
+
+  if (typeof document === "undefined") {
+    return value;
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.innerHTML = value;
+  return textarea.value;
 };

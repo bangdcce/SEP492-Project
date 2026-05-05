@@ -17,6 +17,7 @@ import { useLocation } from "react-router-dom";
 import { Spinner } from "@/shared/components/ui";
 import { ROUTES, STORAGE_KEYS } from "@/constants";
 import { getStoredJson } from "@/shared/utils/storage";
+import { decodeHtmlEntities } from "@/shared/utils/helpers";
 import { toast } from "sonner";
 import { completeStripeMilestoneFunding } from "@/features/payments/api";
 import {
@@ -112,7 +113,10 @@ const TASK_CREATION_LOCK_MESSAGE =
   "Tasks can only be added while the milestone is pending, in progress, or revisions required.";
 const TASK_MUTATION_LOCK_MESSAGE =
   "Task changes are locked because this milestone is in review, completed, paid, or locked.";
-const WORKSPACE_TASK_STATUS_FILTER_OPTIONS: Array<{ value: KanbanColumnKey | "ALL"; label: string }> = [
+const WORKSPACE_TASK_STATUS_FILTER_OPTIONS: Array<{
+  value: KanbanColumnKey | "ALL";
+  label: string;
+}> = [
   { value: "ALL", label: "All statuses" },
   { value: "TODO", label: "To do" },
   { value: "IN_PROGRESS", label: "In progress" },
@@ -254,7 +258,11 @@ type ProjectWorkspaceMember = {
 };
 
 // Helper to get current user from storage (session/local)
-const getCurrentUser = (): { id: string; role?: string; email?: string | null } | null => {
+const getCurrentUser = (): {
+  id: string;
+  role?: string;
+  email?: string | null;
+} | null => {
   return getStoredJson<{ id: string; role?: string; email?: string | null }>(
     STORAGE_KEYS.USER,
   );
@@ -343,17 +351,15 @@ export function ProjectWorkspace() {
     () => parseWorkspaceViewMode(searchParams.get("view")),
     [searchParams],
   );
-  const requestedMilestoneSelection = useMemo<WorkspaceMilestoneSelection>(
-    () => {
+  const requestedMilestoneSelection =
+    useMemo<WorkspaceMilestoneSelection>(() => {
       const requestedMilestone = searchParams.get("milestone");
       if (requestedMilestone === ALL_WORKSPACE_MILESTONES_KEY) {
         return ALL_WORKSPACE_MILESTONES_KEY;
       }
 
       return normalizeMilestoneKey(requestedMilestone);
-    },
-    [searchParams],
-  );
+    }, [searchParams]);
   const isAllMilestonesMode =
     requestedMilestoneSelection === ALL_WORKSPACE_MILESTONES_KEY;
   const selectedMilestoneId = useMemo(() => {
@@ -367,10 +373,10 @@ export function ProjectWorkspace() {
 
     const requestedMilestoneExists = Boolean(
       requestedMilestoneSelection &&
-        milestones.some(
-          (milestone) =>
-            normalizeMilestoneKey(milestone.id) === requestedMilestoneSelection,
-        ),
+      milestones.some(
+        (milestone) =>
+          normalizeMilestoneKey(milestone.id) === requestedMilestoneSelection,
+      ),
     );
 
     if (requestedMilestoneSelection && requestedMilestoneExists) {
@@ -520,7 +526,9 @@ export function ProjectWorkspace() {
       const footerHeight =
         footerElement instanceof HTMLElement ? footerElement.offsetHeight : 0;
       const bottomReserve = Math.max(208, footerHeight + 56);
-      const availableHeight = Math.floor(window.innerHeight - rect.top - bottomReserve);
+      const availableHeight = Math.floor(
+        window.innerHeight - rect.top - bottomReserve,
+      );
       const nextHeight = Math.max(332, Math.min(388, availableHeight));
 
       setBoardViewportHeight((currentHeight) =>
@@ -565,13 +573,7 @@ export function ProjectWorkspace() {
       resizeObserver?.disconnect();
       window.removeEventListener("resize", scheduleMeasurement);
     };
-  }, [
-    viewMode,
-    selectedMilestoneId,
-    loading,
-    error,
-    milestones.length,
-  ]);
+  }, [viewMode, selectedMilestoneId, loading, error, milestones.length]);
 
   const isProjectDisputed = useMemo(() => {
     const status = project?.status?.toUpperCase();
@@ -608,7 +610,9 @@ export function ProjectWorkspace() {
   // Clients, internal reviewers, and disputed projects are read-only for task mutations.
   const isReadOnly = useMemo(() => {
     return (
-      currentRole === "CLIENT" || currentRole === "STAFF" || isProjectInteractionLocked
+      currentRole === "CLIENT" ||
+      currentRole === "STAFF" ||
+      isProjectInteractionLocked
     );
   }, [currentRole, isProjectInteractionLocked]);
 
@@ -629,7 +633,9 @@ export function ProjectWorkspace() {
       return null;
     }
 
-    return project.broker?.fullName || `Broker (${project.brokerId.slice(0, 6)})`;
+    return (
+      project.broker?.fullName || `Broker (${project.brokerId.slice(0, 6)})`
+    );
   }, [project?.broker?.fullName, project?.brokerId]);
 
   const isMilestoneStructureLocked = useMemo(() => {
@@ -643,16 +649,19 @@ export function ProjectWorkspace() {
 
   const canMutateMilestoneStructure = useMemo(() => {
     return (
-      isAssignedBroker && !isProjectInteractionLocked && !isMilestoneStructureLocked
+      isAssignedBroker &&
+      !isProjectInteractionLocked &&
+      !isMilestoneStructureLocked
     );
-  }, [isAssignedBroker, isProjectInteractionLocked, isMilestoneStructureLocked]);
+  }, [
+    isAssignedBroker,
+    isProjectInteractionLocked,
+    isMilestoneStructureLocked,
+  ]);
 
   const projectMembers = useMemo<ProjectWorkspaceMember[]>(() => {
     if (!project) return [];
-    const members = new Map<
-      string,
-      ProjectWorkspaceMember
-    >();
+    const members = new Map<string, ProjectWorkspaceMember>();
     const normalizeRole = (role: string) => {
       switch (role.toUpperCase()) {
         case "CLIENT":
@@ -677,7 +686,8 @@ export function ProjectWorkspace() {
       if (!id) return;
       if (members.has(id)) return;
       const label = normalizeRole(role);
-      const fullName = participant?.fullName?.trim() || `${label} (${id.slice(0, 6)})`;
+      const fullName =
+        participant?.fullName?.trim() || `${label} (${id.slice(0, 6)})`;
       members.set(id, {
         id,
         name: fullName,
@@ -696,7 +706,9 @@ export function ProjectWorkspace() {
     () =>
       projectMembers
         .filter(
-          (member): member is ProjectWorkspaceMember & {
+          (
+            member,
+          ): member is ProjectWorkspaceMember & {
             role: "CLIENT" | "BROKER" | "FREELANCER";
           } =>
             member.role === "CLIENT" ||
@@ -992,7 +1004,9 @@ export function ProjectWorkspace() {
   const activeMilestone = useMemo(
     () =>
       selectedMilestoneKey
-        ? milestones.find((milestone) => milestone.id === selectedMilestoneKey) ?? null
+        ? (milestones.find(
+            (milestone) => milestone.id === selectedMilestoneKey,
+          ) ?? null)
         : null,
     [milestones, selectedMilestoneKey],
   );
@@ -1060,13 +1074,15 @@ export function ProjectWorkspace() {
   );
   const activeMilestoneInteractionGate = useMemo(
     () =>
-      selectedMilestoneKey ? milestoneInteractionGates[selectedMilestoneKey] ?? null : null,
+      selectedMilestoneKey
+        ? (milestoneInteractionGates[selectedMilestoneKey] ?? null)
+        : null,
     [milestoneInteractionGates, selectedMilestoneKey],
   );
   const activeTasks = useMemo(
     () =>
       selectedMilestoneKey
-        ? boardMeta.tasksByMilestone[selectedMilestoneKey] ?? []
+        ? (boardMeta.tasksByMilestone[selectedMilestoneKey] ?? [])
         : [],
     [boardMeta.tasksByMilestone, selectedMilestoneKey],
   );
@@ -1093,7 +1109,8 @@ export function ProjectWorkspace() {
 
     return [...candidatePool].sort((first, second) => {
       const statusDelta =
-        (statusPriority[first.status] ?? 9) - (statusPriority[second.status] ?? 9);
+        (statusPriority[first.status] ?? 9) -
+        (statusPriority[second.status] ?? 9);
       if (statusDelta !== 0) {
         return statusDelta;
       }
@@ -1126,9 +1143,9 @@ export function ProjectWorkspace() {
   const activeMilestoneDisputePolicy = activeMilestone?.disputePolicy ?? null;
   const canOpenActiveMilestoneDispute = Boolean(
     activeMilestone &&
-      activeMilestoneDisputePolicy?.canRaise &&
-      canCurrentUserRaiseDispute &&
-      !isProjectDisputed,
+    activeMilestoneDisputePolicy?.canRaise &&
+    canCurrentUserRaiseDispute &&
+    !isProjectDisputed,
   );
   const activeMilestoneDisputeMessage = useMemo(() => {
     if (isProjectDisputed) {
@@ -1161,7 +1178,8 @@ export function ProjectWorkspace() {
       return selectedMilestoneInteractionReason;
     }
 
-    const deadlineLockReason = getMilestoneTaskCreationDeadlineLockReason(activeMilestone);
+    const deadlineLockReason =
+      getMilestoneTaskCreationDeadlineLockReason(activeMilestone);
     if (deadlineLockReason) {
       return deadlineLockReason;
     }
@@ -1218,7 +1236,7 @@ export function ProjectWorkspace() {
 
       const normalizedMilestoneId = normalizeMilestoneKey(milestoneId);
       const milestone = normalizedMilestoneId
-        ? milestoneMap.get(normalizedMilestoneId) ?? null
+        ? (milestoneMap.get(normalizedMilestoneId) ?? null)
         : activeMilestone;
       if (
         milestone &&
@@ -1295,14 +1313,16 @@ export function ProjectWorkspace() {
     }
 
     if (!isAssignedBroker) {
-      const message = "Only the assigned broker can create tasks for this project.";
+      const message =
+        "Only the assigned broker can create tasks for this project.";
       setError(message);
       toast.warning(message);
       return;
     }
 
     if (!canCreateTasksForSelectedMilestone) {
-      const message = taskCommandUnavailableMessage || TASK_CREATION_LOCK_MESSAGE;
+      const message =
+        taskCommandUnavailableMessage || TASK_CREATION_LOCK_MESSAGE;
       setError(message);
       toast.warning(message);
       return;
@@ -1367,14 +1387,16 @@ export function ProjectWorkspace() {
       }
 
       if (!isAssignedBroker) {
-        const message = "Only the assigned broker can create tasks for this project.";
+        const message =
+          "Only the assigned broker can create tasks for this project.";
         setError(message);
         toast.warning(message);
         return;
       }
 
       if (!canCreateTasksForSelectedMilestone) {
-        const message = taskCommandUnavailableMessage || TASK_CREATION_LOCK_MESSAGE;
+        const message =
+          taskCommandUnavailableMessage || TASK_CREATION_LOCK_MESSAGE;
         setError(message);
         toast.warning(message);
         return;
@@ -1401,7 +1423,9 @@ export function ProjectWorkspace() {
         activeMilestoneDueBoundary,
       );
       const resolvedDue =
-        boundedDue.getTime() < boundedStart.getTime() ? boundedStart : boundedDue;
+        boundedDue.getTime() < boundedStart.getTime()
+          ? boundedStart
+          : boundedDue;
 
       if (
         boundedStart.getTime() !== normalizedStart.getTime() ||
@@ -1466,9 +1490,12 @@ export function ProjectWorkspace() {
     isProjectInteractionLocked,
   ]);
 
-  const handleSelectMilestone = useCallback((id: string) => {
-    setSelectedMilestoneId(id);
-  }, [setSelectedMilestoneId]);
+  const handleSelectMilestone = useCallback(
+    (id: string) => {
+      setSelectedMilestoneId(id);
+    },
+    [setSelectedMilestoneId],
+  );
 
   const contractHref =
     project?.contracts?.[0]?.id && currentUser?.role
@@ -1488,7 +1515,10 @@ export function ProjectWorkspace() {
         : currentRole === "FREELANCER"
           ? ROUTES.FREELANCER_WORKSPACE
           : ROUTES.CLIENT_WORKSPACE;
-    const workspacePath = workspaceRoutePattern.replace(":projectId", projectId);
+    const workspacePath = workspaceRoutePattern.replace(
+      ":projectId",
+      projectId,
+    );
     const returnParams = new URLSearchParams();
     returnParams.set("view", viewMode);
     if (isAllMilestonesMode) {
@@ -1498,7 +1528,10 @@ export function ProjectWorkspace() {
     }
 
     const billingParams = new URLSearchParams();
-    billingParams.set("returnTo", `${workspacePath}?${returnParams.toString()}`);
+    billingParams.set(
+      "returnTo",
+      `${workspacePath}?${returnParams.toString()}`,
+    );
 
     if (activeMilestone?.title) {
       billingParams.set("milestoneTitle", activeMilestone.title);
@@ -1516,7 +1549,9 @@ export function ProjectWorkspace() {
 
   const allTasks = boardMeta.allTasks;
   const activeAssigneeFilterId = useMemo(
-    () => selectedAssigneeId || (isMyTasksFilter ? currentUser?.id ?? null : null),
+    () =>
+      selectedAssigneeId ||
+      (isMyTasksFilter ? (currentUser?.id ?? null) : null),
     [currentUser?.id, isMyTasksFilter, selectedAssigneeId],
   );
   const taskMatchesWorkspaceFilters = useCallback(
@@ -1526,7 +1561,8 @@ export function ProjectWorkspace() {
 
       if (
         normalizedMilestoneId &&
-        normalizeMilestoneKey(task.milestoneId ?? null) !== normalizedMilestoneId
+        normalizeMilestoneKey(task.milestoneId ?? null) !==
+          normalizedMilestoneId
       ) {
         return false;
       }
@@ -1538,7 +1574,10 @@ export function ProjectWorkspace() {
         return false;
       }
 
-      if (activeAssigneeFilterId && task.assignee?.id !== activeAssigneeFilterId) {
+      if (
+        activeAssigneeFilterId &&
+        task.assignee?.id !== activeAssigneeFilterId
+      ) {
         return false;
       }
 
@@ -1549,7 +1588,10 @@ export function ProjectWorkspace() {
         return false;
       }
 
-      if (selectedStatusFilter !== "ALL" && task.status !== selectedStatusFilter) {
+      if (
+        selectedStatusFilter !== "ALL" &&
+        task.status !== selectedStatusFilter
+      ) {
         return false;
       }
 
@@ -1608,7 +1650,9 @@ export function ProjectWorkspace() {
       const sourceTasks = board[columnKey];
       const filteredTasks = sourceTasks.filter(taskMatchesWorkspaceFilters);
       nextBoard[columnKey] =
-        filteredTasks.length === sourceTasks.length ? sourceTasks : filteredTasks;
+        filteredTasks.length === sourceTasks.length
+          ? sourceTasks
+          : filteredTasks;
       return nextBoard;
     }, createEmptyBoard());
   }, [
@@ -1627,12 +1671,12 @@ export function ProjectWorkspace() {
     () =>
       Boolean(
         searchQuery.trim() ||
-          activeAssigneeFilterId ||
-          selectedActionOwnerFilter !== "ALL" ||
-          selectedStatusFilter !== "ALL" ||
-          selectedPriorityFilter !== "ALL" ||
-          isOverdueOnlyFilter ||
-          !showSubtasksInWorkspaceViews,
+        activeAssigneeFilterId ||
+        selectedActionOwnerFilter !== "ALL" ||
+        selectedStatusFilter !== "ALL" ||
+        selectedPriorityFilter !== "ALL" ||
+        isOverdueOnlyFilter ||
+        !showSubtasksInWorkspaceViews,
       ),
     [
       activeAssigneeFilterId,
@@ -1673,12 +1717,15 @@ export function ProjectWorkspace() {
   );
 
   const selectedTask = useMemo(
-    () => (selectedTaskId ? boardMeta.taskMap.get(selectedTaskId) ?? null : null),
+    () =>
+      selectedTaskId ? (boardMeta.taskMap.get(selectedTaskId) ?? null) : null,
     [boardMeta.taskMap, selectedTaskId],
   );
   const selectedTaskMilestone = useMemo(
     () =>
-      selectedTask?.milestoneId ? milestoneMap.get(selectedTask.milestoneId) ?? null : null,
+      selectedTask?.milestoneId
+        ? (milestoneMap.get(selectedTask.milestoneId) ?? null)
+        : null,
     [milestoneMap, selectedTask?.milestoneId],
   );
   const selectedTaskInteractionReason = useMemo(
@@ -2065,12 +2112,15 @@ export function ProjectWorkspace() {
     processedStripeSessionIdsRef.current.add(stripeSessionId);
     let active = true;
 
-      const syncStripeCheckout = async () => {
-        try {
-        const result = await completeStripeMilestoneFunding(selectedMilestoneId, {
+    const syncStripeCheckout = async () => {
+      try {
+        const result = await completeStripeMilestoneFunding(
+          selectedMilestoneId,
+          {
             paymentMethodId: stripePaymentMethodId,
             sessionId: stripeSessionId,
-          });
+          },
+        );
         if (!active) return;
         handleFundingSuccess(result);
         toast.success("Card payment completed and escrow funded");
@@ -2141,12 +2191,17 @@ export function ProjectWorkspace() {
 
     const trimmedReason = reason.trim();
     if (!trimmedReason) {
-      throw new Error("Please provide a reason before rejecting this milestone.");
+      throw new Error(
+        "Please provide a reason before rejecting this milestone.",
+      );
     }
 
     try {
       setError(null);
-      const updatedMilestone = await rejectMilestone(milestoneId, trimmedReason);
+      const updatedMilestone = await rejectMilestone(
+        milestoneId,
+        trimmedReason,
+      );
       setMilestones((prev) =>
         prev.map((milestone) =>
           milestone.id === milestoneId
@@ -2242,94 +2297,99 @@ export function ProjectWorkspace() {
     setDisputeMilestone(null);
   };
 
-  const handleDragEnd = useCallback(async (result: DropResult) => {
-    if (isReadOnly) {
-      if (isProjectInteractionLocked) {
-        toast.warning(
-          isProjectCanceled
-            ? "Task movement is locked because this project is cancelled."
-            : "Task movement is locked while this project is in dispute.",
-        );
+  const handleDragEnd = useCallback(
+    async (result: DropResult) => {
+      if (isReadOnly) {
+        if (isProjectInteractionLocked) {
+          toast.warning(
+            isProjectCanceled
+              ? "Task movement is locked because this project is cancelled."
+              : "Task movement is locked while this project is in dispute.",
+          );
+        }
+        return;
       }
-      return;
-    }
 
-    const { destination, source, draggableId } = result;
-    if (!destination) {
-      return;
-    }
+      const { destination, source, draggableId } = result;
+      if (!destination) {
+        return;
+      }
 
-    const fromColumn = source.droppableId as KanbanColumnKey;
-    const toColumn = destination.droppableId as KanbanColumnKey;
+      const fromColumn = source.droppableId as KanbanColumnKey;
+      const toColumn = destination.droppableId as KanbanColumnKey;
 
-    if (fromColumn === toColumn && destination.index === source.index) {
-      return;
-    }
+      if (fromColumn === toColumn && destination.index === source.index) {
+        return;
+      }
 
-    const movedTask = board[fromColumn][source.index];
-    if (!movedTask) {
-      return;
-    }
+      const movedTask = board[fromColumn][source.index];
+      if (!movedTask) {
+        return;
+      }
 
-    const taskMutationLockReason = getTaskMutationLockReason(movedTask.milestoneId);
-    if (taskMutationLockReason) {
-      toast.warning(taskMutationLockReason);
-      return;
-    }
-
-    if (toColumn === "DONE" && isFreelancer) {
-      toast.warning(
-        "Freelancers cannot drag tasks directly to DONE. Submit work for review instead.",
+      const taskMutationLockReason = getTaskMutationLockReason(
+        movedTask.milestoneId,
       );
-      return;
-    }
+      if (taskMutationLockReason) {
+        toast.warning(taskMutationLockReason);
+        return;
+      }
 
-    if (toColumn === "DONE" && !getLatestApprovedSubmission(movedTask)) {
-      toast.warning("Cannot move to DONE without an approved submission.");
-      return;
-    }
+      if (toColumn === "DONE" && isFreelancer) {
+        toast.warning(
+          "Freelancers cannot drag tasks directly to DONE. Submit work for review instead.",
+        );
+        return;
+      }
 
-    if (
-      fromColumn === "DONE" &&
-      toColumn !== "DONE" &&
-      getLatestApprovedSubmission(movedTask)
-    ) {
-      toast.warning(
-        "Task has been approved and completed, cannot be dragged back from DONE.",
-      );
-      return;
-    }
+      if (toColumn === "DONE" && !getLatestApprovedSubmission(movedTask)) {
+        toast.warning("Cannot move to DONE without an approved submission.");
+        return;
+      }
 
-    const prevBoard = board;
-    const movement = moveTaskInBoard(board, {
-      fromColumn,
-      toColumn,
-      sourceIndex: source.index,
-      destinationIndex: destination.index,
-      transformTask: (task) => ({ ...task, status: toColumn }),
-    });
+      if (
+        fromColumn === "DONE" &&
+        toColumn !== "DONE" &&
+        getLatestApprovedSubmission(movedTask)
+      ) {
+        toast.warning(
+          "Task has been approved and completed, cannot be dragged back from DONE.",
+        );
+        return;
+      }
 
-    if (!movement) {
-      return;
-    }
+      const prevBoard = board;
+      const movement = moveTaskInBoard(board, {
+        fromColumn,
+        toColumn,
+        sourceIndex: source.index,
+        destinationIndex: destination.index,
+        transformTask: (task) => ({ ...task, status: toColumn }),
+      });
 
-    setBoard(movement.board);
+      if (!movement) {
+        return;
+      }
 
-    try {
-      await updateTaskStatus(draggableId, toColumn);
-      setError(null);
-    } catch (err: any) {
-      setBoard(prevBoard);
-      setError(err?.message || "Failed to update task status");
-    }
-  }, [
-    board,
-    getTaskMutationLockReason,
-    isFreelancer,
-    isProjectCanceled,
-    isProjectInteractionLocked,
-    isReadOnly,
-  ]);
+      setBoard(movement.board);
+
+      try {
+        await updateTaskStatus(draggableId, toColumn);
+        setError(null);
+      } catch (err: any) {
+        setBoard(prevBoard);
+        setError(err?.message || "Failed to update task status");
+      }
+    },
+    [
+      board,
+      getTaskMutationLockReason,
+      isFreelancer,
+      isProjectCanceled,
+      isProjectInteractionLocked,
+      isReadOnly,
+    ],
+  );
 
   const handleCreateTask = useCallback(async () => {
     if (isProjectInteractionLocked) {
@@ -2373,13 +2433,15 @@ export function ProjectWorkspace() {
       return;
     }
     if (!isAssignedBroker) {
-      const message = "Only the assigned broker can create tasks for this project.";
+      const message =
+        "Only the assigned broker can create tasks for this project.";
       setError(message);
       toast.warning(message);
       return;
     }
     if (!canCreateTasksForSelectedMilestone) {
-      const message = taskCommandUnavailableMessage || TASK_CREATION_LOCK_MESSAGE;
+      const message =
+        taskCommandUnavailableMessage || TASK_CREATION_LOCK_MESSAGE;
       setError(message);
       toast.warning(message);
       return;
@@ -2468,17 +2530,19 @@ export function ProjectWorkspace() {
             Project ID:{" "}
             <span className="font-mono text-sky-600">{projectId || "N/A"}</span>
           </p>
-          {activeMilestoneStatus === "PENDING_STAFF_REVIEW" && assignedBrokerLabel && (
-            <p className="mt-2 inline-flex rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700">
-              Waiting for broker review · {assignedBrokerLabel}
-            </p>
-          )}
-          {activeMilestoneStatus === "PENDING_CLIENT_APPROVAL" && assignedBrokerLabel && (
-            <p className="mt-2 inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700">
-              <ShieldCheck className="h-3.5 w-3.5" />
-              Broker reviewed · {assignedBrokerLabel}
-            </p>
-          )}
+          {activeMilestoneStatus === "PENDING_STAFF_REVIEW" &&
+            assignedBrokerLabel && (
+              <p className="mt-2 inline-flex rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700">
+                Waiting for broker review · {assignedBrokerLabel}
+              </p>
+            )}
+          {activeMilestoneStatus === "PENDING_CLIENT_APPROVAL" &&
+            assignedBrokerLabel && (
+              <p className="mt-2 inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700">
+                <ShieldCheck className="h-3.5 w-3.5" />
+                Broker reviewed · {assignedBrokerLabel}
+              </p>
+            )}
         </div>
         <div className="flex w-full flex-wrap items-center gap-2 xl:w-auto xl:justify-end">
           {/* View Contract Button */}
@@ -2491,13 +2555,17 @@ export function ProjectWorkspace() {
               Contract
             </Link>
           )}
-          {(billingRole === "CLIENT" || billingRole === "BROKER" || billingRole === "FREELANCER") && (
+          {(billingRole === "CLIENT" ||
+            billingRole === "BROKER" ||
+            billingRole === "FREELANCER") && (
             <Link
               to={workspaceBillingHref}
               className="inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-md border border-teal-200 bg-teal-50 px-3 py-2 text-sm font-medium text-teal-700 transition-colors hover:bg-teal-100"
             >
               <WalletCards className="h-4 w-4 shrink-0" />
-              <span className="truncate">{resolveBillingLabel(currentRole)}</span>
+              <span className="truncate">
+                {resolveBillingLabel(currentRole)}
+              </span>
             </Link>
           )}
 
@@ -2579,7 +2647,8 @@ export function ProjectWorkspace() {
 
       {isProjectCanceled && (
         <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
-          This project is cancelled. Task updates, milestone edits, and funding actions are locked.
+          This project is cancelled. Task updates, milestone edits, and funding
+          actions are locked.
         </div>
       )}
 
@@ -2627,7 +2696,7 @@ export function ProjectWorkspace() {
                       {typeof entry.sortOrder === "number"
                         ? `#${entry.sortOrder} `
                         : `${index + 1}. `}
-                      {entry.title}
+                      {decodeHtmlEntities(entry.title)}
                     </p>
                     <p className="text-xs text-slate-500">
                       {formatDeliverableType(entry.deliverableType)}
@@ -2756,11 +2825,16 @@ export function ProjectWorkspace() {
                       Report a serious delivery issue
                     </h3>
                     <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">
-                      Use dispute for quality, deadline, communication, or payment
-                      problems tied to milestone <span className="font-medium">{activeMilestone.title.replaceAll("&amp;", "&")}</span>
+                      Use dispute for quality, deadline, communication, or
+                      payment problems tied to milestone{" "}
+                      <span className="font-medium">
+                        {decodeHtmlEntities(activeMilestone.title)}
+                      </span>
                       {project?.title ? (
                         <>
-                          {" "}in project <span className="font-medium">{project.title}</span>
+                          {" "}
+                          in project{" "}
+                          <span className="font-medium">{project.title}</span>
                         </>
                       ) : null}
                       .
@@ -2812,8 +2886,8 @@ export function ProjectWorkspace() {
           )}
           {viewMode !== "summary" && isAllMilestonesMode ? (
             <div className="rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800">
-              Showing tasks across all milestones. Select a milestone tab to focus a
-              single milestone again.
+              Showing tasks across all milestones. Select a milestone tab to
+              focus a single milestone again.
             </div>
           ) : null}
           {activeMilestone && viewMode === "board" && (
@@ -2899,17 +2973,19 @@ export function ProjectWorkspace() {
             </div>
           )}
 
-          {viewMode !== "summary" && activeMilestone && selectedMilestoneTaskMutationReason && (
-            <div
-              className={`rounded-lg border px-4 py-3 text-sm ${
-                activeMilestoneInteractionGate?.state === "LOCKED_NOT_FUNDED"
-                  ? "border-amber-200 bg-amber-50 text-amber-800"
-                  : "border-slate-200 bg-slate-50 text-slate-700"
-              }`}
-            >
-              {selectedMilestoneTaskMutationReason}
-            </div>
-          )}
+          {viewMode !== "summary" &&
+            activeMilestone &&
+            selectedMilestoneTaskMutationReason && (
+              <div
+                className={`rounded-lg border px-4 py-3 text-sm ${
+                  activeMilestoneInteractionGate?.state === "LOCKED_NOT_FUNDED"
+                    ? "border-amber-200 bg-amber-50 text-amber-800"
+                    : "border-slate-200 bg-slate-50 text-slate-700"
+                }`}
+              >
+                {selectedMilestoneTaskMutationReason}
+              </div>
+            )}
 
           {/* Conditional View Rendering */}
           {viewMode === "summary" ? (
@@ -3061,7 +3137,9 @@ export function ProjectWorkspace() {
                   </select>
 
                   <button
-                    onClick={() => setIsOverdueOnlyFilter((current) => !current)}
+                    onClick={() =>
+                      setIsOverdueOnlyFilter((current) => !current)
+                    }
                     className={`shrink-0 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors ${
                       isOverdueOnlyFilter
                         ? "bg-red-50 text-red-700 ring-1 ring-red-200"
@@ -3081,7 +3159,9 @@ export function ProjectWorkspace() {
                         : "bg-slate-100 text-slate-600 hover:bg-slate-200"
                     }`}
                   >
-                    {showSubtasksInWorkspaceViews ? "Subtasks on" : "Subtasks off"}
+                    {showSubtasksInWorkspaceViews
+                      ? "Subtasks on"
+                      : "Subtasks off"}
                   </button>
 
                   {/* Clear All Button (Only show if filters active) */}
@@ -3183,7 +3263,9 @@ export function ProjectWorkspace() {
                   </select>
 
                   <button
-                    onClick={() => setIsOverdueOnlyFilter((current) => !current)}
+                    onClick={() =>
+                      setIsOverdueOnlyFilter((current) => !current)
+                    }
                     className={`shrink-0 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors ${
                       isOverdueOnlyFilter
                         ? "bg-red-50 text-red-700 ring-1 ring-red-200"
@@ -3203,7 +3285,9 @@ export function ProjectWorkspace() {
                         : "bg-slate-100 text-slate-600 hover:bg-slate-200"
                     }`}
                   >
-                    {showSubtasksInWorkspaceViews ? "Subtasks on" : "Subtasks off"}
+                    {showSubtasksInWorkspaceViews
+                      ? "Subtasks on"
+                      : "Subtasks off"}
                   </button>
                 </div>
 
@@ -3301,7 +3385,7 @@ export function ProjectWorkspace() {
         }
         specFeatures={specFeatureOptions}
         canReviewSubmissions={Boolean(
-          canReviewTaskSubmissions && !selectedTaskInteractionReason
+          canReviewTaskSubmissions && !selectedTaskInteractionReason,
         )}
         canActAsBrokerReviewer={canActAsBrokerReviewer}
         canActAsClientReviewer={canActAsClientReviewer}

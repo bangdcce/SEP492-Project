@@ -55,6 +55,7 @@ import { STORAGE_KEYS } from "@/constants";
 import { useToast } from "@/shared/hooks/use-toast";
 import { connectSocket } from "@/shared/realtime/socket";
 import { getStoredJson } from "@/shared/utils/storage";
+import { decodeHtmlEntities } from "@/shared/utils/helpers";
 import { contractsApi } from "./api";
 import type {
   Contract,
@@ -463,9 +464,12 @@ export default function ContractPage() {
 
       if (
         payload?.contractId === id ||
-        (currentProjectId !== null && payload?.projectId === currentProjectId) ||
+        (currentProjectId !== null &&
+          payload?.projectId === currentProjectId) ||
         (relatedType === "CONTRACT" && relatedId === id) ||
-        (relatedType === "PROJECT" && currentProjectId !== null && relatedId === currentProjectId)
+        (relatedType === "PROJECT" &&
+          currentProjectId !== null &&
+          relatedId === currentProjectId)
       ) {
         void reloadContract(id);
       }
@@ -1516,7 +1520,7 @@ export default function ContractPage() {
                               #{milestone.sortOrder ?? "—"}
                             </Badge>
                             <h3 className="text-lg font-semibold text-slate-950">
-                              {milestone.title}
+                              {decodeHtmlEntities(milestone.title)}
                             </h3>
                           </div>
                           <p className="text-sm leading-6 text-slate-600">
@@ -1953,19 +1957,19 @@ export default function ContractPage() {
                   <div className="mt-4 space-y-3">
                     <div className="rounded-xl bg-slate-50 p-3 text-sm text-slate-700">
                       <p className="font-medium text-slate-900">
-                        Overall result: {" "}
+                        Overall result:{" "}
                         {signatureReport.allSignaturesVerified
                           ? "PASS"
                           : "HAS ISSUES"}
                       </p>
                       <p className="mt-1 text-xs text-slate-600">
                         {signatureReport.signaturesCount}/
-                        {signatureReport.requiredSignerCount} signatures recorded
-                        · report generated {" "}
+                        {signatureReport.requiredSignerCount} signatures
+                        recorded · report generated{" "}
                         {formatDateTime(signatureReport.generatedAt)}
                       </p>
                       <p className="mt-2 text-xs text-slate-600">
-                        Stored hash matches computed hash: {" "}
+                        Stored hash matches computed hash:{" "}
                         {signatureReport.contentHash.storedMatchesComputed
                           ? "Yes"
                           : "No"}
@@ -1994,17 +1998,25 @@ export default function ContractPage() {
                             </Badge>
                           </div>
                           <p className="mt-1 text-xs text-slate-600">
-                            {item.signerRole || "Signer"} · signed at {" "}
+                            {item.signerRole || "Signer"} · signed at{" "}
                             {formatDateTime(item.signedAt)}
                           </p>
                           <p className="mt-1 text-xs text-slate-600">
-                            Crypto: {item.checks.cryptographicVerificationPassed ? "OK" : "Fail"}
+                            Crypto:{" "}
+                            {item.checks.cryptographicVerificationPassed
+                              ? "OK"
+                              : "Fail"}
                             {" · "}
-                            Hash: {item.checks.signatureHashMatches ? "OK" : "Fail"}
+                            Hash:{" "}
+                            {item.checks.signatureHashMatches ? "OK" : "Fail"}
                             {" · "}
-                            Content: {item.checks.signedContentMatchesCurrent ? "OK" : "Fail"}
+                            Content:{" "}
+                            {item.checks.signedContentMatchesCurrent
+                              ? "OK"
+                              : "Fail"}
                             {" · "}
-                            Timestamp: {item.checks.timestampTokenValid ? "OK" : "Fail"}
+                            Timestamp:{" "}
+                            {item.checks.timestampTokenValid ? "OK" : "Fail"}
                           </p>
                         </div>
                       ))}
